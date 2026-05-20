@@ -1,0 +1,230 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum IntegrationStatus {
+  NOT_CONNECTED
+  NEEDS_ATTENTION
+  CONNECTED
+}
+
+enum AssetType {
+  PRESENTATION
+  COLLECTOR
+  RV_TOOL
+  ZIP_BUNDLE
+  WHITEBOARD
+  TEXT_BRIEF
+  QBR_REPORT
+}
+
+enum PreviewStatus {
+  READY
+  PENDING
+  FAILED
+}
+
+enum RecommendationDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum QBRItemStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model Deal {
+  id                  String                @id @default(cuid())
+  name                String
+  accountName         String
+  stage               String
+  owner               String
+  nextAction          String
+  latestSignal        String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  meetings            Meeting[]
+  assets              MeetingAsset[]
+  emails              DealEmail[]
+  context             CustomerContext[]
+  requirements        EnvironmentRequirement[]
+  recommendations     SizingRecommendation[]
+  qbrArtifacts        QBRArtifact[]
+  qbrChecklistItems   QBRChecklistItem[]
+}
+
+model Meeting {
+  id              String            @id @default(cuid())
+  source          String
+  subject         String
+  organizer       String
+  startTime       DateTime
+  endTime         DateTime
+  attendeesJson   String
+  externalDomains String
+  dealId          String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deal            Deal              @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  assets          MeetingAsset[]
+  contexts        CustomerContext[]
+
+  @@index([dealId])
+}
+
+model IntegrationConnection {
+  id                String            @id @default(cuid())
+  integrationKey    String            @unique
+  displayName       String
+  status            IntegrationStatus @default(NOT_CONNECTED)
+  connectedBy       String?
+  connectedAt       DateTime?
+  lastHealthCheckAt DateTime?
+  setupNotes        String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+}
+
+model MeetingAsset {
+  id                   String        @id @default(cuid())
+  meetingId            String?
+  dealId               String
+  type                 AssetType
+  source               String
+  sourceTool           String
+  title                String
+  uri                  String
+  uploadedBy           String
+  previewImageUri      String?
+  previewStatus        PreviewStatus @default(PENDING)
+  previewLastUpdatedAt DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  meeting              Meeting?      @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  deal                 Deal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([meetingId])
+}
+
+model DealEmail {
+  id             String   @id @default(cuid())
+  dealId         String?
+  threadId       String
+  messageId      String
+  subject        String
+  from           String
+  body           String
+  receivedAt     DateTime
+  assignedBy     String?
+  assignedAt     DateTime?
+  summary        String?
+  extractedJson  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deal           Deal?    @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  @@index([dealId])
+}
+
+model QBRArtifact {
+  id                   String   @id @default(cuid())
+  dealId               String
+  accountName          String
+  source               String
+  fileUri              String
+  generatedAt          DateTime
+  uploadedBy           String
+  guideChecklistVersion String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deal                 Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model QBRChecklistItem {
+  id                   String        @id @default(cuid())
+  dealId               String
+  sectionKey           String
+  title                String
+  status               QBRItemStatus @default(TODO)
+  notes                String
+  recommendedTalkTrack String
+  lastUpdatedAt        DateTime      @default(now())
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  deal                 Deal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model CustomerContext {
+  id                 String   @id @default(cuid())
+  meetingId          String?
+  dealId             String
+  customerCandidates String
+  notes              String
+  openDeals          String
+  sizerRuns          String
+  confidenceScore    Float
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  meeting            Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  deal               Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([meetingId])
+}
+
+model EnvironmentRequirement {
+  id                   String   @id @default(cuid())
+  dealId               String
+  rawText              String
+  extractedConstraints String
+  prerequisites        String
+  restrictions         String
+  workloadHints        String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deal                 Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model SizingRecommendation {
+  id                  String                 @id @default(cuid())
+  dealId              String
+  inputRequirementIds String
+  suggestedConfig     String
+  ruleMatches         String
+  riskFlags           String
+  confidenceScore     Float
+  decision            RecommendationDecision @default(PENDING)
+  decisionNotes       String?
+  approvedBy          String?
+  approvedAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  deal                Deal                   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+}
+
+model ContextEvidence {
+  id           String   @id @default(cuid())
+  sourceSystem String
+  sourceId     String
+  lastSyncedAt DateTime
+  confidenceReason String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

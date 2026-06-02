@@ -1,0 +1,288 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { MeetingAsset } from "@prisma/client";
+import {
+  ArrowLeft,
+  CalendarClock,
+  ExternalLink,
+  FolderOpen,
+  NotebookPen,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import { addNoteAction } from "@/lib/actions";
+import { getAccountDetail } from "@/lib/data";
+import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
+import { ActionBar, Button, Card, EmptyState, FormRow, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
+
+function countAttendees(attendeesJson: string): number {
+  try {
+    const parsed = JSON.parse(attendeesJson);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function AssetTile({ asset }: { asset: MeetingAsset }) {
+  return (
+    <div className="rounded-md border border-charcoal-200 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-iris-600">{asset.type.replaceAll("_", " ")}</p>
+      {asset.previewImageUri ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={asset.previewImageUri}
+          alt={`${asset.title} preview`}
+          className="mt-2 h-28 w-full rounded border border-charcoal-200 object-cover"
+        />
+      ) : (
+        <div className="mt-2 flex h-28 items-center justify-center rounded border border-dashed border-charcoal-300 bg-charcoal-50 text-xs text-charcoal-500">
+          Preview unavailable
+        </div>
+      )}
+      <p className="mt-2 line-clamp-2 text-sm font-semibold">{asset.title}</p>
+      <div className="mt-1 flex items-center justify-between">
+        <p className="text-xs text-charcoal-500">{asset.sourceTool}</p>
+        <PreviewStatusPill status={asset.previewStatus} />
+      </div>
+      <a
+        href={asset.uri}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-iris-600 hover:text-iris-700"
+      >
+        Open <ExternalLink className="h-3 w-3" />
+      </a>
+    </div>
+  );
+}
+
+export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const detail = await getAccountDetail(id);
+
+  if (!detail) {
+    notFound();
+  }
+
+  const { deal, summary } = detail;
+  const presentations = deal.assets.filter((asset) => asset.type === "PRESENTATION");
+  const whiteboards = deal.assets.filter((asset) => asset.type === "WHITEBOARD");
+  const otherAssets = deal.assets.filter(
+    (asset) => asset.type !== "PRESENTATION" && asset.type !== "WHITEBOARD",
+  );
+
+  const stat = (label: string, value: number) => (
+    <div className="rounded-lg border border-charcoal-200 bg-white px-3 py-2 text-center">
+      <p className="text-lg font-semibold text-iris-600">{value}</p>
+      <p className="text-xs uppercase tracking-wide text-charcoal-500">{label}</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <Link
+        href="/accounts"
+        className="inline-flex items-center gap-1 text-sm font-medium text-iris-600 hover:text-iris-700"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to accounts
+      </Link>
+
+      <Card title={deal.accountName} subtitle={deal.name} icon={<Users className="h-5 w-5" />}>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone="info">{deal.stage}</StatusPill>
+          <StatusPill tone="neutral">Owner: {deal.owner}</StatusPill>
+        </div>
+        <p className="mt-3 text-sm text-charcoal-700">
+          <span className="font-semibold text-charcoal-900">Next action:</span> {deal.nextAction}
+        </p>
+        {deal.latestSignal ? (
+          <p className="mt-1 text-sm text-charcoal-600">
+            <span className="font-semibold text-charcoal-900">Latest signal:</span> {deal.latestSignal}
+          </p>
+        ) : null}
+      </Card>
+
+      <Card
+        title="Account Summary"
+        subtitle="Auto-generated overview that updates as meetings, notes, and assets are added."
+        icon={<Sparkles className="h-5 w-5" />}
+      >
+        <p className="rounded-lg border border-iris-100 bg-iris-50 p-4 text-sm leading-relaxed text-charcoal-800">{summary}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {stat("Meetings", deal.meetings.length)}
+          {stat("Notes", deal.notes.length)}
+          {stat("Presentations", presentations.length)}
+          {stat("Whiteboards", whiteboards.length)}
+        </div>
+
+        <div className="mt-5">
+          <SectionHeader title="Add Account Note" subtitle="Capture a general note not tied to a specific meeting." />
+          <form action={addNoteAction} className="space-y-3">
+            <input type="hidden" name="dealId" value={deal.id} />
+            <FormRow label="Note" htmlFor="account-note" helper="Saved to the account timeline and folded into the summary.">
+              <textarea
+                id="account-note"
+                name="body"
+                rows={3}
+                placeholder="Stakeholders, strategy, reminders, or anything to remember about this account."
+                required
+              />
+            </FormRow>
+            <ActionBar>
+              <Button type="submit">Save Note</Button>
+            </ActionBar>
+          </form>
+        </div>
+      </Card>
+
+      <Card
+        title="Asset Library"
+        subtitle="Every presentation, whiteboard, and file across all meetings — jump back to anything in one place."
+        icon={<FolderOpen className="h-5 w-5" />}
+      >
+        <div className="space-y-5">
+          <div>
+            <SectionHeader title="Presentations" />
+            {presentations.length === 0 ? (
+              <EmptyState title="No presentations yet" description="Attach decks from the Calendar page to see them here." />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {presentations.map((asset) => (
+                  <AssetTile key={asset.id} asset={asset} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <SectionHeader title="Whiteboards" />
+            {whiteboards.length === 0 ? (
+              <EmptyState title="No whiteboards yet" description="Attach whiteboard links to see previews here." />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {whiteboards.map((asset) => (
+                  <AssetTile key={asset.id} asset={asset} />
+                ))}
+              </div>
+            )}
+          </div>
+          {otherAssets.length > 0 ? (
+            <div>
+              <SectionHeader title="Other Files" />
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {otherAssets.map((asset) => (
+                  <AssetTile key={asset.id} asset={asset} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </Card>
+
+      <Card
+        title="All Notes"
+        subtitle="Every note captured for this account, newest first."
+        icon={<NotebookPen className="h-5 w-5" />}
+      >
+        {deal.notes.length === 0 ? (
+          <EmptyState title="No notes yet" description="Add an account note above or a meeting note below to start the record." />
+        ) : (
+          <div className="space-y-3">
+            {deal.notes.map((note) => (
+              <div key={note.id} className="rounded-md border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <StatusPill tone={note.meeting ? "info" : "neutral"}>
+                    {note.meeting ? note.meeting.subject : "Account-level"}
+                  </StatusPill>
+                  <span className="text-xs text-charcoal-500">
+                    {note.author} · {shortDate(note.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-charcoal-700">{note.body}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Meeting History"
+        subtitle="Each meeting with its notes and attached assets. Add notes inline as the conversation happens."
+        icon={<CalendarClock className="h-5 w-5" />}
+      >
+        {deal.meetings.length === 0 ? (
+          <EmptyState title="No meetings yet" description="Meetings linked to this deal will appear here with their assets and notes." />
+        ) : (
+          <div className="space-y-4">
+            {deal.meetings.map((meeting) => (
+              <article
+                key={meeting.id}
+                className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-base font-semibold text-charcoal-900">{meeting.subject}</h4>
+                    <p className="text-sm text-charcoal-500">
+                      {shortDateTime(meeting.startTime)} - {shortDateTime(meeting.endTime)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusPill tone="neutral">
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="h-3 w-3" /> {countAttendees(meeting.attendeesJson)}
+                      </span>
+                    </StatusPill>
+                    <StatusPill tone="info">{relativeDay(meeting.startTime)}</StatusPill>
+                  </div>
+                </div>
+
+                {meeting.assets.length > 0 ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {meeting.assets.map((asset) => (
+                      <AssetTile key={asset.id} asset={asset} />
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-500">
+                    Notes ({meeting.notes.length})
+                  </p>
+                  {meeting.notes.length === 0 ? (
+                    <p className="text-sm text-charcoal-500">No notes for this meeting yet.</p>
+                  ) : (
+                    meeting.notes.map((note) => (
+                      <div key={note.id} className="rounded-md bg-charcoal-50 p-3">
+                        <p className="text-sm text-charcoal-700">{note.body}</p>
+                        <p className="mt-1 text-xs text-charcoal-500">
+                          {note.author} · {shortDate(note.createdAt)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <form action={addNoteAction} className="mt-3 rounded-md border border-charcoal-200 p-3">
+                  <input type="hidden" name="dealId" value={deal.id} />
+                  <input type="hidden" name="meetingId" value={meeting.id} />
+                  <FormRow label="Add Meeting Note" htmlFor={`note-${meeting.id}`}>
+                    <textarea
+                      id={`note-${meeting.id}`}
+                      name="body"
+                      rows={2}
+                      placeholder="What was discussed, decided, or promised in this meeting?"
+                      required
+                    />
+                  </FormRow>
+                  <ActionBar>
+                    <Button type="submit">Save Meeting Note</Button>
+                  </ActionBar>
+                </form>
+              </article>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

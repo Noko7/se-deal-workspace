@@ -33,6 +33,131 @@ export async function getDashboardData() {
   };
 }
 
+export async function getAccountsOverview() {
+  const now = new Date();
+  const deals = await prisma.deal.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: {
+      meetings: { select: { id: true, startTime: true } },
+      assets: { select: { id: true, type: true } },
+      notes: { select: { id: true, createdAt: true } },
+    },
+  });
+
+  return deals.map((deal) => {
+    const presentationCount = deal.assets.filter((asset) => asset.type === "PRESENTATION").length;
+    const whiteboardCount = deal.assets.filter((asset) => asset.type === "WHITEBOARD").length;
+    const upcoming = deal.meetings
+      .map((meeting) => meeting.startTime)
+      .filter((start) => start >= now)
+      .sort((a, b) => a.getTime() - b.getTime());
+    const activityCandidates = [
+      deal.updatedAt,
+      ...deal.notes.map((note) => note.createdAt),
+      ...deal.meetings.map((meeting) => meeting.startTime).filter((start) => start < now),
+    ];
+    const lastActivityAt = activityCandidates.reduce(
+      (latest, current) => (current > latest ? current : latest),
+      deal.updatedAt,
+    );
+
+    return {
+      id: deal.id,
+      name: deal.name,
+      accountName: deal.accountName,
+      stage: deal.stage,
+      owner: deal.owner,
+      nextAction: deal.nextAction,
+      latestSignal: deal.latestSignal,
+      meetingCount: deal.meetings.length,
+      upcomingMeetingCount: upcoming.length,
+      noteCount: deal.notes.length,
+      assetCount: deal.assets.length,
+      presentationCount,
+      whiteboardCount,
+      nextMeetingAt: upcoming[0]?.toISOString() ?? null,
+      lastActivityAt: lastActivityAt.toISOString(),
+    };
+  });
+}
+
+function buildAccountSummary(deal: {
+  accountName: string;
+  name: string;
+  stage: string;
+  owner: string;
+  nextAction: string;
+  latestSignal: string | null;
+  meetings: { id: string }[];
+  notes: { body: string }[];
+  assets: { type: string }[];
+}): string {
+  const meetingCount = deal.meetings.length;
+  const noteCount = deal.notes.length;
+  const presentations = deal.assets.filter((asset) => asset.type === "PRESENTATION").length;
+  const whiteboards = deal.assets.filter((asset) => asset.type === "WHITEBOARD").length;
+  const latestNote = deal.notes[0];
+
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const parts = [
+    `${deal.accountName} is in the ${deal.stage} stage on "${deal.name}", owned by ${deal.owner}.`,
+    `${plural(meetingCount, "meeting")} tracked with ${plural(noteCount, "note")} captured, plus ${plural(
+      presentations,
+      "presentation",
+    )} and ${plural(whiteboards, "whiteboard")} on file.`,
+  ];
+  if (deal.latestSignal) parts.push(`Latest signal: ${deal.latestSignal}`);
+  if (latestNote) {
+    const snippet = latestNote.body.length > 160 ? `${latestNote.body.slice(0, 160).trimEnd()}…` : latestNote.body;
+    parts.push(`Most recent note: "${snippet}"`);
+  }
+  parts.push(`Next action: ${deal.nextAction}.`);
+  return parts.join(" ");
+}
+
+export async function getAccountDetail(dealId: string) {
+  const deal = await prisma.deal.findUnique({
+    where: { id: dealId },
+    include: {
+      meetings: {
+        orderBy: { startTime: "desc" },
+        include: {
+          assets: { orderBy: { createdAt: "desc" } },
+          notes: { orderBy: { createdAt: "desc" } },
+        },
+      },
+      assets: { orderBy: { createdAt: "desc" } },
+      notes: {
+        orderBy: { createdAt: "desc" },
+        include: { meeting: { select: { id: true, subject: true } } },
+      },
+      emails: { orderBy: { receivedAt: "desc" } },
+      context: { orderBy: { updatedAt: "desc" } },
+      recommendations: { orderBy: { createdAt: "desc" } },
+    },
+  });
+
+  if (!deal) return null;
+
+  return { deal, summary: buildAccountSummary(deal) };
+}
+
+export async function createNote(input: {
+  dealId: string;
+  meetingId?: string;
+  body: string;
+  author: string;
+}) {
+  return prisma.meetingNote.create({
+    data: {
+      dealId: input.dealId,
+      meetingId: input.meetingId || null,
+      body: input.body,
+      author: input.author,
+    },
+  });
+}
+
 export async function getDealWorkspace(dealId: string) {
   return prisma.deal.findUnique({
     where: { id: dealId },

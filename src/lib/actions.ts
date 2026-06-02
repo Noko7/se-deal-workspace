@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   assignEmailToDeal,
   createArtifact,
+  createNote,
   createRecommendation,
   createRequirement,
   updateIntegration,
@@ -102,6 +103,22 @@ export async function uploadQbrAction(formData: FormData) {
   });
 
   revalidatePath("/");
+}
+
+export async function addNoteAction(formData: FormData) {
+  const dealId = String(formData.get("dealId"));
+  const body = String(formData.get("body") ?? "").trim();
+  if (!dealId || !body) return;
+
+  await createNote({
+    dealId,
+    meetingId: formData.get("meetingId") ? String(formData.get("meetingId")) : undefined,
+    body,
+    author: "se.workspace@nutanix.com",
+  });
+
+  revalidatePath("/accounts");
+  revalidatePath(`/accounts/${dealId}`);
 }
 
 export async function updateQbrChecklistAction(formData: FormData) {

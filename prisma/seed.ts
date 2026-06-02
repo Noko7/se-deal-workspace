@@ -4,6 +4,7 @@ import { addDays, addHours } from "date-fns";
 const prisma = new PrismaClient();
 
 async function main() {
+  await prisma.meetingNote.deleteMany();
   await prisma.contextEvidence.deleteMany();
   await prisma.sizingRecommendation.deleteMany();
   await prisma.environmentRequirement.deleteMany();
@@ -38,6 +39,17 @@ async function main() {
     },
   });
 
+  const gammaDeal = await prisma.deal.create({
+    data: {
+      name: "Gamma Healthcare VDI Expansion",
+      accountName: "Gamma Healthcare",
+      stage: "Validation",
+      owner: "Priya Nadar",
+      nextAction: "Confirm POC success criteria sign-off",
+      latestSignal: "POC cluster validated; awaiting security review.",
+    },
+  });
+
   const now = new Date();
 
   const acmeMeeting = await prisma.meeting.create({
@@ -56,6 +68,22 @@ async function main() {
     },
   });
 
+  const acmeKickoffMeeting = await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "Discovery Kickoff - Acme Manufacturing",
+      organizer: "lizi.singletary@nutanix.com",
+      startTime: addDays(now, -7),
+      endTime: addHours(addDays(now, -7), 1),
+      attendeesJson: JSON.stringify([
+        { email: "it.ops@acme.example", displayName: "Acme IT Ops" },
+        { email: "cio@acme.example", displayName: "Acme CIO" },
+      ]),
+      externalDomains: "acme.example",
+      dealId: alphaDeal.id,
+    },
+  });
+
   const betaMeeting = await prisma.meeting.create({
     data: {
       source: "internal_seed",
@@ -68,6 +96,37 @@ async function main() {
       ]),
       externalDomains: "betafin.example",
       dealId: bravoDeal.id,
+    },
+  });
+
+  const gammaPocMeeting = await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "POC Readout - Gamma Healthcare",
+      organizer: "priya.nadar@nutanix.com",
+      startTime: addDays(now, -10),
+      endTime: addHours(addDays(now, -10), 1),
+      attendeesJson: JSON.stringify([
+        { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
+        { email: "security@gammahealth.example", displayName: "Gamma Security" },
+      ]),
+      externalDomains: "gammahealth.example",
+      dealId: gammaDeal.id,
+    },
+  });
+
+  await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "Validation Sign-off - Gamma Healthcare",
+      organizer: "priya.nadar@nutanix.com",
+      startTime: addDays(now, 3),
+      endTime: addHours(addDays(now, 3), 1),
+      attendeesJson: JSON.stringify([
+        { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
+      ]),
+      externalDomains: "gammahealth.example",
+      dealId: gammaDeal.id,
     },
   });
 
@@ -144,6 +203,92 @@ async function main() {
         uri: "file://internal/beta-collector-export.zip",
         uploadedBy: "jordan.kim@nutanix.com",
         previewStatus: PreviewStatus.FAILED,
+      },
+      {
+        meetingId: acmeKickoffMeeting.id,
+        dealId: alphaDeal.id,
+        type: AssetType.PRESENTATION,
+        source: "internal_seed",
+        sourceTool: "PowerPoint",
+        title: "Acme_Discovery_Findings",
+        uri: "https://example.local/acme-discovery",
+        uploadedBy: "lizi.singletary@nutanix.com",
+        previewImageUri: "https://placehold.co/640x360?text=Discovery+Findings",
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      },
+      {
+        meetingId: gammaPocMeeting.id,
+        dealId: gammaDeal.id,
+        type: AssetType.PRESENTATION,
+        source: "internal_seed",
+        sourceTool: "PowerPoint",
+        title: "Gamma_POC_Results",
+        uri: "https://example.local/gamma-poc-results",
+        uploadedBy: "priya.nadar@nutanix.com",
+        previewImageUri: "https://placehold.co/640x360?text=POC+Results",
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      },
+      {
+        meetingId: gammaPocMeeting.id,
+        dealId: gammaDeal.id,
+        type: AssetType.WHITEBOARD,
+        source: "internal_seed",
+        sourceTool: "Lucidchart",
+        title: "Gamma VDI Reference Architecture",
+        uri: "https://example.local/lucid-gamma-vdi",
+        uploadedBy: "priya.nadar@nutanix.com",
+        previewImageUri: "https://placehold.co/640x360?text=VDI+Architecture",
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      },
+    ],
+  });
+
+  await prisma.meetingNote.createMany({
+    data: [
+      {
+        dealId: alphaDeal.id,
+        meetingId: acmeKickoffMeeting.id,
+        author: "lizi.singletary@nutanix.com",
+        body:
+          "Kickoff covered current 3-node cluster running hot on storage. CIO wants a refresh plan before budget close. Flagged no new rack space this quarter.",
+      },
+      {
+        dealId: alphaDeal.id,
+        meetingId: acmeMeeting.id,
+        author: "lizi.singletary@nutanix.com",
+        body:
+          "QBR prep: confirmed DR is the top priority. Walked through Acme_QBR_Deck_Q1 slide 6 on async DR. Action: pull updated sizing before the readout.",
+      },
+      {
+        dealId: alphaDeal.id,
+        meetingId: null,
+        author: "lizi.singletary@nutanix.com",
+        body:
+          "Account-level note: champion is the IT Ops lead; CIO is economic buyer. Sensitive to datacenter footprint - lead with node density story.",
+      },
+      {
+        dealId: bravoDeal.id,
+        meetingId: betaMeeting.id,
+        author: "jordan.kim@nutanix.com",
+        body:
+          "Design review: customer comparing sync vs async replication. They want RPO under 15 minutes for the core banking tier. Need WAN bandwidth numbers.",
+      },
+      {
+        dealId: gammaDeal.id,
+        meetingId: gammaPocMeeting.id,
+        author: "priya.nadar@nutanix.com",
+        body:
+          "POC readout went well - VDI density hit target with headroom. Security team raised questions about segmentation; see Gamma VDI Reference Architecture.",
+      },
+      {
+        dealId: gammaDeal.id,
+        meetingId: null,
+        author: "priya.nadar@nutanix.com",
+        body:
+          "Account-level note: deal is in final validation. Remaining blocker is security sign-off. Procurement is ready once that clears.",
       },
     ],
   });

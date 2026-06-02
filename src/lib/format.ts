@@ -16,3 +16,22 @@ export function shortDateTime(value: Date): string {
     minute: "2-digit",
   }).format(value);
 }
+
+export function shortDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(value);
+}
+
+export function relativeDay(value: Date): string {
+  const now = new Date();
+  const diffMs = value.getTime() - now.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays === -1) return "Yesterday";
+  if (diffDays > 1) return `In ${diffDays} days`;
+  return `${Math.abs(diffDays)} days ago`;
+}

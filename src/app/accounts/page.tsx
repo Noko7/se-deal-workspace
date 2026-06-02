@@ -3,6 +3,8 @@ import { getAccountsOverview } from "@/lib/data";
 import { Card } from "@/components/ui";
 import { AccountsExplorer } from "@/components/accounts-explorer";
 
+export const dynamic = "force-dynamic";
+
 export default async function AccountsPage() {
   const accounts = await getAccountsOverview();
 

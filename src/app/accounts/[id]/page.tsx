@@ -15,6 +15,8 @@ import { getAccountDetail } from "@/lib/data";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, FormRow, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 function countAttendees(attendeesJson: string): number {
   try {
     const parsed = JSON.parse(attendeesJson);

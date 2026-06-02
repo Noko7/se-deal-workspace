@@ -293,6 +293,180 @@ async function main() {
     ],
   });
 
+  // --- Generated demo accounts so the calendar, pipeline, and accounts views feel populated ---
+  const fakeCompanies = [
+    "Northwind Logistics",
+    "Contoso Retail",
+    "Globex Energy",
+    "Initech Software",
+    "Umbrella Biotech",
+    "Wayne Industries",
+    "Stark Manufacturing",
+    "Wonka Foods",
+    "Hooli Cloud",
+    "Pied Piper Data",
+    "Vandelay Imports",
+    "Cyberdyne Systems",
+    "Tyrell Robotics",
+    "Aperture Labs",
+    "Massive Dynamic",
+    "Oscorp Materials",
+    "Gringotts Bank",
+    "Aperion Health",
+    "Black Mesa Research",
+    "Soylent Foods",
+  ];
+  const fakeOwners = [
+    "Lizi Singletary",
+    "Jordan Kim",
+    "Priya Nadar",
+    "Marcus Lee",
+    "Dana Whitfield",
+    "Sofia Reyes",
+    "Tom Becker",
+  ];
+  const stageCycle = ["Discovery", "Design", "Validation"];
+  const dealSuffix: Record<string, string[]> = {
+    Discovery: ["Infra Discovery", "Datacenter Assessment", "Cloud Readiness"],
+    Design: ["Architecture Design", "DR Modernization", "Platform Refresh"],
+    Validation: ["POC Validation", "Pilot Expansion", "Production Rollout"],
+  };
+  const nextActionsByStage: Record<string, string[]> = {
+    Discovery: [
+      "Schedule technical discovery workshop",
+      "Collect current-state inventory",
+      "Review utilization with stakeholders",
+    ],
+    Design: [
+      "Finalize reference architecture",
+      "Validate replication targets",
+      "Present sizing options to the team",
+    ],
+    Validation: [
+      "Confirm POC success criteria sign-off",
+      "Coordinate security review",
+      "Plan production cutover window",
+    ],
+  };
+  const signals = [
+    "Storage utilization trending above 80%.",
+    "Evaluating DR expansion for critical workloads.",
+    "Hypervisor renewal driving a platform review.",
+    "VDI growth requiring additional capacity.",
+    "Consolidating multiple legacy clusters.",
+    "Exploring hybrid cloud bursting options.",
+  ];
+  const noteBodies = [
+    "Customer confirmed budget is approved for this fiscal year.",
+    "Technical team is comparing us against the incumbent vendor.",
+    "Champion wants a reference architecture before the next review.",
+    "Security team flagged network segmentation requirements.",
+    "Procurement is ready once technical validation completes.",
+    "Customer is interested in mixed-workload consolidation.",
+  ];
+
+  for (let i = 0; i < fakeCompanies.length; i++) {
+    const company = fakeCompanies[i];
+    const stage = stageCycle[i % stageCycle.length];
+    const owner = fakeOwners[i % fakeOwners.length];
+    const firstWord = company.split(" ")[0];
+    const domain = `${company.toLowerCase().replace(/[^a-z]+/g, "")}.example`;
+    const ownerEmail = `${owner.toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`;
+    const suffixOptions = dealSuffix[stage];
+    const dealName = `${firstWord} ${suffixOptions[i % suffixOptions.length]}`;
+
+    const deal = await prisma.deal.create({
+      data: {
+        name: dealName,
+        accountName: company,
+        stage,
+        owner,
+        nextAction: nextActionsByStage[stage][i % 3],
+        latestSignal: signals[i % signals.length],
+      },
+    });
+
+    const upcomingMeeting = await prisma.meeting.create({
+      data: {
+        source: "internal_seed",
+        subject: `${stage} Sync - ${company}`,
+        organizer: ownerEmail,
+        startTime: addHours(addDays(now, (i % 20) + 1), 9 + (i % 7)),
+        endTime: addHours(addDays(now, (i % 20) + 1), 10 + (i % 7)),
+        attendeesJson: JSON.stringify([
+          { email: `it@${domain}`, displayName: `${company} IT` },
+          { email: ownerEmail, displayName: owner },
+        ]),
+        externalDomains: domain,
+        dealId: deal.id,
+      },
+    });
+
+    const pastMeeting = await prisma.meeting.create({
+      data: {
+        source: "internal_seed",
+        subject: `Intro Call - ${company}`,
+        organizer: ownerEmail,
+        startTime: addHours(addDays(now, -((i % 12) + 1)), 13),
+        endTime: addHours(addDays(now, -((i % 12) + 1)), 14),
+        attendeesJson: JSON.stringify([
+          { email: `infra@${domain}`, displayName: `${company} Infrastructure` },
+        ]),
+        externalDomains: domain,
+        dealId: deal.id,
+      },
+    });
+
+    const assetData = [
+      {
+        meetingId: upcomingMeeting.id,
+        dealId: deal.id,
+        type: AssetType.PRESENTATION,
+        source: "internal_seed",
+        sourceTool: "PowerPoint",
+        title: `${firstWord}_${stage}_Deck`,
+        uri: `https://example.local/${domain}/deck`,
+        uploadedBy: ownerEmail,
+        previewImageUri: `https://placehold.co/640x360?text=${encodeURIComponent(`${stage} Deck`)}`,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      },
+    ];
+    if (i % 2 === 0) {
+      assetData.push({
+        meetingId: upcomingMeeting.id,
+        dealId: deal.id,
+        type: AssetType.WHITEBOARD,
+        source: "internal_seed",
+        sourceTool: "Lucidchart",
+        title: `${firstWord} Reference Architecture`,
+        uri: `https://example.local/${domain}/whiteboard`,
+        uploadedBy: ownerEmail,
+        previewImageUri: `https://placehold.co/640x360?text=${encodeURIComponent("Whiteboard")}`,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      });
+    }
+    await prisma.meetingAsset.createMany({ data: assetData });
+
+    await prisma.meetingNote.createMany({
+      data: [
+        {
+          dealId: deal.id,
+          meetingId: pastMeeting.id,
+          author: ownerEmail,
+          body: noteBodies[i % noteBodies.length],
+        },
+        {
+          dealId: deal.id,
+          meetingId: null,
+          author: ownerEmail,
+          body: `Account-level note: ${company} is in ${stage}. ${signals[(i + 1) % signals.length]}`,
+        },
+      ],
+    });
+  }
+
   await prisma.dealEmail.createMany({
     data: [
       {

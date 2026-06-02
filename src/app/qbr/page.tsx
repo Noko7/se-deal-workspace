@@ -3,6 +3,8 @@ import { updateQbrChecklistAction, uploadQbrAction } from "@/lib/actions";
 import { getDashboardData, getDealWorkspace } from "@/lib/data";
 import { ActionBar, Button, Card, EmptyState, FormRow, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 export default async function QbrPage() {
   const { deals } = await getDashboardData();
   const primaryDealId = deals[0]?.id;

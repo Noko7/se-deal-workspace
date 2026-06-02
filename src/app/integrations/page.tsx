@@ -4,6 +4,8 @@ import { integrationAdapters } from "@/lib/adapters";
 import { getDashboardData } from "@/lib/data";
 import { ActionBar, Button, Card, EmptyState, IntegrationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 export default async function IntegrationsPage() {
   const { integrations } = await getDashboardData();
 

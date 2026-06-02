@@ -4,6 +4,8 @@ import { getDashboardData } from "@/lib/data";
 import { shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, FormRow, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 export default async function CalendarPage() {
   const { meetings, deals } = await getDashboardData();
   const grouped = meetings.reduce<Record<string, typeof meetings>>((acc, meeting) => {

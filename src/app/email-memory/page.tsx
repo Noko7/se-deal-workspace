@@ -4,6 +4,8 @@ import { getDashboardData } from "@/lib/data";
 import { shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, FormRow, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 export default async function EmailMemoryPage() {
   const { deals, unassignedEmails } = await getDashboardData();
 

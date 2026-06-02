@@ -4,6 +4,8 @@ import { getDashboardData } from "@/lib/data";
 import { parseJsonArray } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, FormRow, RecommendationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
+export const dynamic = "force-dynamic";
+
 export default async function DealsPage() {
   const { deals } = await getDashboardData();
 

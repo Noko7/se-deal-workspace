@@ -568,6 +568,99 @@ async function main() {
     });
   }
 
+  // Attach a rich, varied set of assets to every meeting so the calendar is fully populated.
+  const deckSvgs = [
+    "/previews/deck-discovery.svg",
+    "/previews/deck-design.svg",
+    "/previews/deck-validation.svg",
+    "/previews/deck-qbr.svg",
+  ];
+  const whiteboardSvgs = [
+    "/previews/whiteboard-architecture.svg",
+    "/previews/whiteboard-network.svg",
+    "/previews/whiteboard-vdi.svg",
+  ];
+  const allMeetings = await prisma.meeting.findMany({
+    select: { id: true, dealId: true, externalDomains: true, deal: { select: { accountName: true } } },
+  });
+
+  let deckCounter = 0;
+  let whiteboardCounter = 0;
+  const meetingAssetBundle: Prisma.MeetingAssetCreateManyInput[] = [];
+
+  allMeetings.forEach((meeting, index) => {
+    const firstWord = meeting.deal.accountName.split(" ")[0];
+    const domain = meeting.externalDomains || "example.local";
+    const variant = index % 5;
+
+    const deck = (label: string) => {
+      const preview = deckSvgs[deckCounter % deckSvgs.length];
+      deckCounter += 1;
+      return {
+        meetingId: meeting.id,
+        dealId: meeting.dealId,
+        type: AssetType.PRESENTATION,
+        source: "internal_seed",
+        sourceTool: deckCounter % 2 === 0 ? "Google Slides" : "PowerPoint",
+        title: `${firstWord}_${label}`,
+        uri: `https://example.local/${domain}/${label.toLowerCase()}`,
+        uploadedBy: "se.workspace@nutanix.com",
+        previewImageUri: preview,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      } satisfies Prisma.MeetingAssetCreateManyInput;
+    };
+    const board = (label: string) => {
+      const preview = whiteboardSvgs[whiteboardCounter % whiteboardSvgs.length];
+      whiteboardCounter += 1;
+      return {
+        meetingId: meeting.id,
+        dealId: meeting.dealId,
+        type: AssetType.WHITEBOARD,
+        source: "internal_seed",
+        sourceTool: whiteboardCounter % 2 === 0 ? "Miro" : "Lucidchart",
+        title: `${firstWord} ${label}`,
+        uri: `https://example.local/${domain}/${label.replace(/\s+/g, "-").toLowerCase()}`,
+        uploadedBy: "se.workspace@nutanix.com",
+        previewImageUri: preview,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
+      } satisfies Prisma.MeetingAssetCreateManyInput;
+    };
+    const file = (type: AssetType, sourceTool: string, title: string) =>
+      ({
+        meetingId: meeting.id,
+        dealId: meeting.dealId,
+        type,
+        source: "internal_seed",
+        sourceTool,
+        title,
+        uri: `file://internal/${domain}/${title.replace(/\s+/g, "_").toLowerCase()}`,
+        uploadedBy: "se.workspace@nutanix.com",
+        previewStatus: PreviewStatus.FAILED,
+      }) satisfies Prisma.MeetingAssetCreateManyInput;
+
+    const collector = () => file(AssetType.COLLECTOR, "Collector", `${firstWord}_Collector_Export.zip`);
+    const rvTool = () => file(AssetType.RV_TOOL, "RVTools", `${firstWord}_RVTools.xlsx`);
+    const zip = () => file(AssetType.ZIP_BUNDLE, "Collector", `${firstWord}_Discovery_Bundle.zip`);
+    const build = () => file(AssetType.TEXT_BRIEF, "Nutanix Sizer", `${firstWord} Suggested Build v${variant + 1}`);
+    const qbr = () => file(AssetType.QBR_REPORT, "CS360", `${firstWord}_QBR_Report.pdf`);
+
+    if (variant === 0) {
+      meetingAssetBundle.push(deck("Overview"), deck("Technical_Deep_Dive"), board("Network Topology"), board("Target Architecture"), collector());
+    } else if (variant === 1) {
+      meetingAssetBundle.push(deck("Exec_Briefing"), deck("Solution_Overview"), deck("Roadmap"), rvTool(), build());
+    } else if (variant === 2) {
+      meetingAssetBundle.push(deck("Discovery_Readout"), board("Current State"), board("Future State"), collector(), rvTool(), zip());
+    } else if (variant === 3) {
+      meetingAssetBundle.push(deck("QBR_Deck"), deck("Adoption_Review"), qbr(), build(), collector());
+    } else {
+      meetingAssetBundle.push(deck("Kickoff"), deck("Sizing_Walkthrough"), board("Reference Architecture"), rvTool(), build());
+    }
+  });
+
+  await prisma.meetingAsset.createMany({ data: meetingAssetBundle });
+
   await prisma.dealEmail.createMany({
     data: [
       {

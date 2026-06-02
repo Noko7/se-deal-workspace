@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-charcoal-50 text-charcoal-900">
       <header className="sticky top-0 z-20 border-b-2 border-iris-500 bg-charcoal text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 md:px-6">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-4 md:px-6">
           <div className="flex min-w-0 items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -54,8 +54,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 md:grid-cols-[280px_1fr]">
-        <aside className={`${open ? "block" : "hidden"} h-fit rounded-xl border border-charcoal-200 border-t-4 border-t-iris-500 bg-white p-3 md:block`}>
+      <div className="grid w-full grid-cols-1 gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className={`${open ? "block" : "hidden"} h-fit rounded-xl border border-charcoal-200 border-t-4 border-t-iris-500 bg-white p-3 md:sticky md:top-24 md:block`}>
           <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-iris-600">Navigation</p>
           <nav className="flex flex-col gap-1">
             {navigation.map((item) => {

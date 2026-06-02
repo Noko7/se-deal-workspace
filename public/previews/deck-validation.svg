@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="84" fill="#5e3fc2"/>
+  <text x="36" y="42" fill="#ffffff" font-size="26" font-weight="700">POC Results</text>
+  <text x="36" y="68" fill="#e0e1ff" font-size="15">Validation outcomes &amp; success criteria</text>
+  <g font-size="15" fill="#444444">
+    <circle cx="48" cy="132" r="11" fill="#eef8d8" stroke="#92d523"/>
+    <path d="M43 132 l4 4 l7 -8" fill="none" stroke="#3f5e0a" stroke-width="2"/>
+    <rect x="70" y="125" width="300" height="14" rx="7" fill="#e9e9ef"/>
+    <circle cx="48" cy="172" r="11" fill="#eef8d8" stroke="#92d523"/>
+    <path d="M43 172 l4 4 l7 -8" fill="none" stroke="#3f5e0a" stroke-width="2"/>
+    <rect x="70" y="165" width="260" height="14" rx="7" fill="#efeff3"/>
+    <circle cx="48" cy="212" r="11" fill="#eef8d8" stroke="#92d523"/>
+    <path d="M43 212 l4 4 l7 -8" fill="none" stroke="#3f5e0a" stroke-width="2"/>
+    <rect x="70" y="205" width="288" height="14" rx="7" fill="#efeff3"/>
+    <circle cx="48" cy="252" r="11" fill="#f7f7f7" stroke="#bfbfbf"/>
+    <rect x="70" y="245" width="220" height="14" rx="7" fill="#efeff3"/>
+  </g>
+  <g transform="translate(470,200)">
+    <circle r="74" fill="none" stroke="#e0e1ff" stroke-width="18"/>
+    <circle r="74" fill="none" stroke="#7855fa" stroke-width="18" stroke-dasharray="372 465" transform="rotate(-90)"/>
+    <text y="-2" text-anchor="middle" font-size="30" font-weight="700" fill="#5e3fc2">80%</text>
+    <text y="22" text-anchor="middle" font-size="12" fill="#757575">criteria met</text>
+  </g>
+</svg>

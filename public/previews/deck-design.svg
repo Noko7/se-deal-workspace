@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="84" fill="#313131"/>
+  <rect width="8" height="84" fill="#7855fa"/>
+  <text x="36" y="42" fill="#ffffff" font-size="26" font-weight="700">Proposed Architecture</text>
+  <text x="36" y="68" fill="#bfbfbf" font-size="15">Target-state design &amp; sizing options</text>
+  <g stroke="#9278fb" stroke-width="2">
+    <line x1="170" y1="170" x2="290" y2="170"/>
+    <line x1="410" y1="170" x2="470" y2="170"/>
+    <line x1="350" y1="200" x2="350" y2="250"/>
+  </g>
+  <rect x="60" y="142" width="110" height="56" rx="8" fill="#f3f0ff" stroke="#7855fa"/>
+  <text x="115" y="175" fill="#5e3fc2" font-size="13" font-weight="600" text-anchor="middle">Prism</text>
+  <rect x="290" y="142" width="120" height="56" rx="8" fill="#7855fa"/>
+  <text x="350" y="175" fill="#ffffff" font-size="13" font-weight="600" text-anchor="middle">AHV Cluster</text>
+  <rect x="470" y="142" width="110" height="56" rx="8" fill="#f3f0ff" stroke="#7855fa"/>
+  <text x="525" y="175" fill="#5e3fc2" font-size="13" font-weight="600" text-anchor="middle">DR Site</text>
+  <rect x="290" y="250" width="120" height="56" rx="8" fill="#eef8d8" stroke="#92d523"/>
+  <text x="350" y="283" fill="#3f5e0a" font-size="13" font-weight="600" text-anchor="middle">Storage</text>
+</svg>

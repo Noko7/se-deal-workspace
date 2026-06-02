@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="84" fill="#7855fa"/>
+  <text x="36" y="42" fill="#ffffff" font-size="26" font-weight="700">Quarterly Business Review</text>
+  <text x="36" y="68" fill="#e0e1ff" font-size="15">Health, adoption &amp; roadmap</text>
+  <g>
+    <rect x="36" y="116" width="172" height="92" rx="10" fill="#f3f0ff" stroke="#c6bcfe"/>
+    <text x="52" y="150" fill="#5e3fc2" font-size="30" font-weight="700">99.9%</text>
+    <text x="52" y="180" fill="#757575" font-size="13">Cluster uptime</text>
+    <rect x="234" y="116" width="172" height="92" rx="10" fill="#eef8d8" stroke="#bfe06a"/>
+    <text x="250" y="150" fill="#3f5e0a" font-size="30" font-weight="700">42</text>
+    <text x="250" y="180" fill="#757575" font-size="13">Active VMs (k)</text>
+    <rect x="432" y="116" width="172" height="92" rx="10" fill="#ffefe9" stroke="#ffb39e"/>
+    <text x="448" y="150" fill="#9a3b27" font-size="30" font-weight="700">3</text>
+    <text x="448" y="180" fill="#757575" font-size="13">Open cases</text>
+  </g>
+  <rect x="36" y="240" width="568" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="240" width="402" height="14" rx="7" fill="#7855fa"/>
+  <text x="36" y="288" fill="#5d5d5d" font-size="14" font-weight="600">Feature adoption: 71%</text>
+</svg>

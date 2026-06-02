@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <defs>
+    <pattern id="grid-v" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#e0e0e8"/>
+    </pattern>
+    <marker id="arr-v" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 Z" fill="#8e8e8e"/>
+    </marker>
+  </defs>
+  <rect width="640" height="360" fill="#fbfbfd"/>
+  <rect width="640" height="360" fill="url(#grid-v)"/>
+  <rect x="14" y="14" width="220" height="24" rx="6" fill="#ffffff" stroke="#d7d7d7"/>
+  <text x="26" y="31" fill="#5d5d5d" font-size="13" font-weight="600">VDI Reference Architecture</text>
+  <g stroke="#8e8e8e" stroke-width="2" fill="none" marker-end="url(#arr-v)">
+    <path d="M150 180 H214"/>
+    <path d="M334 180 H398"/>
+    <path d="M520 150 V112 H566"/>
+    <path d="M520 210 V248 H566"/>
+  </g>
+  <g>
+    <rect x="34" y="150" width="116" height="60" rx="10" fill="#e6fbfd" stroke="#1fd0e3" stroke-width="2"/>
+    <text x="92" y="185" text-anchor="middle" fill="#0b7d8a" font-size="13" font-weight="600">End Users</text>
+    <rect x="214" y="150" width="120" height="60" rx="10" fill="#f3f0ff" stroke="#7855fa" stroke-width="2"/>
+    <text x="274" y="178" text-anchor="middle" fill="#5e3fc2" font-size="13" font-weight="600">Load</text>
+    <text x="274" y="195" text-anchor="middle" fill="#5e3fc2" font-size="13" font-weight="600">Balancer</text>
+    <rect x="398" y="150" width="122" height="60" rx="10" fill="#7855fa"/>
+    <text x="459" y="185" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="600">VDI Pool</text>
+    <rect x="566" y="82" width="66" height="56" rx="10" fill="#eef8d8" stroke="#92d523" stroke-width="2"/>
+    <text x="599" y="114" text-anchor="middle" fill="#3f5e0a" font-size="12" font-weight="600">Profiles</text>
+    <rect x="566" y="222" width="66" height="56" rx="10" fill="#eef8d8" stroke="#92d523" stroke-width="2"/>
+    <text x="599" y="254" text-anchor="middle" fill="#3f5e0a" font-size="12" font-weight="600">Images</text>
+  </g>
+</svg>

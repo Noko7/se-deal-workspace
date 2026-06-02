@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <defs>
+    <pattern id="grid-a" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#e0e0e8"/>
+    </pattern>
+    <marker id="arr-a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 Z" fill="#8e8e8e"/>
+    </marker>
+  </defs>
+  <rect width="640" height="360" fill="#fbfbfd"/>
+  <rect width="640" height="360" fill="url(#grid-a)"/>
+  <rect x="14" y="14" width="180" height="24" rx="6" fill="#ffffff" stroke="#d7d7d7"/>
+  <text x="26" y="31" fill="#5d5d5d" font-size="13" font-weight="600">Platform Topology</text>
+  <g stroke="#8e8e8e" stroke-width="2" fill="none" marker-end="url(#arr-a)">
+    <path d="M250 110 H330"/>
+    <path d="M390 140 V200"/>
+    <path d="M250 230 H330"/>
+    <path d="M450 110 H530"/>
+  </g>
+  <g>
+    <rect x="120" y="84" width="130" height="56" rx="10" fill="#f3f0ff" stroke="#7855fa" stroke-width="2"/>
+    <text x="185" y="117" text-anchor="middle" fill="#5e3fc2" font-size="14" font-weight="600">Prism Central</text>
+    <rect x="330" y="84" width="120" height="56" rx="10" fill="#7855fa"/>
+    <text x="390" y="117" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="600">AHV Cluster</text>
+    <rect x="530" y="84" width="96" height="56" rx="10" fill="#e6fbfd" stroke="#1fd0e3" stroke-width="2"/>
+    <text x="578" y="117" text-anchor="middle" fill="#0b7d8a" font-size="13" font-weight="600">DR Site</text>
+    <rect x="330" y="204" width="120" height="56" rx="10" fill="#eef8d8" stroke="#92d523" stroke-width="2"/>
+    <text x="390" y="237" text-anchor="middle" fill="#3f5e0a" font-size="14" font-weight="600">Storage Pool</text>
+    <rect x="120" y="204" width="130" height="56" rx="10" fill="#ffffff" stroke="#bfbfbf" stroke-width="2"/>
+    <text x="185" y="237" text-anchor="middle" fill="#5d5d5d" font-size="13" font-weight="600">Edge Network</text>
+  </g>
+</svg>

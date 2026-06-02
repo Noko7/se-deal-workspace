@@ -1,3 +1,4 @@
+import { CalendarDays, UploadCloud } from "lucide-react";
 import { uploadArtifactAction } from "@/lib/actions";
 import { getDashboardData } from "@/lib/data";
 import { shortDateTime } from "@/lib/format";
@@ -13,7 +14,11 @@ export default async function CalendarPage() {
 
   return (
     <div className="space-y-6">
-      <Card title="Calendar" subtitle="Upcoming meetings with direct deal context, artifacts, and quick prep visibility.">
+      <Card
+        title="Calendar"
+        subtitle="Upcoming meetings with direct deal context, artifacts, and quick prep visibility."
+        icon={<CalendarDays className="h-5 w-5" />}
+      >
         <SectionHeader
           title="Upcoming Meetings"
           subtitle="Open each meeting to review associated assets, deal status, and preview availability."
@@ -27,10 +32,16 @@ export default async function CalendarPage() {
           ) : (
             Object.entries(grouped).map(([date, dayMeetings]) => (
               <div key={date} className="space-y-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-charcoal-500">{date}</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-charcoal-600">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-iris-500" />
+                  {date}
+                </h3>
                 <div className="space-y-4">
                   {dayMeetings.map((meeting) => (
-                    <article key={meeting.id} className="rounded-lg border border-charcoal-200 bg-white p-4 shadow-sm">
+                    <article
+                      key={meeting.id}
+                      className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm"
+                    >
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <h4 className="text-lg font-semibold">{meeting.subject}</h4>
@@ -41,7 +52,7 @@ export default async function CalendarPage() {
                             Deal: <span className="font-medium">{meeting.deal.name}</span> ({meeting.deal.stage})
                           </p>
                         </div>
-                        <StatusPill tone="good">{meeting.assets.length} linked assets</StatusPill>
+                        <StatusPill tone="info">{meeting.assets.length} linked assets</StatusPill>
                       </div>
                       <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                         {meeting.assets.length === 0 ? (
@@ -52,7 +63,7 @@ export default async function CalendarPage() {
                         ) : (
                           meeting.assets.map((asset) => (
                             <div key={asset.id} className="rounded-md border border-charcoal-200 p-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-500">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-iris-600">
                                 {asset.type.replaceAll("_", " ")}
                               </p>
                               {asset.previewImageUri ? (
@@ -85,7 +96,11 @@ export default async function CalendarPage() {
         </div>
       </Card>
 
-      <Card title="Artifact Ingestion" subtitle="Manual upload fallback for Wave 1 with clearer required fields and safe defaults.">
+      <Card
+        title="Artifact Ingestion"
+        subtitle="Manual upload fallback for Wave 1 with clearer required fields and safe defaults."
+        icon={<UploadCloud className="h-5 w-5" />}
+      >
         <SectionHeader
           title="Attach Asset"
           subtitle="Use this when automated connectors are unavailable. Start with deal and asset type."

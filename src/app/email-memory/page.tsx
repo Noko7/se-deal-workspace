@@ -1,3 +1,4 @@
+import { Mail } from "lucide-react";
 import { assignEmailAction } from "@/lib/actions";
 import { getDashboardData } from "@/lib/data";
 import { shortDateTime } from "@/lib/format";
@@ -8,7 +9,11 @@ export default async function EmailMemoryPage() {
 
   return (
     <div className="space-y-6">
-      <Card title="Email Memory" subtitle="Assign inbox items to deals so extracted context enriches long-term deal memory.">
+      <Card
+        title="Email Memory"
+        subtitle="Assign inbox items to deals so extracted context enriches long-term deal memory."
+        icon={<Mail className="h-5 w-5" />}
+      >
         <SectionHeader
           title="Unassigned Inbox Queue"
           subtitle="Review inbound customer context and link each message to the correct deal."
@@ -21,7 +26,7 @@ export default async function EmailMemoryPage() {
             />
           ) : null}
           {unassignedEmails.map((email) => (
-            <article key={email.id} className="rounded-lg border border-charcoal-200 bg-white p-4 shadow-sm">
+            <article key={email.id} className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="font-semibold">{email.subject}</h3>

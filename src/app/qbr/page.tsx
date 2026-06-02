@@ -1,3 +1,4 @@
+import { Presentation } from "lucide-react";
 import { updateQbrChecklistAction, uploadQbrAction } from "@/lib/actions";
 import { getDashboardData, getDealWorkspace } from "@/lib/data";
 import { ActionBar, Button, Card, EmptyState, FormRow, SectionHeader, StatusPill } from "@/components/ui";
@@ -12,6 +13,7 @@ export default async function QbrPage() {
       <Card
         title="QBR Deck Builder"
         subtitle="Guide-driven workflow aligned with the Jan 2026 Health Check Guide and manual fallback support."
+        icon={<Presentation className="h-5 w-5" />}
       >
         <SectionHeader
           title="QBR Workflow"
@@ -63,7 +65,7 @@ export default async function QbrPage() {
                   <form
                     key={item.id}
                     action={updateQbrChecklistAction}
-                    className="space-y-2 rounded-lg border border-charcoal-200 bg-white p-3 shadow-sm"
+                    className="space-y-2 rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-3 shadow-sm"
                   >
                     <input type="hidden" name="itemId" value={item.id} />
                     <div className="flex items-center justify-between">

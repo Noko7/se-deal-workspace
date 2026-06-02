@@ -1,3 +1,4 @@
+import { Briefcase, Cpu } from "lucide-react";
 import { addRequirementAction, decideRecommendationAction, generateRecommendationAction } from "@/lib/actions";
 import { getDashboardData } from "@/lib/data";
 import { parseJsonArray } from "@/lib/format";
@@ -11,6 +12,7 @@ export default async function DealsPage() {
       <Card
         title="Current Deals"
         subtitle="Pipeline view backed by internal records. Salesforce parity will plug into this model in Wave 2."
+        icon={<Briefcase className="h-5 w-5" />}
       >
         <SectionHeader
           title="Pipeline Snapshot"
@@ -18,10 +20,13 @@ export default async function DealsPage() {
         />
         <div className="grid gap-4 lg:grid-cols-3">
           {["Discovery", "Design", "Validation"].map((stage) => (
-            <div key={stage} className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-3 shadow-sm">
+            <div key={stage} className="rounded-lg border border-charcoal-200 border-t-2 border-t-iris-400 bg-charcoal-50 p-3 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-charcoal-500">{stage}</h3>
-                <StatusPill tone="neutral">{deals.filter((deal) => deal.stage === stage).length}</StatusPill>
+                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-charcoal-600">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-iris-500" />
+                  {stage}
+                </h3>
+                <StatusPill tone="info">{deals.filter((deal) => deal.stage === stage).length}</StatusPill>
               </div>
               <div className="space-y-3">
                 {deals.filter((deal) => deal.stage === stage).length === 0 ? (
@@ -30,7 +35,7 @@ export default async function DealsPage() {
                   deals
                     .filter((deal) => deal.stage === stage)
                     .map((deal) => (
-                      <div key={deal.id} className="rounded-md border border-charcoal-200 bg-white p-3">
+                      <div key={deal.id} className="rounded-md border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-3">
                         <p className="font-semibold">{deal.name}</p>
                         <p className="text-xs text-charcoal-500">{deal.accountName}</p>
                         <p className="mt-2 text-xs text-charcoal-600">{deal.nextAction}</p>
@@ -44,7 +49,11 @@ export default async function DealsPage() {
         </div>
       </Card>
 
-      <Card title="Environment Requirements + AI Suggested Build" subtitle="Capture deal constraints and produce explainable sizing guidance.">
+      <Card
+        title="Environment Requirements + AI Suggested Build"
+        subtitle="Capture deal constraints and produce explainable sizing guidance."
+        icon={<Cpu className="h-5 w-5" />}
+      >
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4 rounded-lg border border-charcoal-200 bg-charcoal-50 p-4">
             <SectionHeader
@@ -106,12 +115,14 @@ export default async function DealsPage() {
             ) : (
               deals.flatMap((deal) =>
                 deal.recommendations.map((recommendation) => (
-                  <div key={recommendation.id} className="rounded-md border border-charcoal-200 bg-white p-3 shadow-sm">
+                  <div key={recommendation.id} className="rounded-md border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-3 shadow-sm">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold">{deal.name}</p>
                       <RecommendationStatusPill status={recommendation.decision} />
                     </div>
-                    <p className="mt-2 text-xs text-charcoal-600">Confidence: {(recommendation.confidenceScore * 100).toFixed(0)}%</p>
+                    <p className="mt-2 text-xs text-charcoal-600">
+                      Confidence: <span className="font-semibold text-iris-600">{(recommendation.confidenceScore * 100).toFixed(0)}%</span>
+                    </p>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-charcoal-700">
                       {parseJsonArray(recommendation.ruleMatches).map((rule) => (
                         <li key={rule}>{rule}</li>

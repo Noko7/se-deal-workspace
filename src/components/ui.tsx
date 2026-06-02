@@ -4,17 +4,26 @@ import { ReactNode } from "react";
 export function Card({
   title,
   subtitle,
+  icon,
   children,
 }: {
   title: string;
   subtitle?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-charcoal-200 bg-white p-5 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-charcoal-900">{title}</h2>
-        {subtitle ? <p className="text-sm text-charcoal-500">{subtitle}</p> : null}
+    <section className="overflow-hidden rounded-xl border border-charcoal-200 border-t-4 border-t-iris-500 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start gap-3">
+        {icon ? (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-iris-50 text-iris-600">
+            {icon}
+          </span>
+        ) : null}
+        <div>
+          <h2 className="text-base font-semibold text-charcoal-900">{title}</h2>
+          {subtitle ? <p className="text-sm text-charcoal-500">{subtitle}</p> : null}
+        </div>
       </div>
       {children}
     </section>
@@ -32,9 +41,12 @@ export function SectionHeader({
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-      <div>
-        <h3 className="text-base font-semibold text-charcoal-900">{title}</h3>
-        {subtitle ? <p className="text-sm text-charcoal-500">{subtitle}</p> : null}
+      <div className="flex items-start gap-2.5">
+        <span aria-hidden className="mt-0.5 h-5 w-1.5 shrink-0 rounded-full bg-iris-500" />
+        <div>
+          <h3 className="text-base font-semibold text-charcoal-900">{title}</h3>
+          {subtitle ? <p className="text-sm text-charcoal-500">{subtitle}</p> : null}
+        </div>
       </div>
       {action ? <div>{action}</div> : null}
     </div>
@@ -85,13 +97,14 @@ export function StatusPill({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "good" | "warning" | "bad";
+  tone?: "neutral" | "good" | "warning" | "bad" | "info";
 }) {
   const toneClass = {
     neutral: "bg-charcoal-100 text-charcoal-700",
     good: "bg-[#eef8d8] text-[#3f5e0a]",
     warning: "bg-[#ffe7e0] text-[#9a3b27]",
     bad: "bg-rose-100 text-rose-800",
+    info: "bg-iris-100 text-iris-700",
   }[tone];
 
   return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${toneClass}`}>{children}</span>;

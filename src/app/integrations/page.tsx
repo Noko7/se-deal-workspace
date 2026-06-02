@@ -1,3 +1,4 @@
+import { Plug } from "lucide-react";
 import { integrationStatusAction, integrationTestAction } from "@/lib/actions";
 import { integrationAdapters } from "@/lib/adapters";
 import { getDashboardData } from "@/lib/data";
@@ -11,11 +12,12 @@ export default async function IntegrationsPage() {
       <Card
         title="Integrations Setup"
         subtitle="Wave 1 uses mock adapters and setup guidance; switch to live credentials in Wave 2."
+        icon={<Plug className="h-5 w-5" />}
       >
         <SectionHeader
           title="Connector Catalog"
           subtitle="Track connector health and run setup checks before enabling live credentials."
-          action={<StatusPill tone="neutral">{integrations.length} connectors</StatusPill>}
+          action={<StatusPill tone="info">{integrations.length} connectors</StatusPill>}
         />
         <div className="space-y-4">
           {integrations.length === 0 ? (
@@ -27,7 +29,7 @@ export default async function IntegrationsPage() {
           {integrations.map((integration) => {
             const adapter = integrationAdapters[integration.integrationKey as keyof typeof integrationAdapters];
             return (
-              <article key={integration.id} className="rounded-lg border border-charcoal-200 bg-white p-4 shadow-sm">
+              <article key={integration.id} className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{integration.displayName}</h3>

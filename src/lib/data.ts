@@ -1,4 +1,4 @@
-import { IntegrationStatus, PreviewStatus, RecommendationDecision } from "@prisma/client";
+import { IntegrationStatus, NoteRole, PreviewStatus, RecommendationDecision } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export async function getDashboardData() {
@@ -81,42 +81,8 @@ export async function getAccountsOverview() {
   });
 }
 
-function buildAccountSummary(deal: {
-  accountName: string;
-  name: string;
-  stage: string;
-  owner: string;
-  nextAction: string;
-  latestSignal: string | null;
-  meetings: { id: string }[];
-  notes: { body: string }[];
-  assets: { type: string }[];
-}): string {
-  const meetingCount = deal.meetings.length;
-  const noteCount = deal.notes.length;
-  const presentations = deal.assets.filter((asset) => asset.type === "PRESENTATION").length;
-  const whiteboards = deal.assets.filter((asset) => asset.type === "WHITEBOARD").length;
-  const latestNote = deal.notes[0];
-
-  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
-  const parts = [
-    `${deal.accountName} is in the ${deal.stage} stage on "${deal.name}", owned by ${deal.owner}.`,
-    `${plural(meetingCount, "meeting")} tracked with ${plural(noteCount, "note")} captured, plus ${plural(
-      presentations,
-      "presentation",
-    )} and ${plural(whiteboards, "whiteboard")} on file.`,
-  ];
-  if (deal.latestSignal) parts.push(`Latest signal: ${deal.latestSignal}`);
-  if (latestNote) {
-    const snippet = latestNote.body.length > 160 ? `${latestNote.body.slice(0, 160).trimEnd()}…` : latestNote.body;
-    parts.push(`Most recent note: "${snippet}"`);
-  }
-  parts.push(`Next action: ${deal.nextAction}.`);
-  return parts.join(" ");
-}
-
 export async function getAccountDetail(dealId: string) {
-  const deal = await prisma.deal.findUnique({
+  return prisma.deal.findUnique({
     where: { id: dealId },
     include: {
       meetings: {
@@ -136,15 +102,12 @@ export async function getAccountDetail(dealId: string) {
       recommendations: { orderBy: { createdAt: "desc" } },
     },
   });
-
-  if (!deal) return null;
-
-  return { deal, summary: buildAccountSummary(deal) };
 }
 
 export async function createNote(input: {
   dealId: string;
   meetingId?: string;
+  role: NoteRole;
   body: string;
   author: string;
 }) {
@@ -152,6 +115,7 @@ export async function createNote(input: {
     data: {
       dealId: input.dealId,
       meetingId: input.meetingId || null,
+      role: input.role,
       body: input.body,
       author: input.author,
     },

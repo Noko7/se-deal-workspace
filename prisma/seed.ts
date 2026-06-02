@@ -1,4 +1,4 @@
-import { PrismaClient, IntegrationStatus, AssetType, PreviewStatus, QBRItemStatus } from "@prisma/client";
+import { PrismaClient, IntegrationStatus, AssetType, PreviewStatus, QBRItemStatus, Prisma } from "@prisma/client";
 import { addDays, addHours } from "date-fns";
 
 const prisma = new PrismaClient();
@@ -251,13 +251,31 @@ async function main() {
       {
         dealId: alphaDeal.id,
         meetingId: acmeKickoffMeeting.id,
+        role: "SE",
         author: "lizi.singletary@nutanix.com",
         body:
           "Kickoff covered current 3-node cluster running hot on storage. CIO wants a refresh plan before budget close. Flagged no new rack space this quarter.",
       },
       {
         dealId: alphaDeal.id,
+        meetingId: acmeKickoffMeeting.id,
+        role: "AE",
+        author: "sam.carter@nutanix.com",
+        body:
+          "CIO is the economic buyer and budget closes end of quarter. Competitive pressure from incumbent - need to move fast on the proposal.",
+      },
+      {
+        dealId: alphaDeal.id,
+        meetingId: acmeKickoffMeeting.id,
+        role: "SAM",
+        author: "dana.whitfield@nutanix.com",
+        body:
+          "Existing subscription renews in 5 months. Good opportunity to bundle the refresh with an early renewal.",
+      },
+      {
+        dealId: alphaDeal.id,
         meetingId: acmeMeeting.id,
+        role: "SE",
         author: "lizi.singletary@nutanix.com",
         body:
           "QBR prep: confirmed DR is the top priority. Walked through Acme_QBR_Deck_Q1 slide 6 on async DR. Action: pull updated sizing before the readout.",
@@ -265,28 +283,48 @@ async function main() {
       {
         dealId: alphaDeal.id,
         meetingId: null,
+        role: "SE",
         author: "lizi.singletary@nutanix.com",
         body:
-          "Account-level note: champion is the IT Ops lead; CIO is economic buyer. Sensitive to datacenter footprint - lead with node density story.",
+          "Account-level note: champion is the IT Ops lead. Sensitive to datacenter footprint - lead with node density story.",
       },
       {
         dealId: bravoDeal.id,
         meetingId: betaMeeting.id,
+        role: "SE",
         author: "jordan.kim@nutanix.com",
         body:
           "Design review: customer comparing sync vs async replication. They want RPO under 15 minutes for the core banking tier. Need WAN bandwidth numbers.",
       },
       {
+        dealId: bravoDeal.id,
+        meetingId: betaMeeting.id,
+        role: "AE",
+        author: "marcus.lee@nutanix.com",
+        body:
+          "Budget is approved for DR modernization this fiscal year. Decision committee meets in two weeks - aiming for a proposal before then.",
+      },
+      {
         dealId: gammaDeal.id,
         meetingId: gammaPocMeeting.id,
+        role: "SE",
         author: "priya.nadar@nutanix.com",
         body:
           "POC readout went well - VDI density hit target with headroom. Security team raised questions about segmentation; see Gamma VDI Reference Architecture.",
       },
       {
         dealId: gammaDeal.id,
+        meetingId: gammaPocMeeting.id,
+        role: "SAM",
+        author: "sofia.reyes@nutanix.com",
+        body:
+          "Customer's current term ends soon. Validation success sets up a multi-year subscription expansion.",
+      },
+      {
+        dealId: gammaDeal.id,
         meetingId: null,
-        author: "priya.nadar@nutanix.com",
+        role: "AE",
+        author: "marcus.lee@nutanix.com",
         body:
           "Account-level note: deal is in final validation. Remaining blocker is security sign-off. Procurement is ready once that clears.",
       },
@@ -356,13 +394,29 @@ async function main() {
     "Consolidating multiple legacy clusters.",
     "Exploring hybrid cloud bursting options.",
   ];
-  const noteBodies = [
-    "Customer confirmed budget is approved for this fiscal year.",
+  const seNoteBodies = [
     "Technical team is comparing us against the incumbent vendor.",
     "Champion wants a reference architecture before the next review.",
     "Security team flagged network segmentation requirements.",
-    "Procurement is ready once technical validation completes.",
     "Customer is interested in mixed-workload consolidation.",
+    "Validated node density assumptions against current inventory.",
+    "Need to confirm WAN bandwidth before finalizing the DR design.",
+  ];
+  const aeNoteBodies = [
+    "Budget is approved for this fiscal year - aiming to close this quarter.",
+    "Economic buyer is the VP of Infrastructure; champion is the lead architect.",
+    "Competitive pressure from the incumbent - need a strong business case.",
+    "Decision committee meets in two weeks; proposal is in progress.",
+    "Pricing discussion scheduled after the technical validation.",
+    "Executive sponsor is engaged and supportive of the direction.",
+  ];
+  const samNoteBodies = [
+    "Current subscription renews in a few months - good expansion timing.",
+    "Opportunity to bundle the refresh with an early renewal.",
+    "Customer health is strong; low churn risk this cycle.",
+    "Adoption of core features is high - room to grow into add-ons.",
+    "Renewal sets up a multi-year subscription expansion.",
+    "Tracking utilization to right-size the next subscription term.",
   ];
 
   for (let i = 0; i < fakeCompanies.length; i++) {
@@ -417,7 +471,7 @@ async function main() {
       },
     });
 
-    const assetData = [
+    const assetData: Prisma.MeetingAssetCreateManyInput[] = [
       {
         meetingId: upcomingMeeting.id,
         dealId: deal.id,
@@ -454,14 +508,30 @@ async function main() {
         {
           dealId: deal.id,
           meetingId: pastMeeting.id,
+          role: "SE",
           author: ownerEmail,
-          body: noteBodies[i % noteBodies.length],
+          body: seNoteBodies[i % seNoteBodies.length],
+        },
+        {
+          dealId: deal.id,
+          meetingId: pastMeeting.id,
+          role: "AE",
+          author: `${fakeOwners[(i + 3) % fakeOwners.length].toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`,
+          body: aeNoteBodies[i % aeNoteBodies.length],
+        },
+        {
+          dealId: deal.id,
+          meetingId: upcomingMeeting.id,
+          role: "SE",
+          author: ownerEmail,
+          body: `Prep for ${stage} sync: ${signals[(i + 1) % signals.length]}`,
         },
         {
           dealId: deal.id,
           meetingId: null,
-          author: ownerEmail,
-          body: `Account-level note: ${company} is in ${stage}. ${signals[(i + 1) % signals.length]}`,
+          role: "SAM",
+          author: `${fakeOwners[(i + 5) % fakeOwners.length].toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`,
+          body: samNoteBodies[i % samNoteBodies.length],
         },
       ],
     });

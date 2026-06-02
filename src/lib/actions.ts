@@ -1,6 +1,6 @@
 "use server";
 
-import { IntegrationStatus, RecommendationDecision } from "@prisma/client";
+import { IntegrationStatus, NoteRole, RecommendationDecision } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import {
   assignEmailToDeal,
@@ -110,9 +110,13 @@ export async function addNoteAction(formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   if (!dealId || !body) return;
 
+  const roleInput = String(formData.get("role") ?? "SE");
+  const role = (["SE", "AE", "SAM"].includes(roleInput) ? roleInput : "SE") as NoteRole;
+
   await createNote({
     dealId,
     meetingId: formData.get("meetingId") ? String(formData.get("meetingId")) : undefined,
+    role,
     body,
     author: "se.workspace@nutanix.com",
   });

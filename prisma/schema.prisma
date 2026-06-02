@@ -41,6 +41,12 @@ enum QBRItemStatus {
   DONE
 }
 
+enum NoteRole {
+  SE
+  AE
+  SAM
+}
+
 model Deal {
   id                  String                @id @default(cuid())
   name                String
@@ -225,6 +231,7 @@ model MeetingNote {
   id         String   @id @default(cuid())
   dealId     String
   meetingId  String?
+  role       NoteRole @default(SE)
   author     String
   body       String
   createdAt  DateTime @default(now())

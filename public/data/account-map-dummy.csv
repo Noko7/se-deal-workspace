@@ -1,0 +1,31 @@
+Account Name,Account Executive,System Engineer,Theater,Region,Sub-Region,Vertical,Last Sales,Country,State,City,Street,Active Cluster Count,Total Cluster Count,CPU Core Count (Active Clusters),VM Count,Latitude,Longitude
+Acme Health West,Jordan Lee,Alex Johnson,AMER,West,Pacific,Healthcare,1450000,USA,CA,San Francisco,1 Market St,6,9,384,1260,37.7749,-122.4194
+Acme Health South,Jordan Lee,Alex Johnson,AMER,South,Texas,Healthcare,970000,USA,TX,Austin,200 Congress Ave,4,6,256,840,30.2672,-97.7431
+Beacon Financial NYC,Riley Kim,Morgan Patel,AMER,East,Northeast,Finance,2310000,USA,NY,New York,350 5th Ave,9,13,576,1975,40.7128,-74.006
+Beacon Financial MidAtlantic,Riley Kim,Morgan Patel,AMER,East,Mid-Atlantic,Finance,1180000,USA,PA,Philadelphia,1735 Market St,5,8,320,1040,39.9526,-75.1652
+Summit Retail Northwest,Taylor Nguyen,Casey Rivera,AMER,West,Northwest,Retail,830000,USA,WA,Seattle,1201 3rd Ave,3,5,192,610,47.6062,-122.3321
+Summit Retail Mountain,Taylor Nguyen,Casey Rivera,AMER,West,Mountain,Retail,910000,USA,CO,Denver,1700 Lincoln St,4,6,224,720,39.7392,-104.9903
+Delta Energy Gulf,Chris Gomez,Jamie Brooks,AMER,South,Gulf,Energy,1670000,USA,LA,New Orleans,201 St Charles Ave,6,8,352,1140,29.9511,-90.0715
+Delta Energy Atlantic,Chris Gomez,Jamie Brooks,AMER,East,Southeast,Energy,1210000,USA,GA,Atlanta,191 Peachtree St NE,4,7,256,860,33.749,-84.388
+Northstar Public Sector,Sam Carter,Drew Foster,AMER,Central,Midwest,Public Sector,2580000,USA,IL,Chicago,233 S Wacker Dr,10,14,640,2140,41.8781,-87.6298
+Northstar Transit,Sam Carter,Drew Foster,AMER,Central,Great Lakes,Transportation,990000,USA,MI,Detroit,500 Woodward Ave,4,6,240,790,42.3314,-83.0458
+Pioneer Manufacturing South,Leslie Park,Ryan Chen,AMER,South,Southeast,Manufacturing,1090000,USA,NC,Charlotte,600 S College St,5,7,288,930,35.2271,-80.8431
+Pioneer Manufacturing Plains,Leslie Park,Ryan Chen,AMER,Central,Plains,Manufacturing,860000,USA,MO,Kansas City,1201 Walnut St,3,5,192,600,39.0997,-94.5786
+Bluewave Education Pacific,Dakota Shah,Quinn Turner,AMER,West,Pacific,Education,740000,USA,CA,San Diego,600 B St,3,4,176,520,32.7157,-117.1611
+Bluewave Education Northeast,Dakota Shah,Quinn Turner,AMER,East,Northeast,Education,790000,USA,MA,Boston,100 Summer St,3,5,184,560,42.3601,-71.0589
+Meridian Telecom Southwest,Hayden Cruz,Parker White,AMER,South,Southwest,Telecom,1880000,USA,AZ,Phoenix,2 N Central Ave,7,10,448,1520,33.4484,-112.074
+Meridian Telecom Florida,Hayden Cruz,Parker White,AMER,South,Florida,Telecom,1630000,USA,FL,Miami,701 Brickell Ave,6,9,384,1280,25.7617,-80.1918
+Apex Logistics California,Jamie Lin,Skylar Reed,AMER,West,Pacific,Logistics,1270000,USA,CA,Los Angeles,333 S Grand Ave,5,8,304,1020,34.0522,-118.2437
+Apex Logistics MidSouth,Jamie Lin,Skylar Reed,AMER,South,Tennessee,Logistics,920000,USA,TN,Nashville,501 Commerce St,4,6,224,710,36.1627,-86.7816
+Evergreen Hospitality West,Robin Ellis,Cameron Diaz,AMER,West,Mountain,Hospitality,680000,USA,UT,Salt Lake City,50 W Broadway,2,4,128,390,40.7608,-111.891
+Evergreen Hospitality East,Robin Ellis,Cameron Diaz,AMER,East,Mid-Atlantic,Hospitality,710000,USA,VA,Richmond,1001 E Main St,3,4,160,470,37.5407,-77.436
+Atlas Media Northeast,Blake Young,Reese Bailey,AMER,East,Northeast,Media,980000,USA,NJ,Newark,1 Gateway Center,4,6,240,760,40.7357,-74.1724
+Atlas Media South,Blake Young,Reese Bailey,AMER,South,Florida,Media,910000,USA,FL,Orlando,255 S Orange Ave,4,5,208,690,28.5383,-81.3792
+Vertex Biotech Bay,Ryan Flores,Logan Price,AMER,West,Pacific,Biotech,2140000,USA,CA,San Jose,225 W Santa Clara St,8,11,512,1680,37.3382,-121.8863
+Vertex Biotech Triangle,Ryan Flores,Logan Price,AMER,South,Southeast,Biotech,1410000,USA,NC,Raleigh,150 Fayetteville St,5,8,320,1060,35.7796,-78.6382
+Metro Insurance Plains,Casey Hall,Taylor Scott,AMER,Central,Plains,Insurance,1170000,USA,NE,Omaha,100 S 19th St,4,6,256,800,41.2565,-95.9345
+Metro Insurance Great Lakes,Casey Hall,Taylor Scott,AMER,Central,Great Lakes,Insurance,1260000,USA,OH,Columbus,41 S High St,5,7,288,920,39.9612,-82.9988
+Harbor Consumer Goods Northwest,Jordan Clark,Avery Morgan,AMER,West,Northwest,Consumer Goods,1030000,USA,OR,Portland,121 SW Salmon St,4,6,240,780,45.5152,-122.6784
+Harbor Consumer Goods Northeast,Jordan Clark,Avery Morgan,AMER,East,Northeast,Consumer Goods,1110000,USA,CT,Hartford,1 State St,4,6,232,760,41.7658,-72.6734
+Pulse Health Midwest,Kendall Brown,Emerson Gray,AMER,Central,Midwest,Healthcare,1360000,USA,MN,Minneapolis,80 S 8th St,5,8,320,1070,44.9778,-93.265
+Pulse Health Gulf,Kendall Brown,Emerson Gray,AMER,South,Gulf,Healthcare,1290000,USA,TX,Houston,910 Louisiana St,5,7,304,990,29.7604,-95.3698

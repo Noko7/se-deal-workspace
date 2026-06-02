@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { ReactNode, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Briefcase, CalendarDays, Mail, Plug, Presentation, Users } from "lucide-react";
+import { Briefcase, CalendarDays, Mail, MapPinned, Plug, Presentation, Users } from "lucide-react";
 
 const navigation = [
   { href: "/", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
   { href: "/deals", label: "Current Deals", description: "Pipeline and build recommendations", icon: Briefcase },
   { href: "/accounts", label: "My Accounts", description: "Customer history, notes, and assets", icon: Users },
+  { href: "/account-map", label: "Account Map", description: "Geo coverage by region and SE", icon: MapPinned },
   { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },

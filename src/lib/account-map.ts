@@ -117,8 +117,21 @@ function parseCsv(csv: string): AccountMapRecord[] {
   });
 }
 
+// Resolve the account data file. In production set ACCOUNT_DATA_FILE to the
+// path of the real (sensitive) customer file, e.g.
+// /etc/se-deal-workspace/accounts.csv. That file lives OUTSIDE the repo and is
+// never committed. When the env var is unset we fall back to the non-sensitive
+// sample bundled for local development. The file is read server-side only and
+// is intentionally NOT under public/ so it is never served as a static asset.
+function resolveDataPath(): string {
+  const configured = process.env.ACCOUNT_DATA_FILE?.trim();
+  if (configured) {
+    return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+  }
+  return path.join(process.cwd(), "data", "account-map-sample.csv");
+}
+
 export async function getAccountMapRecords() {
-  const csvPath = path.join(process.cwd(), "public", "data", "account-map-dummy.csv");
-  const csv = await fs.readFile(csvPath, "utf8");
+  const csv = await fs.readFile(resolveDataPath(), "utf8");
   return parseCsv(csv);
 }

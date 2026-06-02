@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Sensitive customer data — NEVER commit real account data.
+# Only the non-sensitive data/account-map-sample.csv is tracked.
+/secure-data/
+/data/*.csv
+!/data/account-map-sample.csv
 
 # vercel
 .vercel

@@ -1,26 +1,16 @@
-import { Briefcase, Cpu } from "lucide-react";
+import { Cpu } from "lucide-react";
 import { addRequirementAction, decideRecommendationAction, generateRecommendationAction } from "@/lib/actions";
-import { getDashboardData, getPipelineDeals } from "@/lib/data";
+import { getDashboardData } from "@/lib/data";
 import { parseJsonArray } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, FormRow, RecommendationStatusPill, SectionHeader } from "@/components/ui";
-import { PipelineBoard } from "@/components/pipeline-board";
 
 export const dynamic = "force-dynamic";
 
 export default async function DealsPage() {
   const { deals } = await getDashboardData();
-  const pipelineDeals = await getPipelineDeals();
 
   return (
     <div className="space-y-6">
-      <Card
-        title="Current Deals"
-        subtitle="Technical Close pipeline synced from Salesforce (mock data until the connector is live). Each column is a Technical Close Status; 100% means the SE's technical work is complete."
-        icon={<Briefcase className="h-5 w-5" />}
-      >
-        <PipelineBoard deals={pipelineDeals} />
-      </Card>
-
       <Card
         title="Environment Requirements + AI Suggested Build"
         subtitle="Capture deal constraints and produce explainable sizing guidance."

@@ -13,7 +13,7 @@ import {
 import { addNoteAction } from "@/lib/actions";
 import { getAccountDetail } from "@/lib/data";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
-import { ActionBar, Button, Card, EmptyState, FormRow, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
+import { ActionBar, Button, Card, EmptyState, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +106,7 @@ function PillarColumn({
             rows={2}
             placeholder={`Add ${pillar.role} note`}
             required
-            className="text-sm"
+            className="w-full text-sm"
             aria-label={`Add ${pillar.full} note`}
           />
           <Button type="submit" tone="secondary">
@@ -198,23 +198,24 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           <SectionHeader title="Add Account Note" subtitle="Capture a general note (not tied to a meeting) for any pillar." />
           <form action={addNoteAction} className="space-y-3">
             <input type="hidden" name="dealId" value={deal.id} />
-            <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
-              <FormRow label="Pillar" htmlFor="account-note-role">
-                <select id="account-note-role" name="role" defaultValue="SE">
-                  <option value="SE">SE - Systems Engineer</option>
-                  <option value="AE">AE - Account Executive</option>
-                  <option value="SAM">SAM - Subscription Account Manager</option>
-                </select>
-              </FormRow>
-              <FormRow label="Note" htmlFor="account-note">
-                <textarea
-                  id="account-note"
-                  name="body"
-                  rows={2}
-                  placeholder="Stakeholders, strategy, reminders, or anything to remember about this account."
-                  required
-                />
-              </FormRow>
+            <div className="space-y-1.5">
+              <label htmlFor="account-note-role">Pillar</label>
+              <select id="account-note-role" name="role" defaultValue="SE" className="w-full sm:max-w-xs">
+                <option value="SE">SE - Systems Engineer</option>
+                <option value="AE">AE - Account Executive</option>
+                <option value="SAM">SAM - Subscription Account Manager</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="account-note">Note</label>
+              <textarea
+                id="account-note"
+                name="body"
+                rows={3}
+                className="w-full"
+                placeholder="Stakeholders, strategy, reminders, or anything to remember about this account."
+                required
+              />
             </div>
             <ActionBar>
               <Button type="submit">Save Note</Button>

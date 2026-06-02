@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <img
               src="/nutanix-logo.png"
               alt="Nutanix"
-              className="h-4 w-auto shrink-0 brightness-0 invert md:h-5"
+              className="h-4 w-auto shrink-0 md:h-5"
             />
             <span className="hidden h-6 w-px bg-white/20 sm:block" aria-hidden />
             <div className="min-w-0">

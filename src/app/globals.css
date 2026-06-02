@@ -1,40 +1,86 @@
 @import "tailwindcss";
 
+/*
+  Nutanix brand system
+  - Lead with White + Charcoal Gray, use Iris Purple as a deliberate accent.
+  - Secondary colors (Aqua Blue, Mantis Green, Peach Pink) for highlights only.
+  - Primary typeface: Montserrat.
+*/
+
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #ffffff;
+  --foreground: #313131;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: "Montserrat", var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme {
+  /* Iris Purple — core accent (#7855FA = 500) */
+  --color-iris-50: #f3f0ff;
+  --color-iris-100: #e0e1ff;
+  --color-iris-200: #c6bcfe;
+  --color-iris-300: #ac9bfd;
+  --color-iris-400: #9278fb;
+  --color-iris-500: #7855fa;
+  --color-iris-600: #6d4de2;
+  --color-iris-700: #5e3fc2;
+  --color-iris-800: #5015b6;
+  --color-iris-900: #4b00aa;
+
+  /* Charcoal Gray — lead neutral (core #313131) */
+  --color-charcoal-50: #f7f7f7;
+  --color-charcoal-100: #f0f0f0;
+  --color-charcoal-200: #d7d7d7;
+  --color-charcoal-300: #bfbfbf;
+  --color-charcoal-400: #a6a6a6;
+  --color-charcoal-500: #8e8e8e;
+  --color-charcoal-600: #757575;
+  --color-charcoal-700: #5d5d5d;
+  --color-charcoal-800: #444444;
+  --color-charcoal-900: #2c2c2c;
+  --color-charcoal: #313131;
+
+  /* Secondary highlight colors */
+  --color-aqua: #1fd0e3;
+  --color-mantis: #92d523;
+  --color-peach: #ff9478;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: "Montserrat", var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 input,
 select,
 textarea {
-  @apply rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900;
+  @apply rounded-md border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
 }
 
 button {
-  @apply rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700;
+  @apply rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600;
+}
+
+button:focus-visible {
+  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+}
+
+button:disabled {
+  @apply cursor-not-allowed opacity-60;
 }
 
 label {
-  @apply text-xs font-semibold uppercase tracking-wide text-slate-500;
+  @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
 }

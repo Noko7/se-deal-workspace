@@ -1,54 +1,24 @@
 import { Briefcase, Cpu } from "lucide-react";
 import { addRequirementAction, decideRecommendationAction, generateRecommendationAction } from "@/lib/actions";
-import { getDashboardData } from "@/lib/data";
+import { getDashboardData, getPipelineDeals } from "@/lib/data";
 import { parseJsonArray } from "@/lib/format";
-import { ActionBar, Button, Card, EmptyState, FormRow, RecommendationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
+import { ActionBar, Button, Card, EmptyState, FormRow, RecommendationStatusPill, SectionHeader } from "@/components/ui";
+import { PipelineBoard } from "@/components/pipeline-board";
 
 export const dynamic = "force-dynamic";
 
 export default async function DealsPage() {
   const { deals } = await getDashboardData();
+  const pipelineDeals = await getPipelineDeals();
 
   return (
     <div className="space-y-6">
       <Card
         title="Current Deals"
-        subtitle="Pipeline view backed by internal records. Salesforce parity will plug into this model in Wave 2."
+        subtitle="Technical Close pipeline synced from Salesforce (mock data until the connector is live). Each column is a Technical Close Status; 100% means the SE's technical work is complete."
         icon={<Briefcase className="h-5 w-5" />}
       >
-        <SectionHeader
-          title="Pipeline Snapshot"
-          subtitle="Track each deal by stage and next action without leaving the workspace."
-        />
-        <div className="grid gap-4 lg:grid-cols-3">
-          {["Discovery", "Design", "Validation"].map((stage) => (
-            <div key={stage} className="rounded-lg border border-charcoal-200 border-t-2 border-t-iris-400 bg-charcoal-50 p-3 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-charcoal-600">
-                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-iris-500" />
-                  {stage}
-                </h3>
-                <StatusPill tone="info">{deals.filter((deal) => deal.stage === stage).length}</StatusPill>
-              </div>
-              <div className="space-y-3">
-                {deals.filter((deal) => deal.stage === stage).length === 0 ? (
-                  <EmptyState title={`No ${stage.toLowerCase()} deals`} description="Move deals into this stage as work progresses." />
-                ) : (
-                  deals
-                    .filter((deal) => deal.stage === stage)
-                    .map((deal) => (
-                      <div key={deal.id} className="rounded-md border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-3">
-                        <p className="font-semibold">{deal.name}</p>
-                        <p className="text-xs text-charcoal-500">{deal.accountName}</p>
-                        <p className="mt-2 text-xs text-charcoal-600">{deal.nextAction}</p>
-                        {deal.latestSignal ? <p className="mt-2 text-xs text-[#3f5e0a]">{deal.latestSignal}</p> : null}
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        <PipelineBoard deals={pipelineDeals} />
       </Card>
 
       <Card

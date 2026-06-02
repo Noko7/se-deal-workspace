@@ -33,6 +33,29 @@ export async function getDashboardData() {
   };
 }
 
+export async function getPipelineDeals() {
+  const deals = await prisma.deal.findMany({
+    orderBy: { amount: "desc" },
+    select: {
+      id: true,
+      name: true,
+      accountName: true,
+      stage: true,
+      owner: true,
+      nextAction: true,
+      amount: true,
+      technicalCloseStatus: true,
+      closeDate: true,
+      isClosed: true,
+    },
+  });
+
+  return deals.map((deal) => ({
+    ...deal,
+    closeDate: deal.closeDate ? deal.closeDate.toISOString() : null,
+  }));
+}
+
 export async function getAccountsOverview() {
   const now = new Date();
   const deals = await prisma.deal.findMany({

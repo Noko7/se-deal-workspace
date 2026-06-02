@@ -25,6 +25,14 @@ export function shortDate(value: Date): string {
   }).format(value);
 }
 
+export function formatCurrencyShort(value: number): string {
+  if (!value) return "$0";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${value}`;
+}
+
 export function relativeDay(value: Date): string {
   const now = new Date();
   const diffMs = value.getTime() - now.getTime();

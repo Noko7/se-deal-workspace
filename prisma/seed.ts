@@ -17,6 +17,8 @@ async function main() {
   await prisma.integrationConnection.deleteMany();
   await prisma.deal.deleteMany();
 
+  const now = new Date();
+
   const alphaDeal = await prisma.deal.create({
     data: {
       name: "Acme Capacity Refresh",
@@ -25,6 +27,9 @@ async function main() {
       owner: "Lizi Singletary",
       nextAction: "Finalize discovery summary before QBR",
       latestSignal: "Storage utilization sustained above 80%.",
+      amount: 420000,
+      technicalCloseStatus: "25",
+      closeDate: addDays(now, 18),
     },
   });
 
@@ -36,6 +41,9 @@ async function main() {
       owner: "Jordan Kim",
       nextAction: "Validate replication target options",
       latestSignal: "Customer evaluating async DR expansion.",
+      amount: 1150000,
+      technicalCloseStatus: "50",
+      closeDate: addDays(now, 9),
     },
   });
 
@@ -47,10 +55,11 @@ async function main() {
       owner: "Priya Nadar",
       nextAction: "Confirm POC success criteria sign-off",
       latestSignal: "POC cluster validated; awaiting security review.",
+      amount: 780000,
+      technicalCloseStatus: "99",
+      closeDate: addDays(now, 5),
     },
   });
-
-  const now = new Date();
 
   const acmeMeeting = await prisma.meeting.create({
     data: {
@@ -429,6 +438,24 @@ async function main() {
     const suffixOptions = dealSuffix[stage];
     const dealName = `${firstWord} ${suffixOptions[i % suffixOptions.length]}`;
 
+    const techStatuses = ["-", "0", "25", "50", "75", "99", "100"];
+    const technicalCloseStatus = techStatuses[i % techStatuses.length];
+    const amount = 60000 + ((i * 7) % 26) * 70000;
+
+    // Spread close dates across the current fiscal quarter, earlier in this FY, and prior FY (for All Time).
+    const bucket = i % 3;
+    let closeDate: Date;
+    let isClosed = false;
+    if (bucket === 0) {
+      closeDate = addDays(now, ((i * 3) % 40) - 18);
+    } else if (bucket === 1) {
+      closeDate = addDays(now, -(130 + i * 4));
+      isClosed = technicalCloseStatus === "100";
+    } else {
+      closeDate = addDays(now, -(400 + i * 6));
+      isClosed = i % 2 === 0;
+    }
+
     const deal = await prisma.deal.create({
       data: {
         name: dealName,
@@ -437,6 +464,10 @@ async function main() {
         owner,
         nextAction: nextActionsByStage[stage][i % 3],
         latestSignal: signals[i % signals.length],
+        amount,
+        technicalCloseStatus,
+        closeDate,
+        isClosed,
       },
     });
 

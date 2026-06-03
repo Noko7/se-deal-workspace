@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="74" fill="#7855fa"/>
+  <text x="36" y="38" fill="#ffffff" font-size="24" font-weight="700">QBR Report</text>
+  <text x="36" y="60" fill="#e0e1ff" font-size="14">CS360 health export &#183; PDF</text>
+  <rect x="540" y="22" width="64" height="30" rx="6" fill="#ffffff"/>
+  <text x="572" y="42" fill="#7855fa" font-size="13" font-weight="700" text-anchor="middle">PDF</text>
+  <rect x="36" y="104" width="360" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="132" width="300" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="160" width="332" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="188" width="240" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="430" y="104" width="174" height="160" rx="10" fill="#f3f0ff" stroke="#c6bcfe"/>
+  <rect x="452" y="214" width="22" height="34" fill="#9278fb"/>
+  <rect x="486" y="190" width="22" height="58" fill="#7855fa"/>
+  <rect x="520" y="166" width="22" height="82" fill="#6d4de2"/>
+  <rect x="554" y="142" width="22" height="106" fill="#5e3fc2"/>
+  <text x="452" y="132" fill="#5e3fc2" font-size="13" font-weight="700">Adoption trend</text>
+  <rect x="36" y="240" width="360" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="292" width="568" height="40" rx="8" fill="#eef8d8"/>
+  <text x="52" y="317" fill="#3f5e0a" font-size="14" font-weight="600">Uptime 99.9% &#183; 3 open cases &#183; renewal in 5 months</text>
+</svg>

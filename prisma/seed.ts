@@ -3,6 +3,42 @@ import { addDays, addHours } from "date-fns";
 
 const prisma = new PrismaClient();
 
+// Outlook stores the online-meeting join link on the event; we vary the platform
+// (Zoom / Teams / Google Meet) so the calendar shows the right icon per call.
+const MEETING_PLATFORMS = ["zoom", "teams", "meet"] as const;
+function joinUrlFor(index: number): string {
+  const platform = MEETING_PLATFORMS[index % MEETING_PLATFORMS.length];
+  if (platform === "zoom") return `https://nutanix.zoom.us/j/${85000000000 + index}`;
+  if (platform === "teams")
+    return `https://teams.microsoft.com/l/meetup-join/19:meeting_${index}abcd@thread.v2/0`;
+  return `https://meet.google.com/${["abc", "def", "ghi", "jkl"][index % 4]}-${1000 + index}-xyz`;
+}
+
+// Email-only external contacts (no display name on the invite) so the app
+// predicts a name from `firstname.lastname@company` and flags it "(maybe)".
+const EXTERNAL_CONTACTS = [
+  "maria.gonzalez",
+  "david.chen",
+  "priya.patel",
+  "james.okafor",
+  "sara.muller",
+  "liam.murphy",
+  "nina.rossi",
+  "omar.haddad",
+];
+function externalContactEmail(index: number, domain: string): string {
+  return `${EXTERNAL_CONTACTS[index % EXTERNAL_CONTACTS.length]}@${domain}`;
+}
+
+// Preview thumbnails for non-slide artifacts so nothing shows up as "failed".
+const FILE_PREVIEWS: Partial<Record<AssetType, string>> = {
+  COLLECTOR: "/previews/collector-export.svg",
+  RV_TOOL: "/previews/rv-tools.svg",
+  ZIP_BUNDLE: "/previews/zip-bundle.svg",
+  TEXT_BRIEF: "/previews/text-brief.svg",
+  QBR_REPORT: "/previews/report-qbr.svg",
+};
+
 async function main() {
   await prisma.meetingNote.deleteMany();
   await prisma.contextEvidence.deleteMany();
@@ -71,8 +107,10 @@ async function main() {
       attendeesJson: JSON.stringify([
         { email: "it.ops@acme.example", displayName: "Acme IT Ops" },
         { email: "sam@nutanix.com", displayName: "Sam (AM)" },
+        { email: "morgan.reyes@acme.example" },
       ]),
       externalDomains: "acme.example",
+      joinUrl: "https://nutanix.zoom.us/j/85012345678",
       dealId: alphaDeal.id,
     },
   });
@@ -87,8 +125,10 @@ async function main() {
       attendeesJson: JSON.stringify([
         { email: "it.ops@acme.example", displayName: "Acme IT Ops" },
         { email: "cio@acme.example", displayName: "Acme CIO" },
+        { email: "dana.whitfield@acme.example" },
       ]),
       externalDomains: "acme.example",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_acmekickoff@thread.v2/0",
       dealId: alphaDeal.id,
     },
   });
@@ -102,8 +142,10 @@ async function main() {
       endTime: addHours(addDays(now, 2), 1),
       attendeesJson: JSON.stringify([
         { email: "architecture@betafin.example", displayName: "Beta Architecture" },
+        { email: "robert.langley@betafin.example" },
       ]),
       externalDomains: "betafin.example",
+      joinUrl: "https://meet.google.com/abc-2048-xyz",
       dealId: bravoDeal.id,
     },
   });
@@ -118,8 +160,10 @@ async function main() {
       attendeesJson: JSON.stringify([
         { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
         { email: "security@gammahealth.example", displayName: "Gamma Security" },
+        { email: "elena.popova@gammahealth.example" },
       ]),
       externalDomains: "gammahealth.example",
+      joinUrl: "https://nutanix.zoom.us/j/85087654321",
       dealId: gammaDeal.id,
     },
   });
@@ -133,8 +177,10 @@ async function main() {
       endTime: addHours(addDays(now, 3), 1),
       attendeesJson: JSON.stringify([
         { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
+        { email: "carlos.mendoza@gammahealth.example" },
       ]),
       externalDomains: "gammahealth.example",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_gammasignoff@thread.v2/0",
       dealId: gammaDeal.id,
     },
   });
@@ -218,7 +264,9 @@ async function main() {
         title: "Beta_Collector_Export.zip",
         uri: "file://internal/beta-collector-export.zip",
         uploadedBy: "jordan.kim@nutanix.com",
-        previewStatus: PreviewStatus.FAILED,
+        previewImageUri: FILE_PREVIEWS.ZIP_BUNDLE,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
       },
       {
         meetingId: acmeKickoffMeeting.id,
@@ -488,8 +536,10 @@ async function main() {
         attendeesJson: JSON.stringify([
           { email: `it@${domain}`, displayName: `${company} IT` },
           { email: ownerEmail, displayName: owner },
+          { email: externalContactEmail(i, domain) },
         ]),
         externalDomains: domain,
+        joinUrl: joinUrlFor(i),
         dealId: deal.id,
       },
     });
@@ -503,8 +553,10 @@ async function main() {
         endTime: addHours(addDays(now, -((i % 12) + 1)), 14),
         attendeesJson: JSON.stringify([
           { email: `infra@${domain}`, displayName: `${company} Infrastructure` },
+          { email: externalContactEmail(i + 3, domain) },
         ]),
         externalDomains: domain,
+        joinUrl: joinUrlFor(i + 1),
         dealId: deal.id,
       },
     });
@@ -644,7 +696,9 @@ async function main() {
         title,
         uri: `file://internal/${domain}/${title.replace(/\s+/g, "_").toLowerCase()}`,
         uploadedBy: "se.workspace@nutanix.com",
-        previewStatus: PreviewStatus.FAILED,
+        previewImageUri: FILE_PREVIEWS[type] ?? null,
+        previewStatus: PreviewStatus.READY,
+        previewLastUpdatedAt: now,
       }) satisfies Prisma.MeetingAssetCreateManyInput;
 
     const collector = () => file(AssetType.COLLECTOR, "Collector", `${firstWord}_Collector_Export.zip`);

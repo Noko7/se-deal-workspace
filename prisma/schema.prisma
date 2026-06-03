@@ -81,6 +81,7 @@ model Meeting {
   endTime         DateTime
   attendeesJson   String
   externalDomains String
+  joinUrl         String?
   dealId          String
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt

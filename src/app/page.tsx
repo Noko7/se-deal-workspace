@@ -1,7 +1,9 @@
-import { CalendarDays, UploadCloud } from "lucide-react";
+import { CalendarDays, UploadCloud, Users } from "lucide-react";
 import { uploadArtifactAction } from "@/lib/actions";
 import { getDashboardData } from "@/lib/data";
 import { shortDateTime } from "@/lib/format";
+import { parseAttendees } from "@/lib/meeting";
+import { MeetingPlatformIcon } from "@/components/meeting-platform-icon";
 import { ActionBar, Button, Card, EmptyState, FormRow, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +41,9 @@ export default async function CalendarPage() {
                   {date}
                 </h3>
                 <div className="space-y-4">
-                  {dayMeetings.map((meeting) => (
+                  {dayMeetings.map((meeting) => {
+                    const attendees = parseAttendees(meeting.attendeesJson);
+                    return (
                     <article
                       key={meeting.id}
                       className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm"
@@ -54,8 +58,41 @@ export default async function CalendarPage() {
                             Deal: <span className="font-medium">{meeting.deal.name}</span> ({meeting.deal.stage})
                           </p>
                         </div>
-                        <StatusPill tone="info">{meeting.assets.length} linked assets</StatusPill>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <StatusPill tone="info">{meeting.assets.length} linked assets</StatusPill>
+                          <MeetingPlatformIcon joinUrl={meeting.joinUrl} />
+                        </div>
                       </div>
+
+                      <div className="mt-3">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
+                          <Users className="h-3.5 w-3.5 text-iris-500" />
+                          Attendees
+                        </p>
+                        {attendees.length === 0 ? (
+                          <p className="mt-1 text-xs text-charcoal-400">
+                            Attendee list not available (the meeting may be private).
+                          </p>
+                        ) : (
+                          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                            {attendees.map((attendee) => (
+                              <li
+                                key={attendee.email || attendee.name}
+                                className="inline-flex items-baseline gap-1.5 rounded-full border border-charcoal-200 bg-charcoal-50 px-2.5 py-1 text-xs"
+                              >
+                                <span className="font-medium text-charcoal-800">
+                                  {attendee.name}
+                                  {attendee.predicted ? (
+                                    <span className="font-normal italic text-charcoal-400"> (maybe)</span>
+                                  ) : null}
+                                </span>
+                                {attendee.email ? <span className="text-charcoal-400">{attendee.email}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
                       <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                         {meeting.assets.length === 0 ? (
                           <EmptyState
@@ -76,8 +113,11 @@ export default async function CalendarPage() {
                                   className="mt-2 h-28 w-full rounded border border-charcoal-200 object-cover"
                                 />
                               ) : (
-                                <div className="mt-2 flex h-28 items-center justify-center rounded border border-dashed border-charcoal-300 bg-charcoal-50 text-xs text-charcoal-500">
-                                  Preview unavailable
+                                <div className="mt-2 flex h-28 flex-col items-center justify-center gap-1 rounded border border-charcoal-200 bg-gradient-to-br from-iris-50 to-white text-charcoal-500">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-iris-600">
+                                    {asset.type.replaceAll("_", " ")}
+                                  </span>
+                                  <span className="text-[11px]">Generating preview…</span>
                                 </div>
                               )}
                               <p className="mt-2 line-clamp-2 text-sm font-semibold">{asset.title}</p>
@@ -90,7 +130,8 @@ export default async function CalendarPage() {
                         )}
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))

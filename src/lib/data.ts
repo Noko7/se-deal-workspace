@@ -145,6 +145,62 @@ export async function createNote(input: {
   });
 }
 
+export type MeetingOption = {
+  id: string;
+  subject: string;
+  startTime: string;
+  dealId: string;
+  accountName: string;
+};
+
+// Flat list of meetings (with their account) for the Note Formatter's
+// "attach to a meeting" picker. Most recent first.
+export async function getMeetingOptions(): Promise<MeetingOption[]> {
+  const meetings = await prisma.meeting.findMany({
+    orderBy: { startTime: "desc" },
+    select: {
+      id: true,
+      subject: true,
+      startTime: true,
+      deal: { select: { id: true, accountName: true } },
+    },
+  });
+
+  return meetings.map((meeting) => ({
+    id: meeting.id,
+    subject: meeting.subject,
+    startTime: meeting.startTime.toISOString(),
+    dealId: meeting.deal.id,
+    accountName: meeting.deal.accountName,
+  }));
+}
+
+// Attach a (formatted) note to a meeting. The note is automatically associated
+// with the meeting's account (deal) too. Returns null if the meeting is gone.
+export async function attachNoteToMeeting(input: {
+  meetingId: string;
+  body: string;
+  role: NoteRole;
+  author: string;
+}) {
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: input.meetingId },
+    select: { dealId: true },
+  });
+  if (!meeting) {
+    return null;
+  }
+  return prisma.meetingNote.create({
+    data: {
+      dealId: meeting.dealId,
+      meetingId: input.meetingId,
+      role: input.role,
+      body: input.body,
+      author: input.author,
+    },
+  });
+}
+
 export async function getDealWorkspace(dealId: string) {
   return prisma.deal.findUnique({
     where: { id: dealId },

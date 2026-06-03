@@ -7,11 +7,13 @@
     "build": "next build",
     "start": "next start",
     "deploy": "bash deploy.sh",
+    "test": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
+    "db:seed:user": "node --import tsx scripts/ensure-dev-user.ts",
     "db:reset": "prisma migrate reset --force"
   },
   "dependencies": {

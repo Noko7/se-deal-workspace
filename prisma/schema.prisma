@@ -47,6 +47,17 @@ enum NoteRole {
   SAM
 }
 
+// Application user for the login / signup flow. Passwords are stored as a
+// scrypt hash (see src/lib/auth.ts); the plaintext is never persisted.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model Deal {
   id                  String                @id @default(cuid())
   name                String

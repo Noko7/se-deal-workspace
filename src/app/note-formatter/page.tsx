@@ -11,7 +11,7 @@ export default function NoteFormatterPage() {
     <div className="space-y-6">
       <Card
         title="Note Formatter"
-        subtitle="Turn raw notes into a clean implementation plan with helper tasks and open questions — formatted by your local LLM (configured in Integrations), with an instant offline fallback."
+        subtitle="Turn raw notes into clean Markdown — an implementation plan or a structured meeting summary — formatted by your local LLM (configured in Integrations), with an instant offline fallback."
         icon={<NotebookPen className="h-5 w-5" />}
       >
         <NoteFormatterTool />

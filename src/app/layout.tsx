@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
-import { AppShell } from "@/components/app-shell";
+import { AppShell, type SessionUser } from "@/components/app-shell";
 import { ENV_COOKIE, resolveEnvironmentId } from "@/lib/environment";
 import { THEME_COOKIE, resolveTheme, type Theme } from "@/lib/theme";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "SE Deal Workspace",
@@ -18,6 +19,8 @@ export default async function RootLayout({
   const store = await cookies();
   const initialEnv = resolveEnvironmentId(store.get(ENV_COOKIE)?.value);
   const theme: Theme = resolveTheme(store.get(THEME_COOKIE)?.value);
+  const session = verifySessionToken(store.get(SESSION_COOKIE)?.value);
+  const user: SessionUser | null = session ? { email: session.email, name: session.name } : null;
   return (
     <html lang="en" className={`h-full antialiased${theme === "dark" ? " dark" : ""}`}>
       <head>
@@ -31,7 +34,9 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full">
-        <AppShell initialEnv={initialEnv} initialTheme={theme}>{children}</AppShell>
+        <AppShell initialEnv={initialEnv} initialTheme={theme} user={user}>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

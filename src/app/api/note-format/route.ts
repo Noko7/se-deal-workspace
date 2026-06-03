@@ -1,24 +1,47 @@
 import { NextResponse } from "next/server";
 import { formatNotesWithLLM, getDefaultSystemPrompt, getLlmStatus, isLlmConfigured } from "@/lib/llm";
+import type { NoteKind } from "@/lib/note-formatter";
+import {
+  MAX_FIELD_LENGTH,
+  MAX_NOTES_LENGTH,
+  MAX_PROMPT_LENGTH,
+  sanitizeField,
+  sanitizeNotes,
+  sanitizePrompt,
+} from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
 
 // Connection status for the Note Formatter status badge and the integration
-// test. Also returns the active default system prompt so the UI can pre-fill the
-// editable field (reflecting any LLM_SYSTEM_PROMPT override).
+// test. Also returns the active default system prompts (per note kind) so the UI
+// can pre-fill the editable field (reflecting any LLM_SYSTEM_PROMPT override).
 export async function GET() {
   const status = await getLlmStatus();
-  return NextResponse.json({ ...status, defaultSystemPrompt: getDefaultSystemPrompt() });
+  return NextResponse.json({
+    ...status,
+    defaultSystemPrompt: getDefaultSystemPrompt("plan"),
+    defaultMeetingSystemPrompt: getDefaultSystemPrompt("meeting"),
+    limits: { notes: MAX_NOTES_LENGTH, field: MAX_FIELD_LENGTH, prompt: MAX_PROMPT_LENGTH },
+  });
 }
 
 type FormatBody = {
-  notes?: string;
-  title?: string;
-  instructions?: string;
-  systemPrompt?: string;
-  includeHelpers?: boolean;
-  includeQuestions?: boolean;
+  notes?: unknown;
+  title?: unknown;
+  instructions?: unknown;
+  systemPrompt?: unknown;
+  kind?: unknown;
+  includeHelpers?: unknown;
+  includeQuestions?: unknown;
 };
+
+function asKind(value: unknown): NoteKind {
+  return value === "meeting" ? "meeting" : "plan";
+}
+
+function asBool(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
 
 export async function POST(request: Request) {
   if (!isLlmConfigured()) {
@@ -35,20 +58,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const notes = (body.notes ?? "").trim();
-  if (!notes) {
+  // Sanitize every field before it touches the model: bounded length, no control
+  // characters or terminal escape codes.
+  const notes = sanitizeNotes(body.notes);
+  if (!notes.text.trim()) {
     return NextResponse.json({ ok: false, error: "No notes provided." }, { status: 400 });
   }
 
   try {
-    const markdown = await formatNotesWithLLM(notes, {
-      title: body.title ?? "",
-      instructions: body.instructions ?? "",
-      systemPrompt: body.systemPrompt ?? "",
-      includeHelpers: body.includeHelpers ?? true,
-      includeQuestions: body.includeQuestions ?? true,
+    const markdown = await formatNotesWithLLM(notes.text, {
+      title: sanitizeField(body.title),
+      instructions: sanitizeField(body.instructions, 500),
+      systemPrompt: sanitizePrompt(body.systemPrompt),
+      kind: asKind(body.kind),
+      includeHelpers: asBool(body.includeHelpers, true),
+      includeQuestions: asBool(body.includeQuestions, true),
     });
-    return NextResponse.json({ ok: true, markdown });
+    return NextResponse.json({ ok: true, markdown, truncated: notes.truncated });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 502 });
   }

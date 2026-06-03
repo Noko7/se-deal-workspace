@@ -1,19 +1,23 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import { THEME_COOKIE, resolveTheme, type Theme } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "SE Deal Workspace",
   description: "Calendar-centric systems engineering workspace for Nutanix deals.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const store = await cookies();
+  const theme: Theme = resolveTheme(store.get(THEME_COOKIE)?.value);
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className={`h-full antialiased${theme === "dark" ? " dark" : ""}`}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -25,7 +29,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full">
-        <AppShell>{children}</AppShell>
+        <AppShell initialTheme={theme}>{children}</AppShell>
       </body>
     </html>
   );

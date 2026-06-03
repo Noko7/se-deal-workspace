@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ReactNode, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Briefcase, CalendarDays, Mail, MapPinned, Plug, Presentation, Users } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
+import type { Theme } from "@/lib/theme";
 
 const navigation = [
   { href: "/", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
@@ -15,7 +17,7 @@ const navigation = [
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
 ];
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, initialTheme }: { children: ReactNode; initialTheme: Theme }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -41,18 +43,21 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-xs text-white/60">Active section: {activeNav?.label ?? "Overview"}</p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 md:flex">
-            <p className="rounded-full bg-iris-500 px-3 py-1 text-xs font-medium text-white">Env: Foundation</p>
-            <p className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">Service: Healthy</p>
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 md:flex">
+              <p className="rounded-full bg-iris-500 px-3 py-1 text-xs font-medium text-white">Env: Foundation</p>
+              <p className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">Service: Healthy</p>
+            </div>
+            <ThemeToggle initialTheme={initialTheme} />
+            <button
+              type="button"
+              className="rounded-md border border-white/30 bg-transparent px-3 py-2 text-xs font-medium text-white hover:bg-white/10 md:hidden"
+              onClick={() => setOpen((value) => !value)}
+              aria-label="Toggle navigation"
+            >
+              {open ? "Close" : "Menu"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="rounded-md border border-white/30 bg-transparent px-3 py-2 text-xs font-medium text-white hover:bg-white/10 md:hidden"
-            onClick={() => setOpen((value) => !value)}
-            aria-label="Toggle navigation"
-          >
-            {open ? "Close" : "Menu"}
-          </button>
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 md:grid-cols-[260px_minmax(0,1fr)]">

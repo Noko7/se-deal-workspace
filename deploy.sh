@@ -14,17 +14,30 @@
 # server pointed at a half-replaced `.next` (that 404s the hashed CSS/JS chunks
 # and renders the app unstyled).
 
-set -euo pipefail
+# Note: no `set -u` — sourcing nvm.sh references unset vars and would abort.
+set -eo pipefail
 
 SERVICE="se-deal-workspace.service"
 PORT="${PORT:-3000}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-echo "==> Loading Node (nvm)"
-# shellcheck disable=SC1090
-. "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true
-nvm use --lts >/dev/null 2>&1 || true
+echo "==> Ensuring Node/npm are on PATH"
+# When invoked via `npm run deploy`, npm/node are already on PATH. Only reach for
+# nvm (which is not strict-mode clean) if they are missing.
+if ! command -v npm >/dev/null 2>&1; then
+  set +e
+  # shellcheck disable=SC1090
+  . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+  nvm use --lts >/dev/null 2>&1 || nvm use node >/dev/null 2>&1
+  set -e
+fi
+# Final fallback: prepend the newest installed nvm node bin dir.
+if ! command -v npm >/dev/null 2>&1; then
+  NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
+  [ -n "$NODE_BIN" ] && PATH="$NODE_BIN:$PATH"
+fi
+command -v npm >/dev/null 2>&1 || { echo "ERROR: npm not found on PATH" >&2; exit 1; }
 
 echo "==> Building production bundle"
 npm run build

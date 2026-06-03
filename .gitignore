@@ -43,7 +43,3 @@ next-env.d.ts
 # local sqlite databases
 /dev.db
 /prisma/dev.db
-
-# geocoder raw source (large GeoNames dumps). The compact built dataset
-# (data/geo/cities.json) IS committed so the app runs without a build step.
-/data/geo/raw/

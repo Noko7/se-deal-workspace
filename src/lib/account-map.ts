@@ -1,6 +1,5 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { locate } from "@/lib/geo-db";
 import type { EnvironmentId } from "@/lib/environment";
 
 export type AccountMapRecord = {
@@ -36,7 +35,7 @@ const HEADER_ALIASES: Record<keyof AccountMapRecord, string[]> = {
   accountName: ["account name"],
   accountExecutive: ["account executive", "account owner"],
   accountExecutiveEmail: ["account executive email"],
-  systemEngineer: ["system engineer"],
+  systemEngineer: ["system engineer", "se owner"],
   systemEngineerEmail: ["system engineer email"],
   theater: ["theater", "theatre"],
   region: ["region"],
@@ -51,10 +50,10 @@ const HEADER_ALIASES: Record<keyof AccountMapRecord, string[]> = {
   activeClusterCount: ["active cluster count"],
   nodeCount: ["node count (operational)", "node count", "total cluster count"],
   vmCount: ["vm count"],
-  // Coordinates are never read from the CSV; they are derived from the address
-  // by geo-db.ts. Empty aliases ensure any lat/lng columns are ignored.
-  latitude: [],
-  longitude: [],
+  // EXACT coordinates from the source (e.g. Salesforce geocodes billing
+  // addresses into Latitude/Longitude). Rows without usable coords are skipped.
+  latitude: ["latitude", "billing latitude", "geocode latitude", "lat"],
+  longitude: ["longitude", "billing longitude", "geocode longitude", "lng", "lon", "long"],
 };
 
 const asNumber = (value: string | undefined) => {
@@ -141,7 +140,7 @@ function parseCsv(csv: string): AccountMapRecord[] {
 function resolveFilesForEnvironment(environment: EnvironmentId): string[] {
   if (environment === "dev") {
     const dir = process.env.ACCOUNT_DATA_DIR ?? "/etc/se-deal-workspace";
-    return [path.join(dir, "account-map.csv"), path.join(dir, "account_map2.csv")];
+    return [path.join(dir, "account-map.csv"), path.join(dir, "account-map2.csv")];
   }
   // foundation: bundled non-sensitive samples
   const dir = path.join(process.cwd(), "public", "data");
@@ -185,7 +184,24 @@ const NUMBER_FIELDS: (keyof AccountMapRecord)[] = [
   "activeClusterCount",
   "nodeCount",
   "vmCount",
+  "latitude",
+  "longitude",
 ];
+
+// Exact coordinates from the source data, if present and sane. (0,0) is treated
+// as "missing" (Null Island) since it's almost always an unset/failed geocode.
+function hasExactCoords(record: AccountMapRecord): boolean {
+  const { latitude: lat, longitude: lng } = record;
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    !(lat === 0 && lng === 0)
+  );
+}
 
 // Same customer key: account name, normalized. Used to collapse the operational
 // file and the billing file into ONE record per customer.
@@ -236,19 +252,9 @@ export async function getAccountMapRecords(
     }
   }
 
-  // Coordinates are derived from the address (city/country) via the built-in
-  // offline table in geo-db.ts, with a deterministic per-street offset so points
-  // don't stack. No coordinates are read from the CSV and no network/API/tool is
-  // ever used. Accounts in unknown cities are skipped.
-  const placed: AccountMapRecord[] = [];
-  for (const record of byCustomer.values()) {
-    const coords = locate(record.city, record.state, record.country, `${record.street}|${record.accountName}`);
-    if (!coords) {
-      continue;
-    }
-    record.latitude = coords[0];
-    record.longitude = coords[1];
-    placed.push(record);
-  }
-  return placed;
+  // Placement uses the exact Latitude/Longitude from the source data (e.g.
+  // Salesforce geocodes billing addresses into these columns), so accounts pin
+  // to their real street with no lookup, network, or API. Rows without usable
+  // coordinates can't be placed on the map and are skipped.
+  return [...byCustomer.values()].filter(hasExactCoords);
 }

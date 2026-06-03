@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates a dummy version of the "account_map2" billing-address schema:
-//   "Account Owner","Account Name","Billing State/Province","Type",
-//   "Billing Street","Billing City","Billing Country","Billing Zip/Postal Code"
+//   "Account Owner","Account Name","Billing State/Province","Type","Billing Street",
+//   "Billing City","Billing Country","Billing Zip/Postal Code","SE Owner","Latitude","Longitude"
 // This mirrors the dev file at /etc/se-deal-workspace/account_map2.csv WITHOUT
 // touching it. Output: public/data/account-map2-dummy.csv (overwritten).
 //
@@ -10,6 +10,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { coordsFor } from "./city-coords.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT = path.join(__dirname, "..", "public", "data", "account-map2-dummy.csv");
@@ -83,7 +84,7 @@ function postalCode(country) {
 
 const HEADER = [
   "Account Owner", "Account Name", "Billing State/Province", "Type", "Billing Street",
-  "Billing City", "Billing Country", "Billing Zip/Postal Code",
+  "Billing City", "Billing Country", "Billing Zip/Postal Code", "SE Owner", "Latitude", "Longitude",
 ];
 
 const csvField = (value) => `"${String(value).replace(/"/g, '""')}"`;
@@ -94,11 +95,13 @@ for (const [state, country, city] of CITIES) {
   const accountsHere = randInt(9, 16);
   for (let i = 0; i < accountsHere; i += 1) {
     const owner = `${pick(FIRST)} ${pick(LAST)}`;
+    const seOwner = `${pick(FIRST)} ${pick(LAST)}`;
     const accountName = `${pick(COMPANIES)} ${pick(SUFFIX)}`;
     const type = pick(TYPES);
     const street = `${randInt(1, 2400)} ${pick(STREETS)}`;
+    const [lat, lng] = coordsFor(city, `${street}|${accountName}`) ?? ["", ""];
     rows.push(
-      [owner, accountName, state, type, street, city, country, postalCode(country)]
+      [owner, accountName, state, type, street, city, country, postalCode(country), seOwner, lat, lng]
         .map(csvField)
         .join(","),
     );

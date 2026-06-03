@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Generates a large, GLOBAL dummy account dataset for the Account Map.
-// Schema MATCHES the dev environment file exactly (18 columns, NO coordinates).
-// The app derives coordinates from the address (city/country + street) offline
-// via src/lib/geo-db.ts, so no lat/lng is stored here and no network is used.
+// Includes Latitude/Longitude columns so accounts pin exactly, mirroring the
+// real source data (which ships geocoded coordinates). No network is used.
 //
 // Run:  node scripts/generate-dummy-accounts.mjs
 // Output: public/data/account-map-dummy.csv (overwritten)
@@ -10,6 +9,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { coordsFor } from "./city-coords.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT = path.join(__dirname, "..", "public", "data", "account-map-dummy.csv");
@@ -29,7 +29,7 @@ const pick = (arr) => arr[Math.floor(rng() * arr.length)];
 const randInt = (min, max) => Math.floor(rng() * (max - min + 1)) + min;
 
 // region, theater, subRegion, country, state, city
-// (coordinates live in src/lib/geo-db.ts; the app resolves them from city/country)
+// (lat/lng are added per row from scripts/city-coords.mjs)
 const CITIES = [
   ["North America", "AMER", "US West", "USA", "CA", "San Francisco"],
   ["North America", "AMER", "US West", "USA", "CA", "Los Angeles"],
@@ -128,7 +128,7 @@ const HEADER = [
   "Account Name", "Account Executive", "Account Executive Email", "System Engineer",
   "System Engineer Email", "Theater", "Region", "Sub-Region", "Vertical", "Last Sales",
   "Account Type", "Country", "State", "City", "Street", "Active Cluster Count",
-  "Node Count (Operational)", "VM Count",
+  "Node Count (Operational)", "VM Count", "Latitude", "Longitude",
 ].join(",");
 
 const csvField = (value) => {
@@ -154,10 +154,12 @@ for (const [region, theater, subRegion, country, state, city] of CITIES) {
     const lastSales = randInt(10, 300) * 10000;
     const accountType = pick(ACCOUNT_TYPES);
     const street = `${randInt(1, 2400)} ${pick(STREETS)}`;
+    const name = `${company} ${vertical.split(" ")[0]} ${city}`;
+    const [lat, lng] = coordsFor(city, `${street}|${name}`) ?? ["", ""];
 
     rows.push(
       [
-        `${company} ${vertical.split(" ")[0]} ${city}`,
+        name,
         ae.name,
         ae.email,
         se.name,
@@ -175,6 +177,8 @@ for (const [region, theater, subRegion, country, state, city] of CITIES) {
         activeClusters,
         nodeCount,
         vmCount,
+        lat,
+        lng,
       ]
         .map(csvField)
         .join(","),

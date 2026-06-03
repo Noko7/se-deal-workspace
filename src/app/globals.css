@@ -84,3 +84,15 @@ button:disabled {
 label {
   @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
 }
+
+/* When the Account Map explorer (filters + map) is fullscreen, keep filters
+   visible/usable and let the map fill the remaining height. */
+.account-map-fs:fullscreen {
+  background: #ffffff;
+  padding: 16px;
+  overflow: auto;
+}
+
+.account-map-fs:fullscreen .account-map-canvas {
+  height: calc(100vh - 32px);
+}

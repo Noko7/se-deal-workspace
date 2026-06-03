@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import { ENV_COOKIE, resolveEnvironmentId } from "@/lib/environment";
 
 export const metadata: Metadata = {
   title: "SE Deal Workspace",
   description: "Calendar-centric systems engineering workspace for Nutanix deals.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const store = await cookies();
+  const initialEnv = resolveEnvironmentId(store.get(ENV_COOKIE)?.value);
   return (
     <html lang="en" className="h-full antialiased">
       <head>
@@ -25,7 +29,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full">
-        <AppShell>{children}</AppShell>
+        <AppShell initialEnv={initialEnv}>{children}</AppShell>
       </body>
     </html>
   );

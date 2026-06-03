@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ReactNode, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Briefcase, CalendarDays, Mail, MapPinned, Plug, Presentation, Users } from "lucide-react";
+import { EnvironmentSwitcher } from "@/components/environment-switcher";
+import type { EnvironmentId } from "@/lib/environment";
 
 const navigation = [
   { href: "/", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
@@ -15,7 +17,7 @@ const navigation = [
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
 ];
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, initialEnv }: { children: ReactNode; initialEnv: EnvironmentId }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -41,9 +43,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-xs text-white/60">Active section: {activeNav?.label ?? "Overview"}</p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 md:flex">
-            <p className="rounded-full bg-iris-500 px-3 py-1 text-xs font-medium text-white">Env: Foundation</p>
-            <p className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">Service: Healthy</p>
+          <div className="flex items-center gap-2">
+            <EnvironmentSwitcher initialEnv={initialEnv} />
+            <p className="hidden rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80 md:block">Service: Healthy</p>
           </div>
           <button
             type="button"

@@ -109,7 +109,7 @@ function PipelineRow({
               type="button"
               aria-label="Scroll left"
               onClick={() => scrollBy(-1)}
-              className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-charcoal-200 bg-white p-1 text-charcoal-700 shadow hover:bg-iris-50"
+              className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-iris-500 bg-iris-500 p-1 text-white shadow hover:bg-iris-600"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -119,7 +119,7 @@ function PipelineRow({
               type="button"
               aria-label="Scroll right"
               onClick={() => scrollBy(1)}
-              className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-charcoal-200 bg-white p-1 text-charcoal-700 shadow hover:bg-iris-50"
+              className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-full border border-iris-500 bg-iris-500 p-1 text-white shadow hover:bg-iris-600"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

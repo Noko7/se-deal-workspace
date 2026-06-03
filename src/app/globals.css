@@ -51,6 +51,47 @@
   --color-peach: #ff9478;
 }
 
+/*
+  Night mode: flip the neutral (charcoal) scale and remap a few surfaces. Because
+  Tailwind v4 utilities reference these tokens via CSS variables, redefining them
+  under .dark recolors the whole app without touching components. The base
+  `charcoal` (header bg) and `text-white` (on colored buttons) intentionally stay.
+*/
+.dark {
+  color-scheme: dark;
+  --background: #131316;
+  --foreground: #f3f3f5;
+
+  --color-charcoal: #16161a; /* header background stays dark */
+  --color-charcoal-50: #1d1d20;
+  --color-charcoal-100: #26262a;
+  --color-charcoal-200: #33333a;
+  --color-charcoal-300: #45454d;
+  --color-charcoal-400: #5d5d66;
+  --color-charcoal-500: #8e8e96;
+  --color-charcoal-600: #a8a8b0;
+  --color-charcoal-700: #c3c3ca;
+  --color-charcoal-800: #dedee3;
+  --color-charcoal-900: #f3f3f5;
+
+  /* Iris accent: darken the light tints, lighten accent text for contrast. */
+  --color-iris-50: #221a3a;
+  --color-iris-100: #2c2156;
+  --color-iris-600: #9278fb;
+  --color-iris-700: #ac9bfd;
+}
+
+/* White surfaces (cards, chips) and form controls become dark panels. */
+.dark .bg-white {
+  background-color: #1f1f24;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1f1f24;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

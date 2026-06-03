@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { ENV_COOKIE, resolveEnvironmentId } from "@/lib/environment";
+import { THEME_COOKIE, resolveTheme, type Theme } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "SE Deal Workspace",
@@ -16,8 +17,9 @@ export default async function RootLayout({
 }>) {
   const store = await cookies();
   const initialEnv = resolveEnvironmentId(store.get(ENV_COOKIE)?.value);
+  const theme: Theme = resolveTheme(store.get(THEME_COOKIE)?.value);
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className={`h-full antialiased${theme === "dark" ? " dark" : ""}`}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -29,7 +31,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full">
-        <AppShell initialEnv={initialEnv}>{children}</AppShell>
+        <AppShell initialEnv={initialEnv} initialTheme={theme}>{children}</AppShell>
       </body>
     </html>
   );

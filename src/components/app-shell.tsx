@@ -5,7 +5,9 @@ import { ReactNode, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Briefcase, CalendarDays, Mail, MapPinned, Plug, Presentation, Users } from "lucide-react";
 import { EnvironmentSwitcher } from "@/components/environment-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { EnvironmentId } from "@/lib/environment";
+import type { Theme } from "@/lib/theme";
 
 const navigation = [
   { href: "/", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
@@ -17,7 +19,15 @@ const navigation = [
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
 ];
 
-export function AppShell({ children, initialEnv }: { children: ReactNode; initialEnv: EnvironmentId }) {
+export function AppShell({
+  children,
+  initialEnv,
+  initialTheme,
+}: {
+  children: ReactNode;
+  initialEnv: EnvironmentId;
+  initialTheme: Theme;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -46,6 +56,7 @@ export function AppShell({ children, initialEnv }: { children: ReactNode; initia
           <div className="flex items-center gap-2">
             <EnvironmentSwitcher initialEnv={initialEnv} />
             <p className="hidden rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80 md:block">Service: Healthy</p>
+            <ThemeToggle initialTheme={initialTheme} />
           </div>
           <button
             type="button"

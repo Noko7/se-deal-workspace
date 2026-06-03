@@ -1,9 +1,12 @@
+import { getLlmStatus, isLlmConfigured } from "@/lib/llm";
+
 export type IntegrationAdapterKey =
   | "outlook"
   | "salesforce"
   | "lucidchart"
   | "google_drive"
-  | "cs360_qbr";
+  | "cs360_qbr"
+  | "local_llm";
 
 export type AdapterHealth = "ok" | "warning" | "offline";
 
@@ -70,4 +73,30 @@ export const integrationAdapters: Record<IntegrationAdapterKey, IntegrationAdapt
     "QBR report retrieval workflow with manual fallback.",
     ["qbr_report_import", "account_report_linking"],
   ),
+  // Real, live adapter: the Note Formatter sends notes to a local LLM over the
+  // standard OpenAI-compatible API. Configure with LOCAL_LLM_BASE_URL / _MODEL.
+  local_llm: {
+    key: "local_llm",
+    label: "Enterprise AI (LLM)",
+    description: "OpenAI-compatible chat model powering the Note Formatter.",
+    mode: "live",
+    health: "warning",
+    capabilities: ["note_formatting", "implementation_plan_generation", "helper_task_extraction"],
+    async testConnection() {
+      if (!isLlmConfigured()) {
+        return {
+          success: false,
+          details: "Not configured. Set LLM_BASE_URL (and LLM_MODEL, LLM_API_KEY).",
+        };
+      }
+      const status = await getLlmStatus();
+      if (status.configured && status.reachable) {
+        return { success: true, details: status.detail };
+      }
+      return {
+        success: false,
+        details: status.configured ? status.detail : "Local LLM is not configured.",
+      };
+    },
+  },
 };

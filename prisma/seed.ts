@@ -171,6 +171,13 @@ async function main() {
         status: IntegrationStatus.NEEDS_ATTENTION,
         setupNotes: "Use manual upload fallback until auth automation is available.",
       },
+      {
+        integrationKey: "local_llm",
+        displayName: "Enterprise AI (LLM)",
+        status: IntegrationStatus.NOT_CONNECTED,
+        setupNotes:
+          "Set LLM_BASE_URL to your OpenAI-compatible endpoint (e.g. https://ai.nutanix.com/enterpriseai/v1), plus LLM_API_KEY and LLM_MODEL, then run Test Adapter. Powers the Note Formatter.",
+      },
     ],
   });
 

@@ -25,6 +25,9 @@ const ALL_REGIONS = "All Regions";
 const ALL = "All";
 const EVERYONE = "Everyone";
 
+// Fixed go-to-market segments for the Vertical filter (not derived from data).
+const VERTICALS = [ALL, "SLED", "Federal", "Commercial", "Enterprise", "Inside"];
+
 export function AccountMapExplorer({ records }: Props) {
   const [region, setRegion] = useState(ALL_REGIONS);
   const [vertical, setVertical] = useState(ALL);
@@ -33,7 +36,6 @@ export function AccountMapExplorer({ records }: Props) {
   const [onlyMine, setOnlyMine] = useState(false);
 
   const regions = useMemo(() => [ALL_REGIONS, ...new Set(records.map((record) => record.region))], [records]);
-  const verticals = useMemo(() => [ALL, ...new Set(records.map((record) => record.vertical))], [records]);
   const states = useMemo(() => [ALL, ...new Set(records.map((record) => record.state))], [records]);
   const systemEngineers = useMemo(
     () => [EVERYONE, ...[...new Set(records.map((record) => record.systemEngineer))].sort()],
@@ -137,7 +139,7 @@ export function AccountMapExplorer({ records }: Props) {
 
           <FormRow label="Vertical" htmlFor="verticalFilter">
             <select id="verticalFilter" value={vertical} onChange={(event) => setVertical(event.target.value)}>
-              {verticals.map((option) => (
+              {VERTICALS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>

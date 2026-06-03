@@ -98,32 +98,34 @@ body {
   font-family: "Montserrat", var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-input,
-select,
-textarea {
-  @apply rounded-md border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900;
-}
+@layer base {
+  input,
+  select,
+  textarea {
+    @apply rounded-md border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900;
+  }
 
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
-}
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+  }
 
-button {
-  @apply rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600;
-}
+  button {
+    @apply rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600;
+  }
 
-button:focus-visible {
-  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
-}
+  button:focus-visible {
+    @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+  }
 
-button:disabled {
-  @apply cursor-not-allowed opacity-60;
-}
+  button:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
 
-label {
-  @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
+  label {
+    @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
+  }
 }
 
 /* When the Account Map explorer (filters + map) is fullscreen, keep filters

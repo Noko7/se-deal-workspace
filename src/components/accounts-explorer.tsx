@@ -26,17 +26,10 @@ export type AccountOverview = {
 
 export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) {
   const [query, setQuery] = useState("");
-  const [se, setSe] = useState("all");
-
-  const owners = useMemo(
-    () => Array.from(new Set(accounts.map((account) => account.owner))).sort((a, b) => a.localeCompare(b)),
-    [accounts],
-  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = accounts.filter((account) => {
-      if (se !== "all" && account.owner !== se) return false;
       if (!needle) return true;
       return [account.accountName, account.name, account.owner, account.stage, account.latestSignal ?? ""]
         .join(" ")
@@ -44,46 +37,24 @@ export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) 
         .includes(needle);
     });
     return [...matches].sort((a, b) => a.accountName.localeCompare(b.accountName));
-  }, [accounts, query, se]);
+  }, [accounts, query]);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <label className="relative block w-full sm:max-w-md">
-          <span className="sr-only">Search accounts</span>
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-iris-500" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by account, deal, owner, or signal"
-            className="w-full pl-9"
-          />
-        </label>
-
-        <div className="flex items-center gap-2">
-          <label htmlFor="accounts-se" className="whitespace-nowrap">
-            SE
-          </label>
-          <select
-            id="accounts-se"
-            value={se}
-            onChange={(event) => setSe(event.target.value)}
-            className="sm:max-w-[200px]"
-          >
-            <option value="all">All SEs</option>
-            {owners.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <label className="relative block max-w-md">
+        <span className="sr-only">Search accounts</span>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-iris-500" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by account, deal, owner, or signal"
+          className="w-full pl-9"
+        />
+      </label>
 
       <p className="text-xs text-charcoal-500">
         Showing {filtered.length} of {accounts.length} accounts (A–Z)
-        {se !== "all" ? ` · SE: ${se}` : ""}
       </p>
 
       {filtered.length === 0 ? (

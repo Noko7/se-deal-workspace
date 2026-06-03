@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ReactNode, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Briefcase, CalendarDays, Mail, MapPinned, Plug, Presentation, Users } from "lucide-react";
+import { Briefcase, CalendarDays, Mail, MapPinned, NotebookPen, Plug, Presentation, Users } from "lucide-react";
 import { EnvironmentSwitcher } from "@/components/environment-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { EnvironmentId } from "@/lib/environment";
@@ -15,6 +15,7 @@ const navigation = [
   { href: "/accounts", label: "My Accounts", description: "Customer history, notes, and assets", icon: Users },
   { href: "/account-map", label: "Account Map", description: "Geo coverage by region and SE", icon: MapPinned },
   { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
+  { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
 ];

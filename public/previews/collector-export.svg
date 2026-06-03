@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="74" fill="#313131"/>
+  <text x="36" y="38" fill="#ffffff" font-size="24" font-weight="700">Collector Export</text>
+  <text x="36" y="60" fill="#bfbfbf" font-size="14">Cluster inventory &#183; .zip</text>
+  <g>
+    <rect x="36" y="104" width="172" height="86" rx="10" fill="#f3f0ff" stroke="#c6bcfe"/>
+    <text x="52" y="142" fill="#5e3fc2" font-size="28" font-weight="700">3</text>
+    <text x="52" y="170" fill="#757575" font-size="13">Clusters</text>
+    <rect x="234" y="104" width="172" height="86" rx="10" fill="#e7fafd" stroke="#9fe6ef"/>
+    <text x="250" y="142" fill="#0b7c8c" font-size="28" font-weight="700">128</text>
+    <text x="250" y="170" fill="#757575" font-size="13">Hosts</text>
+    <rect x="432" y="104" width="172" height="86" rx="10" fill="#eef8d8" stroke="#bfe06a"/>
+    <text x="448" y="142" fill="#3f5e0a" font-size="28" font-weight="700">2.4k</text>
+    <text x="448" y="170" fill="#757575" font-size="13">VMs</text>
+  </g>
+  <rect x="36" y="214" width="568" height="34" rx="6" fill="#f7f7f7" stroke="#e9e9ef"/>
+  <text x="52" y="236" fill="#5d5d5d" font-size="13">nodes.csv &#183; vms.csv &#183; storage.csv &#183; network.csv</text>
+  <rect x="36" y="260" width="568" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="260" width="470" height="14" rx="7" fill="#313131"/>
+  <text x="36" y="306" fill="#5d5d5d" font-size="14" font-weight="600">Capture complete: 100%</text>
+</svg>

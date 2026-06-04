@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrencyShort, shortDate } from "@/lib/format";
+import { PipelineStatusChart } from "@/components/pipeline-status-chart";
 
 export type PipelineDeal = {
   id: string;
@@ -183,6 +184,17 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
   const totalAmount = filtered.reduce((sum, deal) => sum + deal.amount, 0);
   const closedAmount = filtered.filter((deal) => deal.isClosed).reduce((sum, deal) => sum + deal.amount, 0);
 
+  const statusBars = useMemo(
+    () =>
+      ROWS.map((row) => ({
+        key: row.key,
+        label: row.label,
+        color: row.color,
+        value: filtered.filter((deal) => rowKey(deal) === row.key).reduce((sum, deal) => sum + deal.amount, 0),
+      })),
+    [filtered],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -225,6 +237,9 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
               ))}
             </select>
           </div>
+        </div>
+        <div className="order-last w-full min-w-[240px] flex-1 lg:order-none lg:w-auto">
+          <PipelineStatusChart bars={statusBars} />
         </div>
         <div className="flex items-center gap-4 text-right">
           <div>

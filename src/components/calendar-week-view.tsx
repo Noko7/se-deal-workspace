@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, ChevronLeft, ChevronRight, MapPin, Video } from "lucide-react";
+import { CalendarRange, ChevronLeft, ChevronRight, Globe, MapPin, Video } from "lucide-react";
 import {
   HOUR_PX,
   addDays,
@@ -12,10 +12,12 @@ import {
   minutesIntoDay,
   monthMatrix,
   startOfDay,
+  timeZoneOptions,
   viewDays,
   viewRangeLabel,
   viewStepDays,
   VIEW_OPTIONS,
+  zonedNaiveISO,
   type CalendarMeeting,
   type CalendarView,
 } from "@/lib/calendar";
@@ -51,10 +53,14 @@ type GridProps = {
 
 export function CalendarWeekView({
   meetings,
+  timeZone,
+  onTimeZoneChange,
   selectedMeetingId,
   onSelectMeeting,
 }: {
   meetings: CalendarMeeting[];
+  timeZone: string;
+  onTimeZoneChange: (tz: string) => void;
   selectedMeetingId: string | null;
   onSelectMeeting: (id: string) => void;
 }) {
@@ -67,7 +73,22 @@ export function CalendarWeekView({
     return () => clearInterval(id);
   }, []);
 
-  const goToday = () => setAnchor(new Date());
+  const tzOptions = useMemo(() => timeZoneOptions(new Date()), []);
+
+  // Re-express every meeting and "now" in the selected zone's wall-clock so all
+  // of the grid math (day buckets, vertical position, the now line) is correct.
+  const zonedMeetings = useMemo(
+    () =>
+      meetings.map((meeting) => ({
+        ...meeting,
+        start: zonedNaiveISO(meeting.start, timeZone),
+        end: zonedNaiveISO(meeting.end, timeZone),
+      })),
+    [meetings, timeZone],
+  );
+  const zonedNow = useMemo(() => new Date(zonedNaiveISO(now, timeZone)), [now, timeZone]);
+
+  const goToday = () => setAnchor(new Date(zonedNaiveISO(new Date(), timeZone)));
   const goPrev = () =>
     setAnchor((prev) => (view === "month" ? addMonths(prev, -1) : addDays(prev, -viewStepDays(view))));
   const goNext = () =>
@@ -122,20 +143,37 @@ export function CalendarWeekView({
           </div>
           <p className="text-base font-semibold text-charcoal-900">{viewRangeLabel(view, anchor)}</p>
         </div>
-        <div className="relative inline-flex items-center">
-          <CalendarRange className="pointer-events-none absolute left-2.5 h-4 w-4 text-charcoal-500" />
-          <select
-            aria-label="Calendar view"
-            value={view}
-            onChange={(event) => setView(event.target.value as CalendarView)}
-            className="cursor-pointer pl-8 pr-8 font-medium"
-          >
-            {VIEW_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2">
+          <div className="relative inline-flex items-center">
+            <Globe className="pointer-events-none absolute left-2.5 h-4 w-4 text-charcoal-500" />
+            <select
+              aria-label="Time zone"
+              value={timeZone}
+              onChange={(event) => onTimeZoneChange(event.target.value)}
+              className="max-w-[200px] cursor-pointer pl-8 pr-8 font-medium"
+            >
+              {tzOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="relative inline-flex items-center">
+            <CalendarRange className="pointer-events-none absolute left-2.5 h-4 w-4 text-charcoal-500" />
+            <select
+              aria-label="Calendar view"
+              value={view}
+              onChange={(event) => setView(event.target.value as CalendarView)}
+              className="cursor-pointer pl-8 pr-8 font-medium"
+            >
+              {VIEW_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -144,8 +182,8 @@ export function CalendarWeekView({
         {view === "month" ? (
           <MonthGrid
             anchor={anchor}
-            meetings={meetings}
-            now={now}
+            meetings={zonedMeetings}
+            now={zonedNow}
             selectedMeetingId={selectedMeetingId}
             onSelectMeeting={onSelectMeeting}
             onOpenDay={openDay}
@@ -153,8 +191,8 @@ export function CalendarWeekView({
         ) : (
           <TimeGrid
             days={days}
-            meetings={meetings}
-            now={now}
+            meetings={zonedMeetings}
+            now={zonedNow}
             selectedMeetingId={selectedMeetingId}
             onSelectMeeting={onSelectMeeting}
           />
@@ -164,7 +202,7 @@ export function CalendarWeekView({
       {/* Mobile agenda fallback */}
       <Agenda
         days={agendaDays}
-        meetings={meetings}
+        meetings={zonedMeetings}
         selectedMeetingId={selectedMeetingId}
         onSelectMeeting={onSelectMeeting}
       />
@@ -344,7 +382,7 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
           {nowVisible && nowInRange ? (
             <>
               <div
-                className="pointer-events-none absolute right-0 z-0 h-px -translate-y-1/2 bg-iris-300"
+                className="pointer-events-none absolute right-0 z-20 h-px -translate-y-1/2 bg-iris-300"
                 style={{ left: 56, top: nowTop }}
               />
               <div

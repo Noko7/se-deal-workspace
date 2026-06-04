@@ -243,6 +243,102 @@ export function viewRangeLabel(view: CalendarView, anchor: Date): string {
   return `${left} - ${right}, ${last.getFullYear()}`;
 }
 
+// --- Time zones ------------------------------------------------------------
+
+/** The viewer's IANA time zone, falling back to UTC when unavailable. */
+export function detectTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/**
+ * Render an instant as the *wall-clock* time in `timeZone`, expressed as a
+ * time-zone-naive ISO string ("YYYY-MM-DDTHH:mm:ss"). When that string is later
+ * parsed with `new Date(...)` (which interprets naive strings as local time),
+ * every `getHours()/getDate()/getTime()` call reflects the chosen zone -- so the
+ * whole grid can stay timezone-aware without threading a zone through each call.
+ */
+export function zonedNaiveISO(instant: Date | string, timeZone: string): string {
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+  let hour = get("hour");
+  if (hour === "24") hour = "00"; // some engines emit 24 for midnight
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:${get("second")}`;
+}
+
+/** Offset (minutes) of `timeZone` from UTC at the given instant. */
+function zoneOffsetMinutes(timeZone: string, at: Date): number {
+  const asUTC = new Date(`${zonedNaiveISO(at, timeZone)}Z`).getTime();
+  return Math.round((asUTC - at.getTime()) / 60000);
+}
+
+function formatOffset(minutes: number): string {
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  const h = String(Math.floor(abs / 60)).padStart(2, "0");
+  const m = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${h}:${m}`;
+}
+
+const FALLBACK_TIME_ZONES = [
+  "UTC",
+  "America/Los_Angeles",
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Athens",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+function allTimeZones(): string[] {
+  try {
+    const supported = (
+      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    ).supportedValuesOf?.("timeZone");
+    if (supported && supported.length) {
+      return supported.includes("UTC") ? supported : ["UTC", ...supported];
+    }
+  } catch {
+    // fall through
+  }
+  return FALLBACK_TIME_ZONES;
+}
+
+export type TimeZoneOption = { value: string; label: string; offset: number };
+
+/** Every IANA time zone, labelled with its current UTC offset, offset-sorted. */
+export function timeZoneOptions(at: Date): TimeZoneOption[] {
+  return allTimeZones()
+    .map((value) => {
+      const offset = zoneOffsetMinutes(value, at);
+      const name = value === "UTC" ? "UTC" : value.replace(/_/g, " ");
+      return { value, label: `(${formatOffset(offset)}) ${name}`, offset };
+    })
+    .sort((a, b) => a.offset - b.offset || a.value.localeCompare(b.value));
+}
+
 export type PositionedEvent<T> = {
   event: T;
   /** vertical offset + height in px */

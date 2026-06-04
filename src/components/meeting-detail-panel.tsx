@@ -17,11 +17,13 @@ import { uploadArtifactAction } from "@/lib/actions";
 import { meetingPlatformLabel } from "@/lib/meeting";
 import { MeetingPlatformIcon } from "@/components/meeting-platform-icon";
 import { Button, StatusPill } from "@/components/ui";
-import type { CalendarMeeting } from "@/lib/calendar";
+import { zonedNaiveISO, type CalendarMeeting } from "@/lib/calendar";
 
-function formatRange(startIso: string, endIso: string): string {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
+function formatRange(startIso: string, endIso: string, timeZone: string): string {
+  // Re-express the instants in the viewer's chosen zone, then format from the
+  // naive wall-clock so the conditional ":00" minute handling stays correct.
+  const start = new Date(zonedNaiveISO(startIso, timeZone));
+  const end = new Date(zonedNaiveISO(endIso, timeZone));
   const day = start.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -49,9 +51,11 @@ function previewTone(status: string): "good" | "warning" | "bad" {
 
 export function MeetingDetailPanel({
   meeting,
+  timeZone,
   onClose,
 }: {
   meeting: CalendarMeeting | null;
+  timeZone: string;
   onClose: () => void;
 }) {
   // Keep the last meeting around during the close animation so content doesn't
@@ -108,7 +112,7 @@ export function MeetingDetailPanel({
                 <h2 className="text-lg font-semibold text-charcoal-900">{data.subject}</h2>
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-charcoal-500">
                   <CalendarClock className="h-4 w-4 shrink-0 text-iris-500" />
-                  {formatRange(data.start, data.end)}
+                  {formatRange(data.start, data.end, timeZone)}
                 </p>
                 <p className="mt-1 text-sm text-charcoal-600">
                   {data.deal.accountName} · <span className="font-medium">{data.deal.name}</span> ({data.deal.stage})

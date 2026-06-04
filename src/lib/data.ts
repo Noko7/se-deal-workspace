@@ -2,6 +2,47 @@ import { IntegrationStatus, NoteRole, PreviewStatus, RecommendationDecision } fr
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secret-crypto";
 
+type LlmCredentialDelegate = {
+  findUnique: (args: { where: { singleton: string } }) => Promise<{
+    baseUrl: string;
+    model: string;
+    apiKeyCiphertext: string | null;
+    timeoutMs: number;
+    insecureTls: boolean;
+    updatedAt: Date;
+    updatedBy: string | null;
+  } | null>;
+  upsert: (args: {
+    where: { singleton: string };
+    create: {
+      singleton: string;
+      baseUrl: string;
+      model: string;
+      timeoutMs: number;
+      insecureTls: boolean;
+      apiKeyCiphertext: string | null;
+      updatedBy: string | null;
+    };
+    update: {
+      baseUrl: string;
+      model: string;
+      timeoutMs: number;
+      insecureTls: boolean;
+      apiKeyCiphertext?: string | null;
+      updatedBy: string | null;
+    };
+  }) => Promise<unknown>;
+  update: (args: {
+    where: { singleton: string };
+    data: { apiKeyCiphertext: string | null; updatedBy: string | null };
+  }) => Promise<unknown>;
+};
+
+function llmCredentialDelegate(): LlmCredentialDelegate | null {
+  const delegate = (prisma as unknown as { llmCredential?: LlmCredentialDelegate }).llmCredential;
+  return delegate ?? null;
+}
+
 export async function getDashboardData() {
   const [deals, meetings, integrations, unassignedEmails] = await Promise.all([
     prisma.deal.findMany({
@@ -369,7 +410,20 @@ export type LlmCredentialSummary = {
 };
 
 export async function getLlmCredentialSummary(): Promise<LlmCredentialSummary> {
-  const record = await prisma.llmCredential.findUnique({ where: { singleton: "default" } });
+  const delegate = llmCredentialDelegate();
+  if (!delegate) {
+    return {
+      configured: false,
+      baseUrl: "",
+      model: "",
+      timeoutMs: 60000,
+      insecureTls: false,
+      hasApiKey: false,
+      updatedAt: null,
+      updatedBy: null,
+    };
+  }
+  const record = await delegate.findUnique({ where: { singleton: "default" } });
   if (!record) {
     return {
       configured: false,
@@ -403,7 +457,9 @@ export type LlmCredentialResolved = {
 };
 
 export async function getLlmCredentialResolved(): Promise<LlmCredentialResolved | null> {
-  const record = await prisma.llmCredential.findUnique({ where: { singleton: "default" } });
+  const delegate = llmCredentialDelegate();
+  if (!delegate) return null;
+  const record = await delegate.findUnique({ where: { singleton: "default" } });
   if (!record) return null;
   return {
     baseUrl: record.baseUrl,
@@ -422,9 +478,15 @@ export async function upsertLlmCredential(input: {
   apiKey?: string | null;
   updatedBy?: string | null;
 }) {
+  const delegate = llmCredentialDelegate();
+  if (!delegate) {
+    throw new Error(
+      "LLM credential storage is unavailable because Prisma client is out of date. Run `npm run db:generate` and restart.",
+    );
+  }
   const apiKeyCiphertext =
     input.apiKey === undefined ? undefined : input.apiKey ? encryptSecret(input.apiKey) : null;
-  return prisma.llmCredential.upsert({
+  return delegate.upsert({
     where: { singleton: "default" },
     create: {
       singleton: "default",
@@ -447,7 +509,13 @@ export async function upsertLlmCredential(input: {
 }
 
 export async function clearLlmCredentialApiKey(updatedBy?: string | null) {
-  return prisma.llmCredential.update({
+  const delegate = llmCredentialDelegate();
+  if (!delegate) {
+    throw new Error(
+      "LLM credential storage is unavailable because Prisma client is out of date. Run `npm run db:generate` and restart.",
+    );
+  }
+  return delegate.update({
     where: { singleton: "default" },
     data: { apiKeyCiphertext: null, updatedBy: updatedBy ?? null },
   });

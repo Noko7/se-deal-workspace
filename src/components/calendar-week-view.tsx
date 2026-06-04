@@ -150,7 +150,7 @@ export function CalendarWeekView({
               aria-label="Time zone"
               value={timeZone}
               onChange={(event) => onTimeZoneChange(event.target.value)}
-              className="max-w-[200px] cursor-pointer pl-8 pr-8 font-medium"
+              className="min-w-[280px] cursor-pointer pl-8 pr-8 font-medium"
             >
               {tzOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -311,6 +311,14 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
                     key={hour}
                     className="absolute inset-x-0 border-t border-charcoal-100"
                     style={{ top: index * HOUR_PX }}
+                  />
+                ))}
+                {/* Dashed 30-minute markers between the solid hour lines. */}
+                {hours.map((hour, index) => (
+                  <div
+                    key={`half-${hour}`}
+                    className="absolute inset-x-0 border-t border-dashed border-charcoal-100"
+                    style={{ top: index * HOUR_PX + HOUR_PX / 2 }}
                   />
                 ))}
 

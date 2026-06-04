@@ -55,34 +55,77 @@ async function main() {
 
   const now = new Date();
 
-  // Anchor the showcase meetings to the *current* week so the Outlook-style grid
-  // looks full and the live "now" line is visible. Week starts on Sunday.
-  const weekStart = new Date(now);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  weekStart.setHours(0, 0, 0, 0);
-  // dayIndex: 0=Sun ... 6=Sat. Returns a local Date at the given time this week.
-  const at = (dayIndex: number, hour: number, minute = 0) => {
-    const result = new Date(weekStart);
-    result.setDate(result.getDate() + dayIndex);
-    result.setHours(hour, minute, 0, 0);
-    return result;
+  // Author the showcase meetings in a real time zone (US Eastern) so the stored
+  // instants are genuine 9-to-5 business hours. A viewer in Eastern sees 9-5 out
+  // of the box; viewers elsewhere can re-base via the calendar's time-zone picker.
+  const DEMO_TZ = "America/New_York";
+  const DAY_MS = 86_400_000;
+
+  // Offset (minutes) of DEMO_TZ from UTC at a given instant (DST-aware).
+  const tzOffset = (instant: Date) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: DEMO_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(instant);
+    const g = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+    let hour = g("hour");
+    if (hour === 24) hour = 0;
+    const asUTC = Date.UTC(g("year"), g("month") - 1, g("day"), hour, g("minute"), g("second"));
+    return Math.round((asUTC - instant.getTime()) / 60000);
   };
-  // Place a meeting `offsetDays` from today at a real business hour (anchored to
-  // midnight so we never drift to 12 AM), nudging weekends onto Monday.
+
+  // The real instant for a DEMO_TZ wall-clock (y, 0-based month, d, h, mi).
+  const zoneWallClock = (y: number, mo: number, d: number, h: number, mi: number) => {
+    const guess = Date.UTC(y, mo, d, h, mi);
+    const off1 = tzOffset(new Date(guess));
+    let instant = guess - off1 * 60000;
+    const off2 = tzOffset(new Date(instant));
+    if (off2 !== off1) instant = guess - off2 * 60000; // refine across a DST edge
+    return new Date(instant);
+  };
+
+  // UTC-midnight marker for DEMO_TZ's calendar date of `instant` (safe day math).
+  const zoneDateOnly = (instant: Date) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: DEMO_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(instant);
+    const g = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+    return Date.UTC(g("year"), g("month") - 1, g("day"));
+  };
+
+  const todayMarker = zoneDateOnly(now);
+  // Sunday that starts DEMO_TZ's current week.
+  const weekStartMarker = todayMarker - new Date(todayMarker).getUTCDay() * DAY_MS;
+
+  // dayIndex: 0=Sun ... 6=Sat. Returns the instant for that day/time this week.
+  const at = (dayIndex: number, hour: number, minute = 0) => {
+    const d = new Date(weekStartMarker + dayIndex * DAY_MS);
+    return zoneWallClock(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute);
+  };
+  // Place a meeting `offsetDays` from today at a real business hour, nudging
+  // weekends onto the following Monday.
   const weekdayAt = (offsetDays: number, hour: number, minute = 0) => {
-    const result = new Date(now);
-    result.setDate(result.getDate() + offsetDays);
-    result.setHours(hour, minute, 0, 0);
-    const dow = result.getDay();
-    if (dow === 0) result.setDate(result.getDate() + 1);
-    else if (dow === 6) result.setDate(result.getDate() + 2);
-    return result;
+    let d = new Date(todayMarker + offsetDays * DAY_MS);
+    const dow = d.getUTCDay();
+    if (dow === 0) d = new Date(d.getTime() + DAY_MS);
+    else if (dow === 6) d = new Date(d.getTime() + 2 * DAY_MS);
+    return zoneWallClock(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour, minute);
   };
   const DURATIONS = [30, 45, 60, 90];
   // End time for a meeting that starts at `start`, clamped so it never runs past
-  // 5 PM (and is at least 30 min).
+  // 5 PM DEMO_TZ time (and is at least 30 min).
   const endBy5 = (start: Date, desiredMinutes: number) => {
-    const startMin = start.getHours() * 60 + start.getMinutes();
+    const wall = new Date(start.getTime() + tzOffset(start) * 60000); // shift so getUTC* = wall clock
+    const startMin = wall.getUTCHours() * 60 + wall.getUTCMinutes();
     const minutes = Math.max(30, Math.min(desiredMinutes, 17 * 60 - startMin));
     return new Date(start.getTime() + minutes * 60000);
   };

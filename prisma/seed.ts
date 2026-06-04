@@ -55,6 +55,20 @@ async function main() {
 
   const now = new Date();
 
+  // Anchor the showcase meetings to the *current* week so the Outlook-style grid
+  // looks full and the live "now" line is visible. Week starts on Sunday.
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+  // dayIndex: 0=Sun ... 6=Sat. Returns a local Date at the given time this week.
+  const at = (dayIndex: number, hour: number, minute = 0) => {
+    const result = new Date(weekStart);
+    result.setDate(result.getDate() + dayIndex);
+    result.setHours(hour, minute, 0, 0);
+    return result;
+  };
+  const plusMin = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60000);
+
   const alphaDeal = await prisma.deal.create({
     data: {
       name: "Acme Capacity Refresh",
@@ -97,13 +111,14 @@ async function main() {
     },
   });
 
+  // Mon 9:00 - virtual (Zoom). Includes an email-only attendee -> "(maybe)" name.
   const acmeMeeting = await prisma.meeting.create({
     data: {
       source: "internal_seed",
       subject: "QBR Prep - Acme Manufacturing",
       organizer: "lizi.singletary@nutanix.com",
-      startTime: addDays(now, 1),
-      endTime: addHours(addDays(now, 1), 1),
+      startTime: at(1, 9, 0),
+      endTime: at(1, 10, 0),
       attendeesJson: JSON.stringify([
         { email: "it.ops@acme.example", displayName: "Acme IT Ops" },
         { email: "sam@nutanix.com", displayName: "Sam (AM)" },
@@ -115,31 +130,34 @@ async function main() {
     },
   });
 
+  // Mon 13:00 - in person (no join URL, has a street address).
   const acmeKickoffMeeting = await prisma.meeting.create({
     data: {
       source: "internal_seed",
       subject: "Discovery Kickoff - Acme Manufacturing",
       organizer: "lizi.singletary@nutanix.com",
-      startTime: addDays(now, -7),
-      endTime: addHours(addDays(now, -7), 1),
+      startTime: at(1, 13, 0),
+      endTime: at(1, 14, 30),
       attendeesJson: JSON.stringify([
         { email: "it.ops@acme.example", displayName: "Acme IT Ops" },
         { email: "cio@acme.example", displayName: "Acme CIO" },
         { email: "dana.whitfield@acme.example" },
       ]),
       externalDomains: "acme.example",
-      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_acmekickoff@thread.v2/0",
+      joinUrl: null,
+      location: "Acme HQ - 500 Industrial Pkwy, Columbus, OH 43215",
       dealId: alphaDeal.id,
     },
   });
 
+  // Tue 11:00 - virtual (Google Meet).
   const betaMeeting = await prisma.meeting.create({
     data: {
       source: "internal_seed",
       subject: "Design Review - Beta Financial",
       organizer: "jordan.kim@nutanix.com",
-      startTime: addDays(now, 2),
-      endTime: addHours(addDays(now, 2), 1),
+      startTime: at(2, 11, 0),
+      endTime: at(2, 12, 0),
       attendeesJson: JSON.stringify([
         { email: "architecture@betafin.example", displayName: "Beta Architecture" },
         { email: "robert.langley@betafin.example" },
@@ -150,13 +168,49 @@ async function main() {
     },
   });
 
+  // Tue 11:30 - overlaps the Design Review (demonstrates side-by-side lanes) and
+  // is a *private* meeting with no attendee list.
+  await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "Pricing Sync - Beta Financial",
+      organizer: "marcus.lee@nutanix.com",
+      startTime: at(2, 11, 30),
+      endTime: at(2, 12, 15),
+      attendeesJson: JSON.stringify([]),
+      externalDomains: "betafin.example",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_betapricing@thread.v2/0",
+      dealId: bravoDeal.id,
+    },
+  });
+
+  // Wed 9:30 - in person at the customer data center.
+  await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "Security Review - Gamma Healthcare",
+      organizer: "priya.nadar@nutanix.com",
+      startTime: at(3, 9, 30),
+      endTime: at(3, 10, 30),
+      attendeesJson: JSON.stringify([
+        { email: "security@gammahealth.example", displayName: "Gamma Security" },
+        { email: "carlos.mendoza@gammahealth.example" },
+      ]),
+      externalDomains: "gammahealth.example",
+      joinUrl: null,
+      location: "Gamma Healthcare Data Center - 1200 Mercy Dr, Austin, TX 78758",
+      dealId: gammaDeal.id,
+    },
+  });
+
+  // Wed 15:00 - virtual (Zoom).
   const gammaPocMeeting = await prisma.meeting.create({
     data: {
       source: "internal_seed",
       subject: "POC Readout - Gamma Healthcare",
       organizer: "priya.nadar@nutanix.com",
-      startTime: addDays(now, -10),
-      endTime: addHours(addDays(now, -10), 1),
+      startTime: at(3, 15, 0),
+      endTime: at(3, 16, 0),
       attendeesJson: JSON.stringify([
         { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
         { email: "security@gammahealth.example", displayName: "Gamma Security" },
@@ -168,13 +222,14 @@ async function main() {
     },
   });
 
+  // Thu 10:00 - virtual (Teams).
   await prisma.meeting.create({
     data: {
       source: "internal_seed",
       subject: "Validation Sign-off - Gamma Healthcare",
       organizer: "priya.nadar@nutanix.com",
-      startTime: addDays(now, 3),
-      endTime: addHours(addDays(now, 3), 1),
+      startTime: at(4, 10, 0),
+      endTime: at(4, 11, 0),
       attendeesJson: JSON.stringify([
         { email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" },
         { email: "carlos.mendoza@gammahealth.example" },
@@ -182,6 +237,24 @@ async function main() {
       externalDomains: "gammahealth.example",
       joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_gammasignoff@thread.v2/0",
       dealId: gammaDeal.id,
+    },
+  });
+
+  // Fri 13:00 - short 30-minute virtual stand-up (compact event block).
+  await prisma.meeting.create({
+    data: {
+      source: "internal_seed",
+      subject: "Weekly Account Stand-up - Acme",
+      organizer: "lizi.singletary@nutanix.com",
+      startTime: at(5, 13, 0),
+      endTime: at(5, 13, 30),
+      attendeesJson: JSON.stringify([
+        { email: "sam@nutanix.com", displayName: "Sam (AM)" },
+        { email: "priya.patel@acme.example" },
+      ]),
+      externalDomains: "acme.example",
+      joinUrl: "https://nutanix.zoom.us/j/85011223344",
+      dealId: alphaDeal.id,
     },
   });
 

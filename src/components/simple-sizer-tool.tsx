@@ -39,7 +39,7 @@ function Delta({ value, unit }: { value: number | null; unit: string }) {
 }
 
 export function SimpleSizerTool() {
-  const [source, setSource] = useState<SizerSource>("collector");
+  const [source, setSource] = useState<SizerSource>("collector_excel");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export function SimpleSizerTool() {
     <div className="space-y-6">
       <Card
         title="Simple Sizer"
-        subtitle="Import Collector/RVTools exports and generate SE-ready CPU, memory, and storage sizing guidance."
+        subtitle="Import Collector Excel exports, RVTools, or LiveOptics files for SE-ready CPU, memory, and storage sizing guidance."
         icon={<Calculator className="h-5 w-5" />}
       >
         <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
@@ -96,8 +96,9 @@ export function SimpleSizerTool() {
                   onChange={(e) => setSource(e.target.value as SizerSource)}
                   className="w-full"
                 >
-                  <option value="collector">Nutanix Collector Export</option>
+                  <option value="collector_excel">Nutanix Collector (Excel Export)</option>
                   <option value="rvtools">RVTools Export</option>
+                  <option value="liveoptics">LiveOptics Export</option>
                 </select>
               </div>
               <div className="space-y-1.5">
@@ -210,7 +211,15 @@ export function SimpleSizerTool() {
             <h3 className="text-sm font-semibold text-charcoal-900">Rollup</h3>
             <div className="mt-2 grid gap-2 text-sm text-charcoal-700 md:grid-cols-2">
               <p>
-                Source: <span className="font-semibold">{parsed.source === "collector" ? "Nutanix Collector" : "RVTools"}</span>
+                Source:{" "}
+                <span className="font-semibold">
+                  {parsed.source === "collector_excel"
+                    ? "Nutanix Collector (Excel)"
+                    : parsed.source === "rvtools"
+                      ? "RVTools"
+                      : "LiveOptics"}
+                </span>
+                <span className="ml-2 text-xs text-charcoal-500">(manual)</span>
               </p>
               <p>
                 File: <span className="font-semibold">{parsed.fileName}</span>

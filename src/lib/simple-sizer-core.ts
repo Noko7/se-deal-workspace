@@ -1,7 +1,8 @@
-export type SizerSource = "collector" | "rvtools";
+export type SizerSource = "collector_excel" | "rvtools" | "liveoptics";
 
 export type ParsedEnvironment = {
   source: SizerSource;
+  sourceDetection: "manual";
   fileName: string;
   clusters: number;
   hosts: number;

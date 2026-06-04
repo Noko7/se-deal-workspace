@@ -35,6 +35,10 @@ function formatTime(date: Date): string {
   });
 }
 
+function formatClock(date: Date): string {
+  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -202,6 +206,7 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
 
   const nowTop = ((minutesIntoDay(now) - startHour * 60) / 60) * HOUR_PX;
   const nowInRange = nowTop >= 0 && nowTop <= bodyHeight;
+  const nowVisible = days.some((day) => isSameDay(day, now));
   const gridTemplate = `56px repeat(${days.length}, minmax(0, 1fr))`;
 
   return (
@@ -232,7 +237,7 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
 
       {/* Scrollable time body */}
       <div ref={scrollRef} className="max-h-[640px] overflow-y-auto">
-        <div className="grid" style={{ gridTemplateColumns: gridTemplate }}>
+        <div className="relative grid" style={{ gridTemplateColumns: gridTemplate }}>
           {/* Time gutter */}
           <div className="relative border-r border-charcoal-200" style={{ height: bodyHeight }}>
             {hours.map((hour, index) => (
@@ -266,12 +271,7 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
                 ))}
 
                 {today && nowInRange ? (
-                  <div className="absolute inset-x-0 z-20" style={{ top: nowTop }}>
-                    <div className="relative">
-                      <span className="absolute -left-1 -top-[3px] h-2 w-2 rounded-full bg-iris-600" />
-                      <div className="border-t-2 border-iris-500" />
-                    </div>
-                  </div>
+                  <div className="absolute inset-x-0 z-20 border-t-2 border-iris-500" style={{ top: nowTop }} />
                 ) : null}
 
                 {positioned.map(({ event, top, height, leftPct, widthPct }) => {
@@ -325,6 +325,28 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
               </div>
             );
           })}
+
+          {/* Current-time line: thin from end to end, plus a purple time label
+              and dot in the gutter. The thicker segment over today is drawn per
+              column above. */}
+          {nowVisible && nowInRange ? (
+            <>
+              <div
+                className="pointer-events-none absolute right-0 z-0 border-t border-iris-300"
+                style={{ left: 56, top: nowTop }}
+              />
+              <span
+                className="pointer-events-none absolute z-30 h-2 w-2 -translate-y-1/2 rounded-full bg-iris-600"
+                style={{ left: 50, top: nowTop }}
+              />
+              <div
+                className="pointer-events-none absolute left-0 z-30 -translate-y-1/2 pr-2 text-right text-[10px] font-semibold text-iris-600"
+                style={{ width: 56, top: nowTop }}
+              >
+                {formatClock(now)}
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 

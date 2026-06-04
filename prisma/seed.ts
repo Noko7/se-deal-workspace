@@ -67,7 +67,6 @@ async function main() {
     result.setHours(hour, minute, 0, 0);
     return result;
   };
-  const plusMin = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60000);
   // Place a meeting `offsetDays` from today at a real business hour (anchored to
   // midnight so we never drift to 12 AM), nudging weekends onto Monday.
   const weekdayAt = (offsetDays: number, hour: number, minute = 0) => {
@@ -80,6 +79,13 @@ async function main() {
     return result;
   };
   const DURATIONS = [30, 45, 60, 90];
+  // End time for a meeting that starts at `start`, clamped so it never runs past
+  // 5 PM (and is at least 30 min).
+  const endBy5 = (start: Date, desiredMinutes: number) => {
+    const startMin = start.getHours() * 60 + start.getMinutes();
+    const minutes = Math.max(30, Math.min(desiredMinutes, 17 * 60 - startMin));
+    return new Date(start.getTime() + minutes * 60000);
+  };
 
   const alphaDeal = await prisma.deal.create({
     data: {
@@ -613,14 +619,14 @@ async function main() {
 
     // Spread three meetings per account across business hours and weekdays over
     // the surrounding weeks so the calendar is densely (but realistically) full.
-    const upcomingStart = weekdayAt(1 + ((i * 2) % 26), 9 + (i % 6), i % 2 === 0 ? 0 : 30);
+    const upcomingStart = weekdayAt(1 + ((i * 2) % 26), 9 + ((i * 3) % 8), i % 2 === 0 ? 0 : 30);
     const upcomingMeeting = await prisma.meeting.create({
       data: {
         source: "internal_seed",
         subject: `${stage} Sync - ${company}`,
         organizer: ownerEmail,
         startTime: upcomingStart,
-        endTime: plusMin(upcomingStart, DURATIONS[i % DURATIONS.length]),
+        endTime: endBy5(upcomingStart, DURATIONS[i % DURATIONS.length]),
         attendeesJson: JSON.stringify([
           { email: `it@${domain}`, displayName: `${company} IT` },
           { email: ownerEmail, displayName: owner },
@@ -632,14 +638,14 @@ async function main() {
       },
     });
 
-    const workingStart = weekdayAt(3 + ((i * 3) % 30), 10 + (i % 5), i % 3 === 0 ? 30 : 0);
+    const workingStart = weekdayAt(3 + ((i * 3) % 30), 9 + ((i * 5) % 8), i % 3 === 0 ? 30 : 0);
     await prisma.meeting.create({
       data: {
         source: "internal_seed",
         subject: `Working Session - ${company}`,
         organizer: ownerEmail,
         startTime: workingStart,
-        endTime: plusMin(workingStart, DURATIONS[(i + 1) % DURATIONS.length]),
+        endTime: endBy5(workingStart, DURATIONS[(i + 1) % DURATIONS.length]),
         attendeesJson: JSON.stringify([
           { email: `it@${domain}`, displayName: `${company} IT` },
           { email: externalContactEmail(i + 5, domain) },
@@ -650,14 +656,14 @@ async function main() {
       },
     });
 
-    const pastStart = weekdayAt(-(2 + ((i * 2) % 18)), 11 + (i % 4), i % 2 === 0 ? 0 : 30);
+    const pastStart = weekdayAt(-(2 + ((i * 2) % 18)), 9 + ((i * 7) % 8), i % 2 === 0 ? 0 : 30);
     const pastMeeting = await prisma.meeting.create({
       data: {
         source: "internal_seed",
         subject: `Intro Call - ${company}`,
         organizer: ownerEmail,
         startTime: pastStart,
-        endTime: plusMin(pastStart, 60),
+        endTime: endBy5(pastStart, 60),
         attendeesJson: JSON.stringify([
           { email: `infra@${domain}`, displayName: `${company} Infrastructure` },
           { email: externalContactEmail(i + 3, domain) },

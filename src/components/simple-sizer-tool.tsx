@@ -3,24 +3,21 @@
 import { useMemo, useState } from "react";
 import { Calculator, FileSpreadsheet, Upload } from "lucide-react";
 import {
+  computeClusterRecommendations,
   computeSizerRecommendation,
+  type ClusterRecommendation,
+  type ParsedCluster,
   type ParsedEnvironment,
-  type SizerRecommendation,
   type SizerSettings,
   type SizerSource,
 } from "@/lib/simple-sizer-core";
-import {
-  Button,
-  Card,
-  StatusPill,
-} from "@/components/ui";
+import { Button, Card, StatusPill } from "@/components/ui";
 
 const DEFAULT_SETTINGS: SizerSettings = {
-  nMinusOne: true,
+  vcpuToPcoreRatio: 4,
+  nodeCount: 3,
   rf: 2,
-  cvmOverheadPct: 12,
-  pcOverheadPct: 3,
-  growthPct: 20,
+  storageBasis: "consumed",
 };
 
 function format(value: number, unit: string): string {
@@ -45,9 +42,17 @@ export function SimpleSizerTool() {
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedEnvironment | null>(null);
   const [settings, setSettings] = useState<SizerSettings>(DEFAULT_SETTINGS);
+  const [accounts, setAccounts] = useState<Array<{ dealId: string; accountName: string; dealName: string; owner: string }>>([]);
+  const [selectedDealId, setSelectedDealId] = useState("");
+  const [attachMessage, setAttachMessage] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
 
-  const recommendation: SizerRecommendation | null = useMemo(
+  const recommendation = useMemo(
     () => (parsed ? computeSizerRecommendation(parsed, settings) : null),
+    [parsed, settings],
+  );
+  const clusterRecommendations: ClusterRecommendation[] = useMemo(
+    () => (parsed ? computeClusterRecommendations(parsed, settings) : []),
     [parsed, settings],
   );
 
@@ -69,11 +74,44 @@ export function SimpleSizerTool() {
         throw new Error(data.error ?? "Unable to analyze file.");
       }
       setParsed(data.parsed);
+      setAttachMessage(null);
+      const accountsRes = await fetch("/api/simple-sizer/attach");
+      if (accountsRes.ok) {
+        const payload = (await accountsRes.json()) as { accounts?: Array<{ dealId: string; accountName: string; dealName: string; owner: string }> };
+        const items = payload.accounts ?? [];
+        setAccounts(items);
+        if (!selectedDealId && items.length) {
+          setSelectedDealId(items[0].dealId);
+        }
+      }
     } catch (e) {
       setError((e as Error).message);
       setParsed(null);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const attachToAccount = async () => {
+    if (!parsed || !recommendation || !selectedDealId) return;
+    setAttaching(true);
+    setAttachMessage(null);
+    try {
+      const body = buildSizingAttachmentText(parsed, recommendation, clusterRecommendations, settings);
+      const response = await fetch("/api/simple-sizer/attach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId: selectedDealId, body }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error ?? "Failed to attach sizing.");
+      }
+      setAttachMessage("Sizing attached to account successfully.");
+    } catch (error) {
+      setAttachMessage((error as Error).message);
+    } finally {
+      setAttaching(false);
     }
   };
 
@@ -119,6 +157,28 @@ export function SimpleSizerTool() {
               </Button>
               {parsed ? <StatusPill tone="good">Parsed {parsed.fileName}</StatusPill> : null}
             </div>
+            {parsed ? (
+              <div className="mt-3 rounded-lg border-2 border-charcoal-900 bg-charcoal-100 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-800">Attach Sizing to Account</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <select
+                    value={selectedDealId}
+                    onChange={(e) => setSelectedDealId(e.target.value)}
+                    className="min-w-[320px] flex-1 border-2 border-charcoal-800 bg-white font-medium text-charcoal-900"
+                  >
+                    {accounts.map((account) => (
+                      <option key={account.dealId} value={account.dealId}>
+                        {account.accountName} - {account.dealName} ({account.owner})
+                      </option>
+                    ))}
+                  </select>
+                  <Button type="button" onClick={attachToAccount} disabled={!selectedDealId || attaching}>
+                    {attaching ? "Attaching..." : "Attach Sizing"}
+                  </Button>
+                </div>
+                {attachMessage ? <p className="mt-2 text-sm font-medium text-charcoal-900">{attachMessage}</p> : null}
+              </div>
+            ) : null}
             {error ? <p className="mt-2 text-sm text-[#9a3b27]">{error}</p> : null}
             <p className="mt-2 text-xs text-charcoal-500">
               Based on patterns from your formatter workflows (Collector-Formatter and RVTools-Formatter), this UI
@@ -129,15 +189,33 @@ export function SimpleSizerTool() {
           <div className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-4">
             <h3 className="mb-3 text-sm font-semibold text-charcoal-900">2) Sizing Settings</h3>
             <div className="space-y-2.5">
-              <label className="flex items-center gap-2 text-sm font-medium normal-case tracking-normal text-charcoal-700">
+              <div>
+                <label htmlFor="ratio">vCPU:pCore Ratio ({settings.vcpuToPcoreRatio.toFixed(1)}:1)</label>
                 <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-iris-600"
-                  checked={settings.nMinusOne}
-                  onChange={(e) => setSettings((s) => ({ ...s, nMinusOne: e.target.checked }))}
+                  id="ratio"
+                  type="range"
+                  min={1}
+                  max={6}
+                  step={0.5}
+                  value={settings.vcpuToPcoreRatio}
+                  onChange={(e) => setSettings((s) => ({ ...s, vcpuToPcoreRatio: Number(e.target.value) }))}
+                  className="w-full"
                 />
-                N-1 Availability
-              </label>
+              </div>
+              <div>
+                <label htmlFor="nodes">Target Node Count (N)</label>
+                <input
+                  id="nodes"
+                  type="range"
+                  min={3}
+                  max={16}
+                  step={1}
+                  value={settings.nodeCount}
+                  onChange={(e) => setSettings((s) => ({ ...s, nodeCount: Number(e.target.value) }))}
+                  className="w-full"
+                />
+                <p className="text-xs text-charcoal-500">{settings.nodeCount} nodes</p>
+              </div>
 
               <div>
                 <label htmlFor="rf">Replication Factor</label>
@@ -153,42 +231,18 @@ export function SimpleSizerTool() {
               </div>
 
               <div>
-                <label htmlFor="cvm">CVM Overhead (%)</label>
-                <input
-                  id="cvm"
-                  type="number"
-                  min={0}
-                  max={40}
-                  value={settings.cvmOverheadPct}
-                  onChange={(e) => setSettings((s) => ({ ...s, cvmOverheadPct: Number(e.target.value) || 0 }))}
+                <label htmlFor="storageBasis">Storage Basis</label>
+                <select
+                  id="storageBasis"
+                  value={settings.storageBasis}
+                  onChange={(e) =>
+                    setSettings((s) => ({ ...s, storageBasis: e.target.value as "provisioned" | "consumed" }))
+                  }
                   className="w-full"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="pc">Prism Central Overhead (%)</label>
-                <input
-                  id="pc"
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={settings.pcOverheadPct}
-                  onChange={(e) => setSettings((s) => ({ ...s, pcOverheadPct: Number(e.target.value) || 0 }))}
-                  className="w-full"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="growth">Growth Buffer (%)</label>
-                <input
-                  id="growth"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={settings.growthPct}
-                  onChange={(e) => setSettings((s) => ({ ...s, growthPct: Number(e.target.value) || 0 }))}
-                  className="w-full"
-                />
+                >
+                  <option value="consumed">Consumed</option>
+                  <option value="provisioned">Provisioned</option>
+                </select>
               </div>
             </div>
           </div>
@@ -197,14 +251,37 @@ export function SimpleSizerTool() {
 
       {parsed && recommendation ? (
         <Card
-          title="Environment Summary & Recommendation"
-          subtitle="Current capacity vs consumed load, then adjusted sizing recommendation for N-1/RF/CVM/PC policy."
+          title="Environment Summary"
+          subtitle="As-Is telemetry and To-Be hardware sizing recommendations for the full environment."
           icon={<FileSpreadsheet className="h-5 w-5" />}
         >
           <div className="grid gap-3 md:grid-cols-3">
-            <MetricCard title="CPU Cores" raw={parsed.totalCpuCores} consumed={parsed.consumedCpuCores} recommended={recommendation.recommendedCpuCores} unit="cores" delta={recommendation.cpuDelta} />
-            <MetricCard title="Memory" raw={parsed.totalMemoryGiB} consumed={parsed.consumedMemoryGiB} recommended={recommendation.recommendedMemoryGiB} unit="GiB" delta={recommendation.memoryDeltaGiB} />
-            <MetricCard title="Storage" raw={parsed.totalStorageTiB} consumed={parsed.consumedStorageTiB} recommended={recommendation.recommendedStorageTiB} unit="TiB" delta={recommendation.storageDeltaTiB} />
+            <MetricCard title="Agg vCPU" raw={parsed.aggVcpu} consumed={null} recommended={recommendation.basePCores} unit="vCPU / pCores base" delta={null} />
+            <MetricCard title="Agg RAM" raw={parsed.aggRamGiB} consumed={parsed.consumedMemoryGiB} recommended={recommendation.baseRamGiB} unit="GiB" delta={null} />
+            <MetricCard
+              title="Agg Storage"
+              raw={settings.storageBasis === "consumed" ? parsed.aggStorageConsumedTiB : parsed.aggStorageProvisionedTiB}
+              consumed={parsed.aggStorageConsumedTiB}
+              recommended={recommendation.totalRawStorageTiB}
+              unit="TiB"
+              delta={null}
+            />
+          </div>
+          <div className="mt-4 rounded-lg border border-iris-200 bg-iris-50 p-4">
+            <h3 className="text-sm font-semibold text-iris-900">Recommended Environment Hardware Specs</h3>
+            <div className="mt-2 grid gap-2 text-sm text-iris-900 md:grid-cols-3">
+              <p>Per Node CPU: <span className="font-semibold">{format(recommendation.nodeTotalPCores, "pCores")}</span></p>
+              <p>Per Node RAM: <span className="font-semibold">{format(recommendation.nodeTotalRamGiB, "GB")}</span></p>
+              <p>Per Node Storage: <span className="font-semibold">{format(recommendation.nodeStorageTiB, "TB")}</span></p>
+            </div>
+            <div className="mt-2 grid gap-2 text-sm text-iris-900 md:grid-cols-3">
+              <p>Cluster CPU: <span className="font-semibold">{format(recommendation.clusterTotalPCores, "pCores")}</span></p>
+              <p>Cluster RAM: <span className="font-semibold">{format(recommendation.clusterTotalRamGiB, "GB")}</span></p>
+              <p>Cluster Storage: <span className="font-semibold">{format(recommendation.clusterTotalStorageTiB, "TB raw")}</span></p>
+            </div>
+            {recommendation.monsterVmRisk ? (
+              <p className="mt-2 text-sm font-semibold text-[#9a3b27]">NUMA/Monster VM Risk: {recommendation.monsterVmReason}</p>
+            ) : null}
           </div>
 
           <div className="mt-4 rounded-lg border border-charcoal-200 bg-white p-4">
@@ -231,14 +308,15 @@ export function SimpleSizerTool() {
                 Hosts: <span className="font-semibold">{parsed.hosts}</span>
               </p>
               <p>
-                Effective CPU after policy: <span className="font-semibold">{format(recommendation.availableCpuCores, "cores")}</span>
+                Total VMs: <span className="font-semibold">{parsed.totalVms}</span>
               </p>
               <p>
-                Effective Memory after policy: <span className="font-semibold">{format(recommendation.availableMemoryGiB, "GiB")}</span>
+                Avg vCPU/VM: <span className="font-semibold">{parsed.avgVcpuPerVm}</span>
               </p>
-              <p>
-                Effective Storage after policy: <span className="font-semibold">{format(recommendation.availableStorageTiB, "TiB")}</span>
-              </p>
+              <p>N Target: <span className="font-semibold">{settings.nodeCount}</span></p>
+              <p>vCPU:pCore Ratio: <span className="font-semibold">{settings.vcpuToPcoreRatio}:1</span></p>
+              <p>RF: <span className="font-semibold">RF{settings.rf}</span></p>
+              <p>Storage Basis: <span className="font-semibold">{settings.storageBasis}</span></p>
             </div>
             {parsed.notes.length ? (
               <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-charcoal-500">
@@ -247,6 +325,22 @@ export function SimpleSizerTool() {
                 ))}
               </ul>
             ) : null}
+          </div>
+        </Card>
+      ) : null}
+
+      {parsed && clusterRecommendations.length ? (
+        <Card
+          title="Per-Cluster Current vs Recommended"
+          subtitle="Each cluster section includes current hardware models and recommended specs for OEM planning."
+          icon={<FileSpreadsheet className="h-5 w-5" />}
+        >
+          <div className="space-y-4">
+            {parsed.clusterDetails.map((cluster, index) => {
+              const rec = clusterRecommendations.find((item) => item.clusterName === cluster.name) ?? null;
+              const clusterKey = cluster.moid ? `${cluster.moid}-${cluster.name}` : `${cluster.name}-${index}`;
+              return <ClusterSection key={clusterKey} cluster={cluster} recommendation={rec} index={index} />;
+            })}
           </div>
         </Card>
       ) : null}
@@ -288,5 +382,174 @@ function MetricCard({
       </div>
     </div>
   );
+}
+
+function ClusterSection({
+  cluster,
+  recommendation,
+  index,
+}: {
+  cluster: ParsedCluster;
+  recommendation: ClusterRecommendation | null;
+  index: number;
+}) {
+  const accents = [
+    "border-l-8 border-l-iris-600",
+    "border-l-8 border-l-[#0f766e]",
+    "border-l-8 border-l-[#7c3aed]",
+    "border-l-8 border-l-[#b45309]",
+    "border-l-8 border-l-[#be123c]",
+  ];
+  const accentClass = accents[index % accents.length];
+
+  return (
+    <section className={`rounded-lg border-2 border-charcoal-700 bg-white p-4 shadow-sm ${accentClass}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-semibold text-charcoal-900">{cluster.name}</h3>
+        <StatusPill tone="info">{cluster.hosts} hosts</StatusPill>
+      </div>
+      <div className="mt-1 grid gap-2 text-xs text-charcoal-500 md:grid-cols-4">
+        <p>Cluster ID: <span className="font-medium text-charcoal-700">{cluster.moid ?? "N/A"}</span></p>
+        <p>Total VMs: <span className="font-medium text-charcoal-700">{cluster.totalVms}</span></p>
+        <p>Avg vCPU/VM: <span className="font-medium text-charcoal-700">{cluster.avgVcpuPerVm}</span></p>
+        <p>vCPU:pCore: <span className="font-medium text-charcoal-700">{cluster.vcpuPcoreRatio}</span></p>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <MetricCard
+          title="Current CPU"
+          raw={cluster.totalCpuCores}
+          consumed={cluster.consumedCpuCores}
+          recommended={recommendation?.recommendation.nodeTotalPCores ?? null}
+          unit="cores / pCores"
+          delta={null}
+        />
+        <MetricCard
+          title="Current Memory"
+          raw={cluster.totalMemoryGiB}
+          consumed={cluster.consumedMemoryGiB}
+          recommended={recommendation?.recommendation.nodeTotalRamGiB ?? null}
+          unit="GiB"
+          delta={null}
+        />
+        <MetricCard
+          title="Current Storage"
+          raw={cluster.totalStorageTiB}
+          consumed={cluster.consumedStorageTiB}
+          recommended={recommendation?.recommendation.nodeStorageTiB ?? null}
+          unit="TiB"
+          delta={null}
+        />
+      </div>
+
+      <div className="mt-4 rounded-md border-2 border-charcoal-700 bg-charcoal-50 p-3">
+        <h4 className="text-sm font-semibold text-charcoal-950">Current Hardware Models</h4>
+        {cluster.hardwareModels.length ? (
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-left text-xs text-charcoal-900">
+              <thead>
+                <tr className="border-b-2 border-charcoal-700 text-charcoal-800">
+                  <th className="py-1 pr-3 font-medium">Vendor</th>
+                  <th className="py-1 pr-3 font-medium">Model</th>
+                  <th className="py-1 pr-3 font-medium">Hosts</th>
+                  <th className="py-1 pr-3 font-medium">CPU</th>
+                  <th className="py-1 pr-3 font-medium">Memory</th>
+                  <th className="py-1 font-medium">Storage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cluster.hardwareModels.map((model) => (
+                  <tr key={`${model.vendor ?? "Unknown"}-${model.model}`} className="border-b border-charcoal-300">
+                    <td className="py-1 pr-3">{model.vendor ?? "Unknown"}</td>
+                    <td className="py-1 pr-3 font-medium">{model.model}</td>
+                    <td className="py-1 pr-3">{model.hostCount}</td>
+                    <td className="py-1 pr-3">{format(model.cpuCores, "cores")}</td>
+                    <td className="py-1 pr-3">{format(model.memoryGiB, "GiB")}</td>
+                    <td className="py-1">{format(model.storageTiB, "TiB")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-charcoal-500">No model details available in source export.</p>
+        )}
+      </div>
+
+      <div className="mt-3 rounded-md border-2 border-iris-600 bg-iris-50 p-3 text-sm text-iris-950">
+        <p className="font-semibold">Recommended Hardware Specs (Cluster)</p>
+        <div className="mt-1 grid gap-2 md:grid-cols-3">
+          <p>Per Node CPU: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.nodeTotalPCores ?? null, "pCores")}</span></p>
+          <p>Per Node Memory: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.nodeTotalRamGiB ?? null, "GB")}</span></p>
+          <p>Per Node Storage: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.nodeStorageTiB ?? null, "TB")}</span></p>
+        </div>
+        {recommendation?.recommendation.monsterVmRisk ? (
+          <p className="mt-2 text-xs font-semibold text-[#9a3b27]">NUMA/Monster VM Risk: {recommendation.recommendation.monsterVmReason}</p>
+        ) : null}
+        <div className="mt-1 grid gap-2 text-xs md:grid-cols-3">
+          <p>Cluster CPU Total: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.clusterTotalPCores ?? null, "pCores")}</span></p>
+          <p>Cluster RAM Total: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.clusterTotalRamGiB ?? null, "GB")}</span></p>
+          <p>Cluster Storage Total: <span className="font-semibold">{formatMaybe(recommendation?.recommendation.clusterTotalStorageTiB ?? null, "TB raw")}</span></p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function buildSizingAttachmentText(
+  parsed: ParsedEnvironment,
+  recommendation: ReturnType<typeof computeSizerRecommendation>,
+  clusterRecommendations: ClusterRecommendation[],
+  settings: SizerSettings,
+): string {
+  const lines: string[] = [];
+  lines.push("Simple Sizer Snapshot");
+  lines.push(`Source: ${parsed.source}`);
+  lines.push(`File: ${parsed.fileName}`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("Environment Summary");
+  lines.push(`- Clusters: ${parsed.clusters}`);
+  lines.push(`- Hosts: ${parsed.hosts}`);
+  lines.push(`- VMs: ${parsed.totalVms}`);
+  lines.push(`- Agg vCPU: ${parsed.aggVcpu}`);
+  lines.push(`- Agg RAM (GiB): ${parsed.aggRamGiB}`);
+  lines.push(
+    `- Agg Storage (${settings.storageBasis === "consumed" ? "Consumed" : "Provisioned"} TiB): ${
+      settings.storageBasis === "consumed" ? parsed.aggStorageConsumedTiB : parsed.aggStorageProvisionedTiB
+    }`,
+  );
+  lines.push("");
+  lines.push("Sizing Inputs");
+  lines.push(`- vCPU:pCore Ratio: ${settings.vcpuToPcoreRatio}:1`);
+  lines.push(`- Node Count: ${settings.nodeCount}`);
+  lines.push(`- RF: RF${settings.rf}`);
+  lines.push(`- Storage Basis: ${settings.storageBasis}`);
+  lines.push("");
+  lines.push("Recommended Environment");
+  lines.push(`- Per Node CPU (pCores): ${recommendation.nodeTotalPCores}`);
+  lines.push(`- Per Node RAM (GB): ${recommendation.nodeTotalRamGiB}`);
+  lines.push(`- Per Node Storage (TB): ${recommendation.nodeStorageTiB}`);
+  lines.push(`- Cluster Total CPU (pCores): ${recommendation.clusterTotalPCores}`);
+  lines.push(`- Cluster Total RAM (GB): ${recommendation.clusterTotalRamGiB}`);
+  lines.push(`- Cluster Total Storage (TB raw): ${recommendation.clusterTotalStorageTiB}`);
+  if (recommendation.monsterVmRisk) {
+    lines.push(`- NUMA/Monster VM Risk: ${recommendation.monsterVmReason}`);
+  }
+  lines.push("");
+  lines.push("Per-Cluster Recommendations");
+  for (const cluster of clusterRecommendations) {
+    lines.push(`* ${cluster.clusterName}`);
+    lines.push(`  - Per Node CPU: ${cluster.recommendation.nodeTotalPCores} pCores`);
+    lines.push(`  - Per Node RAM: ${cluster.recommendation.nodeTotalRamGiB} GB`);
+    lines.push(`  - Per Node Storage: ${cluster.recommendation.nodeStorageTiB} TB`);
+    lines.push(`  - Cluster CPU Total: ${cluster.recommendation.clusterTotalPCores} pCores`);
+    lines.push(`  - Cluster RAM Total: ${cluster.recommendation.clusterTotalRamGiB} GB`);
+    lines.push(`  - Cluster Storage Total: ${cluster.recommendation.clusterTotalStorageTiB} TB raw`);
+    if (cluster.recommendation.monsterVmRisk) {
+      lines.push(`  - Risk: ${cluster.recommendation.monsterVmReason}`);
+    }
+  }
+  return lines.join("\n");
 }
 

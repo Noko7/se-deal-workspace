@@ -1,38 +1,85 @@
 export type SizerSource = "collector_excel" | "rvtools" | "liveoptics";
 
-export type ParsedEnvironment = {
-  source: SizerSource;
-  sourceDetection: "manual";
-  fileName: string;
-  clusters: number;
+export type ClusterHardwareModel = {
+  model: string;
+  vendor: string | null;
+  hostCount: number;
+  cpuCores: number;
+  memoryGiB: number;
+  storageTiB: number;
+};
+
+export type ParsedCluster = {
+  name: string;
+  moid: string | null;
   hosts: number;
+  totalVms: number;
+  avgVcpuPerVm: number;
+  vcpuPcoreRatio: number;
+  hardwareModels: ClusterHardwareModel[];
+  aggVcpu: number;
+  aggRamGiB: number;
+  aggStorageProvisionedTiB: number;
+  aggStorageConsumedTiB: number;
+  maxVmVcpu: number | null;
+  maxVmRamGiB: number | null;
   totalCpuCores: number;
   consumedCpuCores: number | null;
   totalMemoryGiB: number;
   consumedMemoryGiB: number | null;
   totalStorageTiB: number;
   consumedStorageTiB: number | null;
+};
+
+export type ParsedEnvironment = {
+  source: SizerSource;
+  sourceDetection: "manual";
+  fileName: string;
+  clusters: number;
+  hosts: number;
+  totalVms: number;
+  avgVcpuPerVm: number;
+  vcpuPcoreRatio: number;
+  totalCpuCores: number;
+  consumedCpuCores: number | null;
+  totalMemoryGiB: number;
+  consumedMemoryGiB: number | null;
+  totalStorageTiB: number;
+  consumedStorageTiB: number | null;
+  aggVcpu: number;
+  aggRamGiB: number;
+  aggStorageProvisionedTiB: number;
+  aggStorageConsumedTiB: number;
+  maxVmVcpu: number | null;
+  maxVmRamGiB: number | null;
+  clusterDetails: ParsedCluster[];
   notes: string[];
 };
 
 export type SizerSettings = {
-  nMinusOne: boolean;
+  vcpuToPcoreRatio: number;
+  nodeCount: number;
   rf: 2 | 3;
-  cvmOverheadPct: number;
-  pcOverheadPct: number;
-  growthPct: number;
+  storageBasis: "provisioned" | "consumed";
 };
 
 export type SizerRecommendation = {
-  availableCpuCores: number;
-  availableMemoryGiB: number;
-  availableStorageTiB: number;
-  recommendedCpuCores: number | null;
-  recommendedMemoryGiB: number | null;
-  recommendedStorageTiB: number | null;
-  cpuDelta: number | null;
-  memoryDeltaGiB: number | null;
-  storageDeltaTiB: number | null;
+  basePCores: number;
+  baseRamGiB: number;
+  totalRawStorageTiB: number;
+  nodeTotalPCores: number;
+  nodeTotalRamGiB: number;
+  nodeStorageTiB: number;
+  clusterTotalPCores: number;
+  clusterTotalRamGiB: number;
+  clusterTotalStorageTiB: number;
+  monsterVmRisk: boolean;
+  monsterVmReason: string | null;
+};
+
+export type ClusterRecommendation = {
+  clusterName: string;
+  recommendation: SizerRecommendation;
 };
 
 function round2(value: number): number {
@@ -40,36 +87,99 @@ function round2(value: number): number {
 }
 
 export function computeSizerRecommendation(parsed: ParsedEnvironment, settings: SizerSettings): SizerRecommendation {
-  const hostFactor = settings.nMinusOne && parsed.hosts > 1 ? (parsed.hosts - 1) / parsed.hosts : 1;
-  const overheadFactor = 1 - (settings.cvmOverheadPct + settings.pcOverheadPct) / 100;
-  const safeOverheadFactor = Math.max(0.1, overheadFactor);
-  const growthFactor = 1 + settings.growthPct / 100;
+  return computeRecommendationFromAggregates({
+    aggVcpu: parsed.aggVcpu,
+    aggRamGiB: parsed.aggRamGiB,
+    aggStorageTiB:
+      settings.storageBasis === "consumed" && parsed.aggStorageConsumedTiB > 0
+        ? parsed.aggStorageConsumedTiB
+        : parsed.aggStorageProvisionedTiB,
+    maxVmVcpu: parsed.maxVmVcpu,
+    maxVmRamGiB: parsed.maxVmRamGiB,
+    settings,
+  });
+}
 
-  const availableCpuCores = parsed.totalCpuCores * hostFactor * safeOverheadFactor;
-  const availableMemoryGiB = parsed.totalMemoryGiB * hostFactor * safeOverheadFactor;
-  const availableStorageTiB = parsed.totalStorageTiB * hostFactor;
+export function computeClusterRecommendations(
+  parsed: ParsedEnvironment,
+  settings: SizerSettings,
+): ClusterRecommendation[] {
+  return parsed.clusterDetails.map((cluster) => {
+    const recommendation = computeRecommendationFromAggregates({
+      aggVcpu: cluster.aggVcpu,
+      aggRamGiB: cluster.aggRamGiB,
+      aggStorageTiB:
+        settings.storageBasis === "consumed" && cluster.aggStorageConsumedTiB > 0
+          ? cluster.aggStorageConsumedTiB
+          : cluster.aggStorageProvisionedTiB,
+      maxVmVcpu: cluster.maxVmVcpu,
+      maxVmRamGiB: cluster.maxVmRamGiB,
+      settings,
+    });
+    return { clusterName: cluster.name, recommendation };
+  });
+}
 
-  const recommendedCpuCores =
-    parsed.consumedCpuCores == null ? null : (parsed.consumedCpuCores * growthFactor) / safeOverheadFactor;
-  const recommendedMemoryGiB =
-    parsed.consumedMemoryGiB == null ? null : (parsed.consumedMemoryGiB * growthFactor) / safeOverheadFactor;
-  const recommendedStorageTiB =
-    parsed.consumedStorageTiB == null
-      ? null
-      : parsed.consumedStorageTiB * settings.rf * growthFactor + parsed.consumedStorageTiB * 0.08;
+function computeRecommendationFromAggregates(input: {
+  aggVcpu: number;
+  aggRamGiB: number;
+  aggStorageTiB: number;
+  maxVmVcpu: number | null;
+  maxVmRamGiB: number | null;
+  settings: SizerSettings;
+}): SizerRecommendation {
+  const n = Math.max(3, input.settings.nodeCount);
+  const ratio = Math.max(1, input.settings.vcpuToPcoreRatio);
+
+  // Business constants
+  const CVM_PCORES_PER_NODE = 4;
+  const CVM_RAM_GB_PER_NODE = 32;
+  const PC_PCORES = 2;
+  const PC_RAM_GB = 32;
+  const HYPERVISOR_RAM_OVERHEAD = 0.05;
+  const STORAGE_SLACK_UTIL_TARGET = 0.8;
+
+  // Pass 1
+  const workloadPCores = Math.ceil(input.aggVcpu / ratio);
+  const basePCores = workloadPCores + PC_PCORES;
+  const baseRamGiB = input.aggRamGiB + PC_RAM_GB;
+  const storageRf = input.settings.rf;
+  const storageRfApplied = input.aggStorageTiB * storageRf;
+  const totalRawStorageTiB = storageRfApplied / STORAGE_SLACK_UTIL_TARGET;
+
+  // Pass 2 (N-1)
+  const nodeWorkloadPCores = basePCores / (n - 1);
+  const nodeTotalPCores = nodeWorkloadPCores + CVM_PCORES_PER_NODE;
+  const nodeWorkloadRam = baseRamGiB / (n - 1);
+  const nodeTotalRamGiB = (nodeWorkloadRam + CVM_RAM_GB_PER_NODE) * (1 + HYPERVISOR_RAM_OVERHEAD);
+  const nodeStorageTiB = totalRawStorageTiB / n;
+
+  const clusterTotalPCores = nodeTotalPCores * n;
+  const clusterTotalRamGiB = nodeTotalRamGiB * n;
+  const clusterTotalStorageTiB = nodeStorageTiB * n;
+
+  const maxVmPcoreNeed = input.maxVmVcpu == null ? null : input.maxVmVcpu / ratio;
+  const workloadPcorePerNode = nodeTotalPCores - CVM_PCORES_PER_NODE;
+  const workloadRamPerNode = baseRamGiB / (n - 1);
+  const monsterVmCpuRisk = maxVmPcoreNeed != null && maxVmPcoreNeed > workloadPcorePerNode;
+  const monsterVmRamRisk = input.maxVmRamGiB != null && input.maxVmRamGiB > workloadRamPerNode;
+  const monsterVmRisk = monsterVmCpuRisk || monsterVmRamRisk;
+  const monsterVmReason = monsterVmRisk
+    ? `VM exceeds per-node workload envelope (${monsterVmCpuRisk ? "CPU" : ""}${monsterVmCpuRisk && monsterVmRamRisk ? " and " : ""}${monsterVmRamRisk ? "RAM" : ""}).`
+    : null;
 
   return {
-    availableCpuCores: round2(availableCpuCores),
-    availableMemoryGiB: round2(availableMemoryGiB),
-    availableStorageTiB: round2(availableStorageTiB),
-    recommendedCpuCores: recommendedCpuCores == null ? null : round2(recommendedCpuCores),
-    recommendedMemoryGiB: recommendedMemoryGiB == null ? null : round2(recommendedMemoryGiB),
-    recommendedStorageTiB: recommendedStorageTiB == null ? null : round2(recommendedStorageTiB),
-    cpuDelta: recommendedCpuCores == null ? null : round2(Math.max(0, recommendedCpuCores - availableCpuCores)),
-    memoryDeltaGiB:
-      recommendedMemoryGiB == null ? null : round2(Math.max(0, recommendedMemoryGiB - availableMemoryGiB)),
-    storageDeltaTiB:
-      recommendedStorageTiB == null ? null : round2(Math.max(0, recommendedStorageTiB - availableStorageTiB)),
+    basePCores: round2(basePCores),
+    baseRamGiB: round2(baseRamGiB),
+    totalRawStorageTiB: round2(totalRawStorageTiB),
+    nodeTotalPCores: round2(nodeTotalPCores),
+    nodeTotalRamGiB: round2(nodeTotalRamGiB),
+    nodeStorageTiB: round2(nodeStorageTiB),
+    clusterTotalPCores: round2(clusterTotalPCores),
+    clusterTotalRamGiB: round2(clusterTotalRamGiB),
+    clusterTotalStorageTiB: round2(clusterTotalStorageTiB),
+    monsterVmRisk,
+    monsterVmReason,
   };
 }
 

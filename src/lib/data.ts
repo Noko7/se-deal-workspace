@@ -196,6 +196,13 @@ export type MeetingOption = {
   accountName: string;
 };
 
+export type AccountOption = {
+  dealId: string;
+  accountName: string;
+  dealName: string;
+  owner: string;
+};
+
 // Flat list of meetings (with their account) for the Note Formatter's
 // "attach to a meeting" picker. Most recent first.
 export async function getMeetingOptions(): Promise<MeetingOption[]> {
@@ -215,6 +222,19 @@ export async function getMeetingOptions(): Promise<MeetingOption[]> {
     startTime: meeting.startTime.toISOString(),
     dealId: meeting.deal.id,
     accountName: meeting.deal.accountName,
+  }));
+}
+
+export async function getAccountOptions(): Promise<AccountOption[]> {
+  const deals = await prisma.deal.findMany({
+    orderBy: [{ accountName: "asc" }, { name: "asc" }],
+    select: { id: true, accountName: true, name: true, owner: true },
+  });
+  return deals.map((deal) => ({
+    dealId: deal.id,
+    accountName: deal.accountName,
+    dealName: deal.name,
+    owner: deal.owner,
   }));
 }
 
@@ -240,6 +260,24 @@ export async function attachNoteToMeeting(input: {
       role: input.role,
       body: input.body,
       author: input.author,
+    },
+  });
+}
+
+export async function attachSizingToAccount(input: {
+  dealId: string;
+  body: string;
+  author: string;
+}) {
+  const deal = await prisma.deal.findUnique({ where: { id: input.dealId }, select: { id: true } });
+  if (!deal) return null;
+  return prisma.meetingNote.create({
+    data: {
+      dealId: input.dealId,
+      meetingId: null,
+      role: NoteRole.SE,
+      author: input.author,
+      body: input.body,
     },
   });
 }

@@ -276,6 +276,96 @@ async function main() {
     },
   });
 
+  // Deterministic afternoon anchors (2-5 PM, Mon-Fri) so the current week is
+  // always full through the end of the workday, independent of the loop spread.
+  const afternoonAnchors: {
+    day: number;
+    h: number;
+    m: number;
+    endH: number;
+    endM: number;
+    subject: string;
+    deal: { id: string; accountName: string };
+    organizer: string;
+    domain: string;
+    joinUrl: string | null;
+    location?: string;
+    attendees: { email: string; displayName?: string }[];
+  }[] = [
+    {
+      day: 1, h: 15, m: 30, endH: 16, endM: 30,
+      subject: "Architecture Workshop - Beta Financial",
+      deal: bravoDeal, organizer: "jordan.kim@nutanix.com", domain: "betafin.example",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_betaarch@thread.v2/0",
+      attendees: [{ email: "architecture@betafin.example", displayName: "Beta Architecture" }, { email: "robert.langley@betafin.example" }],
+    },
+    {
+      day: 2, h: 14, m: 0, endH: 15, endM: 0,
+      subject: "Capacity Review - Acme Manufacturing",
+      deal: alphaDeal, organizer: "lizi.singletary@nutanix.com", domain: "acme.example",
+      joinUrl: "https://nutanix.zoom.us/j/85044556677",
+      attendees: [{ email: "it.ops@acme.example", displayName: "Acme IT Ops" }, { email: "morgan.reyes@acme.example" }],
+    },
+    {
+      day: 2, h: 16, m: 0, endH: 16, endM: 45,
+      subject: "Stakeholder Update - Beta Financial",
+      deal: bravoDeal, organizer: "marcus.lee@nutanix.com", domain: "betafin.example",
+      joinUrl: "https://meet.google.com/xyz-7788-abc",
+      attendees: [{ email: "exec.sponsor@betafin.example", displayName: "Beta Exec Sponsor" }, { email: "diana.flores@betafin.example" }],
+    },
+    {
+      day: 3, h: 13, m: 30, endH: 15, endM: 0,
+      subject: "Sizing Walkthrough - Gamma Healthcare",
+      deal: gammaDeal, organizer: "priya.nadar@nutanix.com", domain: "gammahealth.example",
+      joinUrl: "https://nutanix.zoom.us/j/85099887766",
+      attendees: [{ email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" }, { email: "elena.popova@gammahealth.example" }],
+    },
+    {
+      day: 3, h: 16, m: 0, endH: 17, endM: 0,
+      subject: "Partner Sync - Gamma Healthcare",
+      deal: gammaDeal, organizer: "priya.nadar@nutanix.com", domain: "gammahealth.example",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/19:meeting_gammapartner@thread.v2/0",
+      attendees: [{ email: "alliances@gammahealth.example", displayName: "Gamma Alliances" }],
+    },
+    {
+      day: 4, h: 13, m: 0, endH: 14, endM: 0,
+      subject: "Onsite Briefing - Acme Manufacturing",
+      deal: alphaDeal, organizer: "lizi.singletary@nutanix.com", domain: "acme.example",
+      joinUrl: null, location: "Acme HQ - 500 Industrial Pkwy, Columbus, OH 43215",
+      attendees: [{ email: "cio@acme.example", displayName: "Acme CIO" }, { email: "it.ops@acme.example", displayName: "Acme IT Ops" }],
+    },
+    {
+      day: 4, h: 15, m: 0, endH: 16, endM: 0,
+      subject: "Risk Review - Acme Manufacturing",
+      deal: alphaDeal, organizer: "lizi.singletary@nutanix.com", domain: "acme.example",
+      joinUrl: "https://nutanix.zoom.us/j/85033442211",
+      attendees: [{ email: "security@acme.example", displayName: "Acme Security" }, { email: "dana.whitfield@acme.example" }],
+    },
+    {
+      day: 5, h: 15, m: 30, endH: 16, endM: 30,
+      subject: "Roadmap Review - Gamma Healthcare",
+      deal: gammaDeal, organizer: "priya.nadar@nutanix.com", domain: "gammahealth.example",
+      joinUrl: "https://meet.google.com/roa-2244-map",
+      attendees: [{ email: "infra@gammahealth.example", displayName: "Gamma Infrastructure" }, { email: "carlos.mendoza@gammahealth.example" }],
+    },
+  ];
+  for (const a of afternoonAnchors) {
+    await prisma.meeting.create({
+      data: {
+        source: "internal_seed",
+        subject: a.subject,
+        organizer: a.organizer,
+        startTime: at(a.day, a.h, a.m),
+        endTime: at(a.day, a.endH, a.endM),
+        attendeesJson: JSON.stringify(a.attendees),
+        externalDomains: a.domain,
+        joinUrl: a.joinUrl,
+        location: a.location ?? null,
+        dealId: a.deal.id,
+      },
+    });
+  }
+
   await prisma.integrationConnection.createMany({
     data: [
       {
@@ -619,7 +709,12 @@ async function main() {
 
     // Spread three meetings per account across business hours and weekdays over
     // the surrounding weeks so the calendar is densely (but realistically) full.
-    const upcomingStart = weekdayAt(1 + ((i * 2) % 26), 9 + ((i * 3) % 8), i % 2 === 0 ? 0 : 30);
+    // Each account gets four meetings in deliberately different time bands -- a
+    // morning, an early-afternoon, a late-afternoon, and a past one -- spread
+    // across the surrounding weeks so every week looks full from 9 to 5.
+    const min = i % 2 === 0 ? 0 : 30;
+
+    const upcomingStart = weekdayAt(1 + ((i * 2) % 26), 9 + (i % 3), min); // 9-11 AM
     const upcomingMeeting = await prisma.meeting.create({
       data: {
         source: "internal_seed",
@@ -638,7 +733,7 @@ async function main() {
       },
     });
 
-    const workingStart = weekdayAt(3 + ((i * 3) % 30), 9 + ((i * 5) % 8), i % 3 === 0 ? 30 : 0);
+    const workingStart = weekdayAt(2 + ((i * 3) % 27), 13 + (i % 3), min); // 1-3 PM
     await prisma.meeting.create({
       data: {
         source: "internal_seed",
@@ -656,7 +751,26 @@ async function main() {
       },
     });
 
-    const pastStart = weekdayAt(-(2 + ((i * 2) % 18)), 9 + ((i * 7) % 8), i % 2 === 0 ? 0 : 30);
+    const followupStart = weekdayAt(4 + ((i * 5) % 25), 14 + (i % 3), min); // 2-4 PM
+    await prisma.meeting.create({
+      data: {
+        source: "internal_seed",
+        subject: `Follow-up - ${company}`,
+        organizer: ownerEmail,
+        startTime: followupStart,
+        endTime: endBy5(followupStart, DURATIONS[(i + 2) % DURATIONS.length]),
+        attendeesJson: JSON.stringify([
+          { email: `it@${domain}`, displayName: `${company} IT` },
+          { email: ownerEmail, displayName: owner },
+          { email: externalContactEmail(i + 7, domain) },
+        ]),
+        externalDomains: domain,
+        joinUrl: joinUrlFor(i + 3),
+        dealId: deal.id,
+      },
+    });
+
+    const pastStart = weekdayAt(-(2 + ((i * 2) % 18)), 9 + ((i * 3) % 7), min); // 9 AM - 3 PM
     const pastMeeting = await prisma.meeting.create({
       data: {
         source: "internal_seed",

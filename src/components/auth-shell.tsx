@@ -9,7 +9,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col items-center px-4 py-12" style={{ background: "#f5f6f8" }}>
       <div className="mb-9 flex items-center gap-3" aria-label="Nutanix SE Deal Workspace">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/nutanix-logo.png" alt="Nutanix" className="h-7 w-auto" />
+        <img src="/Nutanix-Black-Logo-Vector.svg-.png" alt="Nutanix" className="h-7 w-auto" />
         <span aria-hidden className="h-6 w-px" style={{ background: "#c7ccd4" }} />
         <span className="text-xl font-normal" style={{ color: "#131318" }}>
           SE Deal Workspace

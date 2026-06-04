@@ -85,7 +85,7 @@ export function AppShell({
               <Menu className="h-6 w-6" />
             </button>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nutanix-logo.png" alt="Nutanix" className="hidden h-4 w-auto shrink-0 sm:block md:h-5" />
+            <img src="/nutanix-logo-white.png" alt="Nutanix" className="hidden h-4 w-auto shrink-0 sm:block md:h-5" />
             <span className="hidden h-6 w-px bg-white/20 sm:block" aria-hidden />
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold md:text-lg">SE Deal Workspace</h1>
@@ -140,7 +140,7 @@ function NavDrawer({ open, pathname, onClose }: { open: boolean; pathname: strin
             <X className="h-4 w-4" />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/nutanix-logo.png" alt="Nutanix" className="mr-2 h-4 w-auto" />
+          <img src="/nutanix-logo-white.png" alt="Nutanix" className="mr-2 h-4 w-auto" />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 pb-4">

@@ -491,7 +491,7 @@ function MonthGrid({
                   <button
                     type="button"
                     onClick={() => onOpenDay(day)}
-                    className="w-full rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-charcoal-500 hover:bg-charcoal-50 hover:text-iris-700"
+                    className="w-full rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white hover:bg-iris-600 hover:text-white"
                   >
                     +{extra} more
                   </button>

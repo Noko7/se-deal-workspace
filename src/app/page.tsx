@@ -14,7 +14,7 @@ export default async function CalendarPage() {
     <div className="space-y-6">
       <Card
         title="Calendar"
-        subtitle="Your week at a glance. Click any meeting to open deal context, attendees, assets, and notes."
+        subtitle="Linked with Outlook."
         icon={<CalendarDays className="h-5 w-5" />}
       >
         <CalendarWorkspace meetings={calendarMeetings} />

@@ -117,6 +117,21 @@ model IntegrationConnection {
   updatedAt         DateTime          @updatedAt
 }
 
+// Singleton record for LLM connection settings configured from the Integrations
+// page. The API key is encrypted at rest before being stored.
+model LlmCredential {
+  id               String   @id @default(cuid())
+  singleton        String   @unique @default("default")
+  baseUrl          String
+  model            String
+  apiKeyCiphertext String?
+  timeoutMs        Int      @default(60000)
+  insecureTls      Boolean  @default(false)
+  updatedBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 model MeetingAsset {
   id                   String        @id @default(cuid())
   meetingId            String?

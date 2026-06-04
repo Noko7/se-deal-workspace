@@ -1,4 +1,4 @@
-import { getLlmStatus, isLlmConfigured } from "@/lib/llm";
+import { getLlmStatus } from "@/lib/llm";
 
 export type IntegrationAdapterKey =
   | "outlook"
@@ -83,12 +83,6 @@ export const integrationAdapters: Record<IntegrationAdapterKey, IntegrationAdapt
     health: "warning",
     capabilities: ["note_formatting", "implementation_plan_generation", "helper_task_extraction"],
     async testConnection() {
-      if (!isLlmConfigured()) {
-        return {
-          success: false,
-          details: "Not configured. Set LLM_BASE_URL (and LLM_MODEL, LLM_API_KEY).",
-        };
-      }
       const status = await getLlmStatus();
       if (status.configured && status.reachable) {
         return { success: true, details: status.detail };

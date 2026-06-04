@@ -1,5 +1,6 @@
 import { IntegrationStatus, NoteRole, PreviewStatus, RecommendationDecision } from "@prisma/client";
 import { prisma } from "./prisma";
+import { decryptSecret, encryptSecret } from "./secret-crypto";
 
 export async function getDashboardData() {
   const [deals, meetings, integrations, unassignedEmails] = await Promise.all([
@@ -353,6 +354,102 @@ export async function updateIntegration(input: { integrationKey: string; status:
       connectedAt: input.status === IntegrationStatus.CONNECTED ? new Date() : null,
       connectedBy: input.status === IntegrationStatus.CONNECTED ? "se.workspace@nutanix.com" : null,
     },
+  });
+}
+
+export type LlmCredentialSummary = {
+  configured: boolean;
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  insecureTls: boolean;
+  hasApiKey: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+export async function getLlmCredentialSummary(): Promise<LlmCredentialSummary> {
+  const record = await prisma.llmCredential.findUnique({ where: { singleton: "default" } });
+  if (!record) {
+    return {
+      configured: false,
+      baseUrl: "",
+      model: "",
+      timeoutMs: 60000,
+      insecureTls: false,
+      hasApiKey: false,
+      updatedAt: null,
+      updatedBy: null,
+    };
+  }
+  return {
+    configured: true,
+    baseUrl: record.baseUrl,
+    model: record.model,
+    timeoutMs: record.timeoutMs,
+    insecureTls: record.insecureTls,
+    hasApiKey: Boolean(record.apiKeyCiphertext),
+    updatedAt: record.updatedAt.toISOString(),
+    updatedBy: record.updatedBy ?? null,
+  };
+}
+
+export type LlmCredentialResolved = {
+  baseUrl: string;
+  model: string;
+  apiKey: string | null;
+  timeoutMs: number;
+  insecureTls: boolean;
+};
+
+export async function getLlmCredentialResolved(): Promise<LlmCredentialResolved | null> {
+  const record = await prisma.llmCredential.findUnique({ where: { singleton: "default" } });
+  if (!record) return null;
+  return {
+    baseUrl: record.baseUrl,
+    model: record.model,
+    apiKey: record.apiKeyCiphertext ? decryptSecret(record.apiKeyCiphertext) : null,
+    timeoutMs: record.timeoutMs,
+    insecureTls: record.insecureTls,
+  };
+}
+
+export async function upsertLlmCredential(input: {
+  baseUrl: string;
+  model: string;
+  timeoutMs: number;
+  insecureTls: boolean;
+  apiKey?: string | null;
+  updatedBy?: string | null;
+}) {
+  const apiKeyCiphertext =
+    input.apiKey === undefined ? undefined : input.apiKey ? encryptSecret(input.apiKey) : null;
+  return prisma.llmCredential.upsert({
+    where: { singleton: "default" },
+    create: {
+      singleton: "default",
+      baseUrl: input.baseUrl,
+      model: input.model,
+      timeoutMs: input.timeoutMs,
+      insecureTls: input.insecureTls,
+      apiKeyCiphertext: apiKeyCiphertext ?? null,
+      updatedBy: input.updatedBy ?? null,
+    },
+    update: {
+      baseUrl: input.baseUrl,
+      model: input.model,
+      timeoutMs: input.timeoutMs,
+      insecureTls: input.insecureTls,
+      ...(apiKeyCiphertext !== undefined ? { apiKeyCiphertext } : {}),
+      updatedBy: input.updatedBy ?? null,
+    },
+  });
+}
+
+export async function clearLlmCredentialApiKey(updatedBy?: string | null) {
+  return prisma.llmCredential.update({
+    where: { singleton: "default" },
+    data: { apiKeyCiphertext: null, updatedBy: updatedBy ?? null },
   });
 }
 

@@ -12,8 +12,11 @@ import {
   updateQbrChecklistItem,
   updateRecommendationDecision,
   upsertQbrArtifact,
+  upsertLlmCredential,
+  clearLlmCredentialApiKey,
 } from "./data";
 import { integrationAdapters } from "./adapters";
+import { sanitizeField } from "./sanitize";
 
 export async function uploadArtifactAction(formData: FormData) {
   const dealId = String(formData.get("dealId"));
@@ -132,4 +135,36 @@ export async function updateQbrChecklistAction(formData: FormData) {
     notes: String(formData.get("notes")),
   });
   revalidatePath("/");
+}
+
+export async function saveLlmCredentialsAction(formData: FormData) {
+  const baseUrl = sanitizeField(formData.get("baseUrl"), 500).replace(/\/+$/, "");
+  const model = sanitizeField(formData.get("model"), 120);
+  const timeoutMs = Number(formData.get("timeoutMs") ?? 60000);
+  const insecureTls = String(formData.get("insecureTls") ?? "") === "on";
+  const apiKeyRaw = String(formData.get("apiKey") ?? "");
+
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl) || !model) {
+    return;
+  }
+
+  await upsertLlmCredential({
+    baseUrl,
+    model,
+    timeoutMs: Number.isFinite(timeoutMs) ? Math.min(Math.max(timeoutMs, 1000), 180000) : 60000,
+    insecureTls,
+    apiKey: apiKeyRaw.trim() ? apiKeyRaw.trim() : undefined,
+    updatedBy: "se.workspace@nutanix.com",
+  });
+
+  revalidatePath("/integrations");
+}
+
+export async function clearLlmApiKeyAction() {
+  try {
+    await clearLlmCredentialApiKey("se.workspace@nutanix.com");
+  } catch {
+    // Ignore if credentials row has not been created yet.
+  }
+  revalidatePath("/integrations");
 }

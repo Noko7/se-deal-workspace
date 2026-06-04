@@ -1,13 +1,14 @@
 import { Plug } from "lucide-react";
-import { integrationStatusAction, integrationTestAction } from "@/lib/actions";
+import { clearLlmApiKeyAction, integrationStatusAction, integrationTestAction, saveLlmCredentialsAction } from "@/lib/actions";
 import { integrationAdapters } from "@/lib/adapters";
-import { getDashboardData } from "@/lib/data";
+import { getDashboardData, getLlmCredentialSummary } from "@/lib/data";
 import { ActionBar, Button, Card, EmptyState, IntegrationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntegrationsPage() {
   const { integrations } = await getDashboardData();
+  const llm = await getLlmCredentialSummary();
 
   return (
     <div className="space-y-6">
@@ -71,6 +72,72 @@ export default async function IntegrationsPage() {
             );
           })}
         </div>
+      </Card>
+
+      <Card
+        title="LLM Credentials"
+        subtitle="Configure the Note Formatter model endpoint and secret API key. Secrets are encrypted at rest and never shown back in plaintext."
+        icon={<Plug className="h-5 w-5" />}
+      >
+        <SectionHeader
+          title="Enterprise AI Configuration"
+          subtitle="These values are stored server-side; environment variables still override them when present."
+          action={<StatusPill tone={llm.configured ? "good" : "warning"}>{llm.configured ? "Configured" : "Not configured"}</StatusPill>}
+        />
+        <form action={saveLlmCredentialsAction} className="grid gap-3 rounded-lg border border-charcoal-200 bg-white p-4 lg:grid-cols-2">
+          <div className="space-y-1.5">
+            <label htmlFor="llm-base-url">Base URL</label>
+            <input
+              id="llm-base-url"
+              name="baseUrl"
+              defaultValue={llm.baseUrl}
+              placeholder="https://ai.nutanix.com/enterpriseai/v1"
+              required
+            />
+            <p className="text-xs text-charcoal-500">OpenAI-compatible endpoint root (the app appends /chat/completions).</p>
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="llm-model">Model</label>
+            <input id="llm-model" name="model" defaultValue={llm.model} placeholder="aep-demo" required />
+            <p className="text-xs text-charcoal-500">Model id used for requests.</p>
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="llm-timeout">Timeout (ms)</label>
+            <input id="llm-timeout" name="timeoutMs" type="number" min={1000} max={180000} defaultValue={llm.timeoutMs} />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="llm-api-key">API Key</label>
+            <input id="llm-api-key" name="apiKey" type="password" placeholder={llm.hasApiKey ? "•••••••• (saved)" : "Paste API key"} />
+            <p className="text-xs text-charcoal-500">Leave blank to keep existing key unchanged.</p>
+          </div>
+          <div className="lg:col-span-2 flex items-center gap-2 text-sm text-charcoal-700">
+            <input id="llm-insecure" name="insecureTls" type="checkbox" defaultChecked={llm.insecureTls} className="h-4 w-4 accent-iris-600" />
+            <label htmlFor="llm-insecure" className="normal-case tracking-normal text-sm font-medium">
+              Allow insecure TLS (self-signed internal certs only)
+            </label>
+          </div>
+          <div className="lg:col-span-2">
+            <ActionBar>
+              <Button type="submit">Save LLM Settings</Button>
+            </ActionBar>
+          </div>
+          <div className="lg:col-span-2 text-xs text-charcoal-500">
+            {llm.updatedAt ? `Last updated: ${new Date(llm.updatedAt).toLocaleString()}${llm.updatedBy ? ` by ${llm.updatedBy}` : ""}` : "No saved LLM credentials yet."}
+          </div>
+        </form>
+        <ActionBar>
+          <form action={clearLlmApiKeyAction}>
+            <Button type="submit" tone="danger">
+              Clear Saved API Key
+            </Button>
+          </form>
+          <form action={integrationTestAction}>
+            <input type="hidden" name="integrationKey" value="local_llm" />
+            <Button type="submit" tone="secondary">
+              Test LLM Connection
+            </Button>
+          </form>
+        </ActionBar>
       </Card>
     </div>
   );

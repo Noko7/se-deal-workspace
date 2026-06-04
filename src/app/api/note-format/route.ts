@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { formatNotesWithLLM, getDefaultSystemPrompt, getLlmStatus, isLlmConfigured } from "@/lib/llm";
+import { formatNotesWithLLM, getDefaultSystemPrompt, getLlmStatus, isLlmConfiguredResolved } from "@/lib/llm";
 import type { NoteKind } from "@/lib/note-formatter";
 import {
   MAX_FIELD_LENGTH,
@@ -44,7 +44,7 @@ function asBool(value: unknown, fallback: boolean): boolean {
 }
 
 export async function POST(request: Request) {
-  if (!isLlmConfigured()) {
+  if (!(await isLlmConfiguredResolved())) {
     return NextResponse.json(
       { ok: false, error: "LLM is not configured. Set LLM_BASE_URL in the environment." },
       { status: 503 },
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const markdown = await formatNotesWithLLM(notes.text, {
+    const formattedText = await formatNotesWithLLM(notes.text, {
       title: sanitizeField(body.title),
       instructions: sanitizeField(body.instructions, 500),
       systemPrompt: sanitizePrompt(body.systemPrompt),
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       includeHelpers: asBool(body.includeHelpers, true),
       includeQuestions: asBool(body.includeQuestions, true),
     });
-    return NextResponse.json({ ok: true, markdown, truncated: notes.truncated });
+    return NextResponse.json({ ok: true, formattedText, truncated: notes.truncated });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 502 });
   }

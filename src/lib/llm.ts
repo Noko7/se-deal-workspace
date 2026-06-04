@@ -9,6 +9,7 @@
 
 import http from "node:http";
 import https from "node:https";
+import { getLlmCredentialResolved } from "@/lib/data";
 import {
   DEFAULT_MEETING_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
@@ -47,6 +48,34 @@ export function getLlmConfig(): LlmConfig | null {
   };
 }
 
+function parseBoolMaybe(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (/^(1|true|yes)$/i.test(trimmed)) return true;
+  if (/^(0|false|no)$/i.test(trimmed)) return false;
+  return undefined;
+}
+
+// Effective runtime config: env vars first, DB-backed Integrations credentials
+// as fallback.
+export async function getResolvedLlmConfig(): Promise<LlmConfig | null> {
+  const env = getLlmConfig();
+  const stored = await getLlmCredentialResolved();
+
+  const baseUrl = env?.baseUrl ?? stored?.baseUrl ?? "";
+  if (!baseUrl) return null;
+
+  const insecureEnv = parseBoolMaybe(process.env.LLM_INSECURE_TLS);
+  return {
+    baseUrl,
+    model: env?.model ?? stored?.model ?? "default",
+    apiKey: env?.apiKey ?? stored?.apiKey ?? null,
+    timeoutMs: env?.timeoutMs ?? stored?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    insecureTls: insecureEnv ?? stored?.insecureTls ?? false,
+  };
+}
+
 // The default system prompt for a given note kind, overridable via env. The UI
 // can still override it per request.
 export function getDefaultSystemPrompt(kind: NoteKind = "plan"): string {
@@ -58,6 +87,10 @@ export function getDefaultSystemPrompt(kind: NoteKind = "plan"): string {
 
 export function isLlmConfigured(): boolean {
   return getLlmConfig() !== null;
+}
+
+export async function isLlmConfiguredResolved(): Promise<boolean> {
+  return (await getResolvedLlmConfig()) !== null;
 }
 
 function authHeaders(config: LlmConfig): Record<string, string> {
@@ -128,7 +161,7 @@ function request(
 // Lightweight reachability check used by the integration health test and the
 // Note Formatter status badge. Hits the OpenAI-compatible /models endpoint.
 export async function getLlmStatus(): Promise<LlmStatus> {
-  const config = getLlmConfig();
+  const config = await getResolvedLlmConfig();
   if (!config) {
     return { configured: false };
   }
@@ -222,11 +255,11 @@ function buildPrompt(notes: string, options: PromptOptions): ChatMessage[] {
   ];
 }
 
-// Returns the formatted plan as Markdown produced by the local LLM. Throws if
+// Returns formatted plain text produced by the local LLM. Throws if
 // the model isn't configured or the call fails (callers can fall back to the
 // offline heuristic formatter).
 export async function formatNotesWithLLM(notes: string, options: PromptOptions): Promise<string> {
-  const config = getLlmConfig();
+  const config = await getResolvedLlmConfig();
   if (!config) {
     throw new Error("LLM is not configured. Set LLM_BASE_URL.");
   }

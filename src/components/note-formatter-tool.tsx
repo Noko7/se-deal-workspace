@@ -14,7 +14,6 @@ import {
   Wand2,
 } from "lucide-react";
 import { AttachToMeetingModal } from "@/components/attach-to-meeting-modal";
-import { MarkdownView } from "@/components/markdown-view";
 import {
   DEFAULT_MEETING_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
@@ -61,8 +60,8 @@ function StatusBadge({ status }: { status: LlmStatus | null }) {
   );
 }
 
-function downloadMarkdown(markdown: string, title: string) {
-  const blob = new Blob([markdown], { type: "text/markdown" });
+function downloadText(text: string, title: string) {
+  const blob = new Blob([text], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   const slug = (title || "notes")
@@ -70,7 +69,7 @@ function downloadMarkdown(markdown: string, title: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   anchor.href = url;
-  anchor.download = `${slug || "notes"}.md`;
+  anchor.download = `${slug || "notes"}.txt`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -91,7 +90,7 @@ export function NoteFormatterTool() {
   });
 
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
-  const [aiMarkdown, setAiMarkdown] = useState<string | null>(null);
+  const [aiText, setAiText] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [truncatedNotice, setTruncatedNotice] = useState(false);
@@ -134,7 +133,7 @@ export function NoteFormatterTool() {
     setKindState((prev) => {
       if (prev !== next) {
         setSystemPrompt((current) => (current === promptDefaults[prev] ? promptDefaults[next] : current));
-        setAiMarkdown(null);
+        setAiText(null);
         setAiError(null);
       }
       return next;
@@ -143,13 +142,13 @@ export function NoteFormatterTool() {
 
   const hasInput = notes.trim().length > 0;
   const isMeeting = kind === "meeting";
-  const activeMarkdown = aiMarkdown ?? "";
+  const activeText = aiText ?? "";
   const overLimit = notes.length > MAX_NOTES_LENGTH;
-  const hasOutput = Boolean(aiMarkdown);
+  const hasOutput = Boolean(aiText);
 
   const copyMarkdown = async () => {
     try {
-      await navigator.clipboard.writeText(activeMarkdown);
+      await navigator.clipboard.writeText(activeText);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -178,15 +177,15 @@ export function NoteFormatterTool() {
           includeQuestions: true,
         }),
       });
-      const data = (await response.json()) as { ok: boolean; markdown?: string; error?: string; truncated?: boolean };
-      if (!response.ok || !data.ok || !data.markdown) {
+      const data = (await response.json()) as { ok: boolean; formattedText?: string; error?: string; truncated?: boolean };
+      if (!response.ok || !data.ok || !data.formattedText) {
         throw new Error(data.error ?? `Request failed (HTTP ${response.status}).`);
       }
-      setAiMarkdown(data.markdown);
+      setAiText(data.formattedText);
       setTruncatedNotice(Boolean(data.truncated));
     } catch (error) {
       setAiError((error as Error).message);
-      setAiMarkdown(null);
+      setAiText(null);
     } finally {
       setAiLoading(false);
     }
@@ -196,7 +195,7 @@ export function NoteFormatterTool() {
     setNotes("");
     setTitle("");
     setInstructions("");
-    setAiMarkdown(null);
+    setAiText(null);
     setAiError(null);
     setTruncatedNotice(false);
     setAttachedTo(null);
@@ -400,11 +399,11 @@ export function NoteFormatterTool() {
               <button
                 type="button"
                 disabled={!hasOutput}
-                onClick={() => downloadMarkdown(activeMarkdown, title)}
+                onClick={() => downloadText(activeText, title)}
                 className={SECONDARY_BTN}
                 style={SECONDARY_BORDER}
               >
-                <Download className="h-3.5 w-3.5" /> .md
+                <Download className="h-3.5 w-3.5" /> .txt
               </button>
             </div>
           </header>
@@ -428,14 +427,16 @@ export function NoteFormatterTool() {
                 <p className="font-semibold">Couldn&apos;t format with the LLM</p>
                 <p className="mt-1 text-xs">{aiError}</p>
               </div>
-            ) : aiMarkdown ? (
+            ) : aiText ? (
               <div className="space-y-3">
                 {truncatedNotice ? (
                   <p className="rounded-md bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">
                     Notes were truncated to {MAX_NOTES_LENGTH.toLocaleString()} characters before formatting.
                   </p>
                 ) : null}
-                <MarkdownView markdown={aiMarkdown} />
+                <pre className="whitespace-pre-wrap rounded-md bg-white p-3 text-sm leading-relaxed text-charcoal-800">
+                  {aiText}
+                </pre>
               </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -453,7 +454,7 @@ export function NoteFormatterTool() {
       <AttachToMeetingModal
         open={attachOpen}
         onClose={() => setAttachOpen(false)}
-        markdown={activeMarkdown}
+        markdown={activeText}
         onAttached={(info) => setAttachedTo(info)}
       />
     </div>

@@ -240,15 +240,21 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
         <div className="relative grid" style={{ gridTemplateColumns: gridTemplate }}>
           {/* Time gutter */}
           <div className="relative border-r border-charcoal-200" style={{ height: bodyHeight }}>
-            {hours.map((hour, index) => (
-              <div
-                key={hour}
-                className="absolute right-1.5 -translate-y-1/2 text-[11px] font-medium text-charcoal-400"
-                style={{ top: index * HOUR_PX }}
-              >
-                {index === 0 ? "" : formatHourLabel(hour)}
-              </div>
-            ))}
+            {hours.map((hour, index) => {
+              // Hide the gray label when the current-time label would overlap it
+              // (within 10 minutes), so the two numbers don't collide.
+              const overlapsNow =
+                nowVisible && nowInRange && Math.abs(minutesIntoDay(now) - hour * 60) <= 10;
+              return (
+                <div
+                  key={hour}
+                  className="absolute right-1.5 -translate-y-1/2 text-[11px] font-medium text-charcoal-400"
+                  style={{ top: index * HOUR_PX }}
+                >
+                  {index === 0 || overlapsNow ? "" : formatHourLabel(hour)}
+                </div>
+              );
+            })}
           </div>
 
           {/* Day columns */}
@@ -271,7 +277,13 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
                 ))}
 
                 {today && nowInRange ? (
-                  <div className="absolute inset-x-0 z-20 border-t-2 border-iris-500" style={{ top: nowTop }} />
+                  <>
+                    <div className="absolute inset-x-0 z-20 h-0.5 -translate-y-1/2 bg-iris-500" style={{ top: nowTop }} />
+                    <span
+                      className="absolute z-30 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-iris-600"
+                      style={{ left: 0, top: nowTop }}
+                    />
+                  </>
                 ) : null}
 
                 {positioned.map(({ event, top, height, leftPct, widthPct }) => {
@@ -332,12 +344,8 @@ function TimeGrid({ days, meetings, now, selectedMeetingId, onSelectMeeting }: G
           {nowVisible && nowInRange ? (
             <>
               <div
-                className="pointer-events-none absolute right-0 z-0 border-t border-iris-300"
+                className="pointer-events-none absolute right-0 z-0 h-px -translate-y-1/2 bg-iris-300"
                 style={{ left: 56, top: nowTop }}
-              />
-              <span
-                className="pointer-events-none absolute z-30 h-2 w-2 -translate-y-1/2 rounded-full bg-iris-600"
-                style={{ left: 50, top: nowTop }}
               />
               <div
                 className="pointer-events-none absolute left-0 z-30 -translate-y-1/2 pr-2 text-right text-[10px] font-semibold text-iris-600"

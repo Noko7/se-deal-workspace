@@ -56,8 +56,9 @@ export async function getDashboardData() {
     prisma.meeting.findMany({
       orderBy: { startTime: "asc" },
       include: {
-        deal: true,
-        assets: true,
+        deal: { select: { id: true, name: true, accountName: true, stage: true } },
+        assets: { orderBy: { createdAt: "asc" } },
+        notes: { orderBy: { createdAt: "desc" } },
       },
     }),
     prisma.integrationConnection.findMany({ orderBy: { displayName: "asc" } }),

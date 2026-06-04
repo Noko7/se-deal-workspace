@@ -162,6 +162,87 @@ export function hourRangeForMeetings(
   return { startHour: Math.max(0, startHour), endHour: Math.min(24, Math.max(endHour, startHour + 1)) };
 }
 
+// --- View modes (Day / Three Day / Work Week / Week / Month) ---------------
+
+export type CalendarView = "day" | "three" | "workweek" | "week" | "month";
+
+export const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
+  { value: "day", label: "Day" },
+  { value: "three", label: "Three Day" },
+  { value: "workweek", label: "Work Week" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
+
+/** Local midnight of `date`. */
+export function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export function addMonths(date: Date, months: number): Date {
+  const result = new Date(date);
+  result.setMonth(result.getMonth() + months);
+  return result;
+}
+
+/** The day columns shown for a time-grid view (everything except month). */
+export function viewDays(view: CalendarView, anchor: Date): Date[] {
+  const base = startOfDay(anchor);
+  switch (view) {
+    case "day":
+      return [base];
+    case "three":
+      return [0, 1, 2].map((i) => addDays(base, i));
+    case "workweek": {
+      const monday = addDays(startOfWeek(base), 1);
+      return Array.from({ length: 5 }, (_, i) => addDays(monday, i));
+    }
+    case "week":
+    default:
+      return weekDays(startOfWeek(base));
+  }
+}
+
+/** Number of days to step when navigating prev/next for a view. */
+export function viewStepDays(view: CalendarView): number {
+  if (view === "day") return 1;
+  if (view === "three") return 3;
+  return 7; // workweek / week
+}
+
+/** The 42 days (6 weeks, Sun-start) covering the month containing `anchor`. */
+export function monthMatrix(anchor: Date): Date[] {
+  const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const gridStart = startOfWeek(firstOfMonth);
+  return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+}
+
+function monthShort(date: Date): string {
+  return date.toLocaleDateString("en-US", { month: "short" });
+}
+
+/** Header label for the current view + anchor. */
+export function viewRangeLabel(view: CalendarView, anchor: Date): string {
+  if (view === "month") {
+    return anchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+  if (view === "day") {
+    return anchor.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+  const days = viewDays(view, anchor);
+  const first = days[0];
+  const last = days[days.length - 1];
+  const sameMonth = first.getMonth() === last.getMonth();
+  const left = `${monthShort(first)} ${first.getDate()}`;
+  const right = sameMonth ? `${last.getDate()}` : `${monthShort(last)} ${last.getDate()}`;
+  return `${left} - ${right}, ${last.getFullYear()}`;
+}
+
 export type PositionedEvent<T> = {
   event: T;
   /** vertical offset + height in px */

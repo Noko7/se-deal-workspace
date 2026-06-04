@@ -1,15 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { MeetingAsset } from "@prisma/client";
-import {
-  ArrowLeft,
-  CalendarClock,
-  ExternalLink,
-  FolderOpen,
-  NotebookPen,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, Globe, History, Users } from "lucide-react";
 import { addNoteAction } from "@/lib/actions";
 import { getAccountDetail } from "@/lib/data";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
@@ -28,24 +20,6 @@ type AccountNote = {
   meeting?: { id: string; subject: string } | null;
 };
 
-const PILLARS: {
-  role: NoteRole;
-  full: string;
-  badge: string;
-  bar: string;
-  border: string;
-}[] = [
-  { role: "SE", full: "Systems Engineer", badge: "bg-iris-100 text-iris-700", bar: "bg-iris-500", border: "border-t-iris-400" },
-  { role: "AE", full: "Account Executive", badge: "bg-sky-100 text-sky-700", bar: "bg-sky-500", border: "border-t-sky-400" },
-  {
-    role: "SAM",
-    full: "Subscription Account Manager",
-    badge: "bg-emerald-100 text-emerald-700",
-    bar: "bg-emerald-500",
-    border: "border-t-emerald-400",
-  },
-];
-
 function countAttendees(attendeesJson: string): number {
   try {
     const parsed = JSON.parse(attendeesJson);
@@ -55,67 +29,20 @@ function countAttendees(attendeesJson: string): number {
   }
 }
 
-function NoteItem({ note, showMeeting }: { note: AccountNote; showMeeting?: boolean }) {
-  return (
-    <div className="rounded-md border border-charcoal-200 bg-white p-2.5">
-      {showMeeting ? (
-        <p className="mb-1 text-[11px] font-medium text-charcoal-500">
-          {note.meeting ? note.meeting.subject : "Account-level"}
-        </p>
-      ) : null}
-      <p className="text-sm text-charcoal-700">{note.body}</p>
-      <p className="mt-1 text-[11px] text-charcoal-400">{shortDate(note.createdAt)}</p>
-    </div>
-  );
+function roleTone(role: NoteRole): string {
+  if (role === "AE") return "bg-sky-100 text-sky-700";
+  if (role === "SAM") return "bg-emerald-100 text-emerald-700";
+  return "bg-iris-100 text-iris-700";
 }
 
-function PillarColumn({
-  pillar,
-  notes,
-  showMeeting,
-  addForm,
-  emptyText,
-}: {
-  pillar: (typeof PILLARS)[number];
-  notes: AccountNote[];
-  showMeeting?: boolean;
-  addForm?: { dealId: string; meetingId?: string };
-  emptyText: string;
-}) {
-  return (
-    <div className={`flex flex-col rounded-lg border border-charcoal-200 border-t-2 ${pillar.border} bg-charcoal-50 p-3`}>
-      <div className="mb-2 flex items-center gap-2">
-        <span aria-hidden className={`h-3 w-1.5 rounded-full ${pillar.bar}`} />
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${pillar.badge}`}>{pillar.role}</span>
-        <span className="text-xs text-charcoal-500">{pillar.full}</span>
-      </div>
-      <div className="flex-1 space-y-2">
-        {notes.length === 0 ? (
-          <p className="text-xs text-charcoal-400">{emptyText}</p>
-        ) : (
-          notes.map((note) => <NoteItem key={note.id} note={note} showMeeting={showMeeting} />)
-        )}
-      </div>
-      {addForm ? (
-        <form action={addNoteAction} className="mt-2 space-y-2">
-          <input type="hidden" name="dealId" value={addForm.dealId} />
-          {addForm.meetingId ? <input type="hidden" name="meetingId" value={addForm.meetingId} /> : null}
-          <input type="hidden" name="role" value={pillar.role} />
-          <textarea
-            name="body"
-            rows={2}
-            placeholder={`Add ${pillar.role} note`}
-            required
-            className="w-full text-sm"
-            aria-label={`Add ${pillar.full} note`}
-          />
-          <Button type="submit" tone="secondary">
-            Add {pillar.role} Note
-          </Button>
-        </form>
-      ) : null}
-    </div>
-  );
+function stageProbability(stage: string): number {
+  const s = stage.toLowerCase();
+  if (s.includes("closed won")) return 100;
+  if (s.includes("proposal")) return 70;
+  if (s.includes("technical")) return 65;
+  if (s.includes("qualification")) return 30;
+  if (s.includes("discovery")) return 20;
+  return 50;
 }
 
 export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -127,14 +54,31 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   }
 
   const notes = deal.notes as AccountNote[];
-  const presentations = deal.assets.filter((asset) => asset.type === "PRESENTATION");
-  const whiteboards = deal.assets.filter((asset) => asset.type === "WHITEBOARD");
-  const otherAssets = deal.assets.filter(
-    (asset) => asset.type !== "PRESENTATION" && asset.type !== "WHITEBOARD",
-  );
+  const allAssets = deal.assets;
+  const presentations = allAssets.filter((asset) => asset.type === "PRESENTATION");
+  const whiteboards = allAssets.filter((asset) => asset.type === "WHITEBOARD");
+  const otherAssets = allAssets.filter((asset) => asset.type !== "PRESENTATION" && asset.type !== "WHITEBOARD");
+
+  const timeline = [
+    ...deal.meetings.map((meeting) => ({
+      kind: "meeting" as const,
+      id: meeting.id,
+      at: meeting.startTime,
+      meeting,
+      notes: notes.filter((note) => note.meeting?.id === meeting.id),
+    })),
+    ...notes
+      .filter((note) => !note.meeting?.id)
+      .map((note) => ({
+        kind: "note" as const,
+        id: note.id,
+        at: note.createdAt,
+        note,
+      })),
+  ].sort((a, b) => b.at.getTime() - a.at.getTime());
 
   const stat = (label: string, value: number) => (
-    <div className="rounded-lg border border-charcoal-200 bg-white px-3 py-2 text-center">
+    <div className="rounded-lg border border-charcoal-200 bg-white px-3 py-2 text-center shadow-sm">
       <p className="text-lg font-semibold text-iris-600">{value}</p>
       <p className="text-xs uppercase tracking-wide text-charcoal-500">{label}</p>
     </div>
@@ -150,9 +94,19 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       </Link>
 
       <Card title={deal.accountName} subtitle={deal.name} icon={<Users className="h-5 w-5" />}>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill tone="info">{deal.stage}</StatusPill>
-          <StatusPill tone="neutral">Owner: {deal.owner}</StatusPill>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone="info">{deal.stage}</StatusPill>
+            <StatusPill tone="neutral">Owner: {deal.owner}</StatusPill>
+          </div>
+          <a
+            href={`https://insights.nutanix.com/?account=${encodeURIComponent(deal.accountName)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-3 py-1.5 text-sm font-medium text-charcoal-800 hover:bg-charcoal-50"
+          >
+            <Globe className="h-4 w-4" /> Open in Insights <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         </div>
         <p className="mt-3 text-sm text-charcoal-700">
           <span className="font-semibold text-charcoal-900">Next action:</span> {deal.nextAction}
@@ -165,185 +119,238 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       </Card>
 
       <Card
-        title="Account Summary"
-        subtitle="Most recent note from each team member, plus account totals at a glance."
-        icon={<Sparkles className="h-5 w-5" />}
+        title="Account Workspace Summary"
+        subtitle="Clean central view of account health, activity, and collateral."
+        icon={<BookOpenText className="h-5 w-5" />}
       >
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {stat("Meetings", deal.meetings.length)}
           {stat("Notes", notes.length)}
+          {stat("Assets", allAssets.length)}
           {stat("Presentations", presentations.length)}
           {stat("Whiteboards", whiteboards.length)}
         </div>
+      </Card>
 
-        <div className="mt-5">
-          <SectionHeader title="Most Recent Notes" subtitle="Latest update captured by each pillar." />
-          <div className="grid gap-3 md:grid-cols-3">
-            {PILLARS.map((pillar) => {
-              const latest = notes.find((note) => note.role === pillar.role);
-              return (
-                <PillarColumn
-                  key={pillar.role}
-                  pillar={pillar}
-                  notes={latest ? [latest] : []}
-                  showMeeting
-                  emptyText={`No ${pillar.role} notes yet.`}
-                />
-              );
-            })}
-          </div>
+      <Card
+        title="Opportunities (Salesforce-Ready)"
+        subtitle="Central opportunity section with mapped fields, ready for Salesforce API integration."
+        icon={<Briefcase className="h-5 w-5" />}
+      >
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-charcoal-200 bg-charcoal-50 text-charcoal-700">
+                <th className="px-3 py-2 font-semibold">Field</th>
+                <th className="px-3 py-2 font-semibold">Value</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-charcoal-100">
+              <SfFieldRow label="Opportunity Name" value={deal.name} />
+              <SfFieldRow label="Account Name" value={deal.accountName} />
+              <SfFieldRow label="Opportunity Owner" value={deal.owner} />
+              <SfFieldRow label="Stage" value={deal.stage} />
+              <SfFieldRow label="Forecast Category" value={deal.isClosed ? "Closed" : "Pipeline"} />
+              <SfFieldRow label="Probability (%)" value={String(stageProbability(deal.stage))} />
+              <SfFieldRow label="Amount" value={`$${deal.amount.toLocaleString()}`} />
+              <SfFieldRow label="Close Date" value={deal.closeDate ? shortDate(deal.closeDate) : "-"} />
+              <SfFieldRow label="Is Closed" value={deal.isClosed ? "Yes" : "No"} />
+              <SfFieldRow label="Technical Close Status" value={deal.technicalCloseStatus} />
+              <SfFieldRow label="Next Step" value={deal.nextAction} />
+              <SfFieldRow label="Latest Signal" value={deal.latestSignal || "-"} />
+              <SfFieldRow label="Salesforce Opportunity ID (placeholder)" value={`SF-${deal.id.slice(0, 8).toUpperCase()}`} />
+              <SfFieldRow
+                label="Insights Customer Link"
+                value={`https://insights.nutanix.com/?account=${encodeURIComponent(deal.accountName)}`}
+                mono
+              />
+            </tbody>
+          </table>
         </div>
+      </Card>
 
-        <div className="mt-5">
-          <SectionHeader title="Add Account Note" subtitle="Capture a general note (not tied to a meeting) for any pillar." />
-          <form action={addNoteAction} className="space-y-3">
-            <input type="hidden" name="dealId" value={deal.id} />
+      <Card
+        title="Asset Library"
+        subtitle="Collapsed by default to keep the page compact. Expand only when you need artifacts."
+        icon={<FolderOpen className="h-5 w-5" />}
+      >
+        <details className="group rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-charcoal-800">
+            <span className="inline-flex items-center gap-2">
+              <FolderOpen className="h-4 w-4" />
+              Expand Asset Library ({allAssets.length} total)
+            </span>
+          </summary>
+          <div className="mt-4 space-y-5">
+            <div>
+              <SectionHeader title="Presentations" />
+              {presentations.length === 0 ? (
+                <EmptyState title="No presentations yet" description="Attach decks from the Calendar page to see them here." />
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {presentations.map((asset) => (
+                    <AssetTile key={asset.id} asset={asset} />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <SectionHeader title="Whiteboards" />
+              {whiteboards.length === 0 ? (
+                <EmptyState title="No whiteboards yet" description="Attach whiteboard links to see previews here." />
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {whiteboards.map((asset) => (
+                    <AssetTile key={asset.id} asset={asset} />
+                  ))}
+                </div>
+              )}
+            </div>
+            {otherAssets.length > 0 ? (
+              <div>
+                <SectionHeader title="Other Files" />
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {otherAssets.map((asset) => (
+                    <AssetTile key={asset.id} asset={asset} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      </Card>
+
+      <Card
+        title="Unified Activity (Meetings + Notes)"
+        subtitle="One cohesive timeline with synced meeting history and all related notes in context."
+        icon={<History className="h-5 w-5" />}
+      >
+        <SectionHeader title="Add Note" subtitle="Capture one note stream for the account. Link to meeting when applicable." />
+        <form action={addNoteAction} className="mb-5 space-y-3 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+          <input type="hidden" name="dealId" value={deal.id} />
+          <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
-              <label htmlFor="account-note-role">Pillar</label>
-              <select id="account-note-role" name="role" defaultValue="SE" className="w-full sm:max-w-xs">
+              <label htmlFor="note-role">Role</label>
+              <select id="note-role" name="role" defaultValue="SE" className="w-full">
                 <option value="SE">SE - Systems Engineer</option>
                 <option value="AE">AE - Account Executive</option>
                 <option value="SAM">SAM - Subscription Account Manager</option>
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="account-note">Note</label>
-              <textarea
-                id="account-note"
-                name="body"
-                rows={3}
-                className="w-full"
-                placeholder="Stakeholders, strategy, reminders, or anything to remember about this account."
-                required
-              />
+              <label htmlFor="note-meeting">Meeting (optional)</label>
+              <select id="note-meeting" name="meetingId" defaultValue="" className="w-full">
+                <option value="">Account-level note</option>
+                {deal.meetings.map((meeting) => (
+                  <option key={meeting.id} value={meeting.id}>
+                    {shortDateTime(meeting.startTime)} - {meeting.subject}
+                  </option>
+                ))}
+              </select>
             </div>
-            <ActionBar>
-              <Button type="submit">Save Note</Button>
-            </ActionBar>
-          </form>
-        </div>
-      </Card>
-
-      <Card
-        title="Asset Library"
-        subtitle="Every presentation, whiteboard, and file across all meetings — jump back to anything in one place."
-        icon={<FolderOpen className="h-5 w-5" />}
-      >
-        <div className="space-y-5">
-          <div>
-            <SectionHeader title="Presentations" />
-            {presentations.length === 0 ? (
-              <EmptyState title="No presentations yet" description="Attach decks from the Calendar page to see them here." />
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {presentations.map((asset) => (
-                  <AssetTile key={asset.id} asset={asset} />
-                ))}
-              </div>
-            )}
           </div>
-          <div>
-            <SectionHeader title="Whiteboards" />
-            {whiteboards.length === 0 ? (
-              <EmptyState title="No whiteboards yet" description="Attach whiteboard links to see previews here." />
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {whiteboards.map((asset) => (
-                  <AssetTile key={asset.id} asset={asset} />
-                ))}
-              </div>
-            )}
-          </div>
-          {otherAssets.length > 0 ? (
-            <div>
-              <SectionHeader title="Other Files" />
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {otherAssets.map((asset) => (
-                  <AssetTile key={asset.id} asset={asset} />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </Card>
-
-      <Card
-        title="All Notes"
-        subtitle="Every note for this account, split by pillar (SE / AE / SAM), newest first."
-        icon={<NotebookPen className="h-5 w-5" />}
-      >
-        <div className="grid gap-3 md:grid-cols-3">
-          {PILLARS.map((pillar) => (
-            <PillarColumn
-              key={pillar.role}
-              pillar={pillar}
-              notes={notes.filter((note) => note.role === pillar.role)}
-              showMeeting
-              emptyText={`No ${pillar.role} notes captured yet.`}
+          <div className="space-y-1.5">
+            <label htmlFor="note-body">Note</label>
+            <textarea
+              id="note-body"
+              name="body"
+              rows={3}
+              className="w-full"
+              placeholder="Capture key updates, blockers, actions, and customer context."
+              required
             />
-          ))}
-        </div>
-      </Card>
+          </div>
+          <ActionBar>
+            <Button type="submit">Save Note</Button>
+          </ActionBar>
+        </form>
 
-      <Card
-        title="Meeting History"
-        subtitle="Each meeting with its assets and the SE / AE / SAM notes side by side."
-        icon={<CalendarClock className="h-5 w-5" />}
-      >
-        {deal.meetings.length === 0 ? (
-          <EmptyState title="No meetings yet" description="Meetings linked to this deal will appear here with their assets and notes." />
+        {timeline.length === 0 ? (
+          <EmptyState
+            title="No meetings or notes yet"
+            description="As meetings sync and notes are captured, the full account timeline will appear here."
+          />
         ) : (
-          <div className="space-y-4">
-            {deal.meetings.map((meeting) => {
-              const meetingNotes = meeting.notes as AccountNote[];
-              return (
+          <div className="space-y-3">
+            {timeline.map((entry) =>
+              entry.kind === "meeting" ? (
                 <article
-                  key={meeting.id}
-                  className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm"
+                  key={`meeting-${entry.id}`}
+                  className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-500 bg-white p-4 shadow-sm"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <h4 className="text-base font-semibold text-charcoal-900">{meeting.subject}</h4>
+                      <h4 className="text-base font-semibold text-charcoal-900">{entry.meeting.subject}</h4>
                       <p className="text-sm text-charcoal-500">
-                        {shortDateTime(meeting.startTime)} - {shortDateTime(meeting.endTime)}
+                        {shortDateTime(entry.meeting.startTime)} - {shortDateTime(entry.meeting.endTime)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <StatusPill tone="neutral">
                         <span className="inline-flex items-center gap-1">
-                          <Users className="h-3 w-3" /> {countAttendees(meeting.attendeesJson)}
+                          <Users className="h-3 w-3" /> {countAttendees(entry.meeting.attendeesJson)}
                         </span>
                       </StatusPill>
-                      <StatusPill tone="info">{relativeDay(meeting.startTime)}</StatusPill>
+                      <StatusPill tone="info">{relativeDay(entry.meeting.startTime)}</StatusPill>
                     </div>
                   </div>
 
-                  {meeting.assets.length > 0 ? (
+                  {entry.meeting.assets.length > 0 ? (
                     <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                      {meeting.assets.map((asset) => (
+                      {entry.meeting.assets.map((asset) => (
                         <AssetTile key={asset.id} asset={asset} />
                       ))}
                     </div>
                   ) : null}
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    {PILLARS.map((pillar) => (
-                      <PillarColumn
-                        key={pillar.role}
-                        pillar={pillar}
-                        notes={meetingNotes.filter((note) => note.role === pillar.role)}
-                        addForm={{ dealId: deal.id, meetingId: meeting.id }}
-                        emptyText={`No ${pillar.role} notes for this meeting.`}
-                      />
-                    ))}
+                  <div className="mt-3 space-y-2">
+                    {entry.notes.length === 0 ? (
+                      <p className="text-xs text-charcoal-500">No notes captured for this meeting yet.</p>
+                    ) : (
+                      entry.notes.map((note) => (
+                        <div key={note.id} className="rounded-md border border-charcoal-200 bg-charcoal-50 p-2.5">
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${roleTone(note.role)}`}>
+                              {note.role}
+                            </span>
+                            <span className="text-xs text-charcoal-500">{note.author}</span>
+                            <span className="ml-auto text-xs text-charcoal-400">{shortDate(note.createdAt)}</span>
+                          </div>
+                          <p className="text-sm text-charcoal-700">{note.body}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </article>
-              );
-            })}
+              ) : (
+                <article
+                  key={`note-${entry.id}`}
+                  className="rounded-lg border border-charcoal-200 border-l-4 border-l-charcoal-500 bg-white p-4"
+                >
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${roleTone(entry.note.role)}`}>
+                      {entry.note.role}
+                    </span>
+                    <span className="text-xs text-charcoal-500">{entry.note.author}</span>
+                    <span className="ml-auto text-xs text-charcoal-400">{shortDate(entry.note.createdAt)}</span>
+                  </div>
+                  <p className="text-sm text-charcoal-700">{entry.note.body}</p>
+                </article>
+              ),
+            )}
           </div>
         )}
       </Card>
     </div>
+  );
+}
+
+function SfFieldRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <tr>
+      <td className="px-3 py-2 font-medium text-charcoal-700">{label}</td>
+      <td className={`px-3 py-2 text-charcoal-900 ${mono ? "font-mono text-xs" : ""}`}>{value}</td>
+    </tr>
   );
 }
 

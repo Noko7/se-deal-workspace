@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Briefcase,
+  Calculator,
   CalendarDays,
   LogOut,
   Mail,
@@ -31,6 +32,7 @@ const navigation = [
   { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
   { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
+  { href: "/simple-sizer", label: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: Calculator },
   { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
 ];
 

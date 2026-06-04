@@ -1,5 +1,5 @@
 import { IntegrationStatus, PreviewStatus, RecommendationDecision } from "@prisma/client";
-import { ReactNode } from "react";
+import { ButtonHTMLAttributes, ReactNode } from "react";
 
 export function Card({
   title,
@@ -125,11 +125,13 @@ export function Button({
   children,
   tone = "primary",
   type = "button",
+  className,
+  ...props
 }: {
   children: ReactNode;
   tone?: "primary" | "secondary" | "danger";
-  type?: "button" | "submit" | "reset";
-}) {
+  className?: string;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   const toneClass = {
     primary: "bg-iris-500 text-white hover:bg-iris-600",
     secondary: "bg-white text-charcoal-800 border border-charcoal-300 hover:bg-charcoal-50",
@@ -137,7 +139,11 @@ export function Button({
   }[tone];
 
   return (
-    <button type={type} className={`rounded-md px-3 py-2 text-sm font-medium transition ${toneClass}`}>
+    <button
+      {...props}
+      type={type}
+      className={`rounded-md px-3 py-2 text-sm font-medium transition ${toneClass} ${className ?? ""}`.trim()}
+    >
       {children}
     </button>
   );

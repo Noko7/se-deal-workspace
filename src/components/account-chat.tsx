@@ -2,51 +2,53 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot, Brain, Plus, Send, Sparkles, User, X } from "lucide-react";
-import { AccountBrainPanel } from "@/components/account-brain-panel";
-import type { BrainSummary } from "@/lib/account-ai";
 
 type Attachment = { id: string; name: string; url: string };
 type ChatTurn = { role: "user" | "assistant"; content: string; images?: string[] };
 
-const SUGGESTIONS = [
-  "Summarize where this deal stands and the top technical risks.",
-  "Draft discovery questions for our next meeting.",
-  "What objections should I prepare for, and how do I counter them?",
-];
-
 export function AccountChat({
-  dealId,
-  accountName,
-  summary,
+  scope,
   header,
+  placeholder,
+  emptyDescription,
+  suggestions,
+  showBrain,
+  onBrainOpen,
 }: {
-  dealId: string;
-  accountName: string;
-  summary: BrainSummary;
-  /** Fixed content rendered at the top of the chat box (account header + carousel). */
+  /** "all" for the portfolio, or a dealId for a single account. Drives history + posting. */
+  scope: string;
+  /** Fixed content rendered at the top of the chat box (selector + carousel). */
   header?: ReactNode;
+  placeholder: string;
+  emptyDescription: string;
+  suggestions: string[];
+  showBrain: boolean;
+  onBrainOpen?: () => void;
 }) {
-  const storageKey = `account-chat:${dealId}`;
+  const storageKey = `account-chat:${scope}`;
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [brainOpen, setBrainOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Load persisted history for this account (client-only to avoid SSR mismatch).
+  // Load persisted history for this scope (client-only to avoid SSR mismatch).
+  // Re-runs when the scope changes so switching accounts swaps the thread.
   useEffect(() => {
+    let next: ChatTurn[] = [];
     try {
       const raw = window.localStorage.getItem(storageKey);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setTurns(JSON.parse(raw) as ChatTurn[]);
+      if (raw) next = JSON.parse(raw) as ChatTurn[];
     } catch {
       // ignore corrupt storage
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTurns(next);
+    setError(null);
     setHydrated(true);
   }, [storageKey]);
 
@@ -98,7 +100,7 @@ export function AccountChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dealId,
+          scope,
           messages: nextTurns.map((turn) => ({ role: turn.role, content: turn.content })),
           attachments: attachmentNames,
         }),
@@ -123,7 +125,7 @@ export function AccountChat({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-charcoal-200 bg-white shadow-sm">
-      {/* Account header + meeting carousel, fixed at the top of the chat box */}
+      {/* Account selector + meeting carousel, fixed at the top of the chat box */}
       {header ? <div className="shrink-0">{header}</div> : null}
 
       {/* Messages */}
@@ -142,15 +144,9 @@ export function AccountChat({
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-iris-100 text-iris-600">
               <Bot className="h-6 w-6" />
             </span>
-            <p className="mt-3 text-sm font-semibold text-charcoal-800">
-              Ask Account-AI anything about {accountName}.
-            </p>
-            <p className="mt-1 text-sm text-charcoal-500">
-              It knows {summary.meetingCount} meetings, {summary.noteCount} notes, and {summary.assetCount} documents for
-              this account only.
-            </p>
+            <p className="mt-3 text-sm text-charcoal-500">{emptyDescription}</p>
             <div className="mt-4 flex flex-col gap-2">
-              {SUGGESTIONS.map((suggestion) => (
+              {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -268,7 +264,7 @@ export function AccountChat({
               }
             }}
             rows={1}
-            placeholder={`Ask Account-AI about ${accountName}…`}
+            placeholder={placeholder}
             className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg py-2 text-sm"
           />
 
@@ -282,19 +278,19 @@ export function AccountChat({
             <Send className="h-5 w-5" />
           </button>
 
-          <button
-            type="button"
-            onClick={() => setBrainOpen(true)}
-            aria-label="Open Account-AI brain"
-            title="View ingested knowledge base"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-iris-200 bg-iris-50 text-iris-600 transition hover:bg-iris-100"
-          >
-            <Brain className="h-5 w-5" />
-          </button>
+          {showBrain ? (
+            <button
+              type="button"
+              onClick={onBrainOpen}
+              aria-label="Open Account-AI brain"
+              title="View ingested knowledge base"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-iris-200 bg-iris-50 text-iris-600 transition hover:bg-iris-100"
+            >
+              <Brain className="h-5 w-5" />
+            </button>
+          ) : null}
         </div>
       </div>
-
-      <AccountBrainPanel open={brainOpen} onClose={() => setBrainOpen(false)} summary={summary} dealId={dealId} />
     </div>
   );
 }

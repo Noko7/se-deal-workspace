@@ -149,6 +149,7 @@ export async function ingestAccountDataAction(formData: FormData) {
   }
 
   revalidatePath(`/accounts/${dealId}`);
+  revalidatePath("/");
 }
 
 export async function addNoteAction(formData: FormData) {

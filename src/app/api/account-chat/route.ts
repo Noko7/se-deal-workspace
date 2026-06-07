@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { ACCOUNT_AI_SYSTEM_PROMPT, buildAccountKnowledgeBase } from "@/lib/account-ai";
+import {
+  ACCOUNT_AI_SYSTEM_PROMPT,
+  ALL_ACCOUNTS_SYSTEM_PROMPT,
+  buildAccountKnowledgeBase,
+  buildAllAccountsKnowledgeBase,
+} from "@/lib/account-ai";
 import { isLlmConfiguredResolved, runChat, type ChatMessage } from "@/lib/llm";
 import { sanitizeField, sanitizeNotes } from "@/lib/sanitize";
 
@@ -9,6 +14,7 @@ const MAX_TURNS = 20;
 
 type IncomingMessage = { role?: unknown; content?: unknown };
 type ChatBody = {
+  scope?: unknown;
   dealId?: unknown;
   messages?: unknown;
   attachments?: unknown;
@@ -35,10 +41,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const dealId = sanitizeField(body.dealId, 64);
-  if (!dealId) {
-    return NextResponse.json({ ok: false, error: "Missing account id." }, { status: 400 });
+  // scope is either "all" (portfolio mode) or a specific dealId. Fall back to
+  // the legacy `dealId` field for back-compat.
+  const scope = sanitizeField(body.scope ?? body.dealId, 64);
+  if (!scope) {
+    return NextResponse.json({ ok: false, error: "Missing account scope." }, { status: 400 });
   }
+  const isAllAccounts = scope === "all";
 
   const turns = normalizeMessages(body.messages);
   if (turns.length === 0 || turns[turns.length - 1].role !== "user") {
@@ -50,15 +59,29 @@ export async function POST(request: Request) {
       {
         ok: false,
         error:
-          "Account-AI is not configured yet. Connect an LLM endpoint on the Integrations page to start chatting with this account's knowledge base.",
+          "Account-AI is not configured yet. Connect an LLM endpoint on the Integrations page to start chatting with your accounts.",
       },
       { status: 503 },
     );
   }
 
-  const kb = await buildAccountKnowledgeBase(dealId);
-  if (!kb) {
-    return NextResponse.json({ ok: false, error: "Account not found." }, { status: 404 });
+  let systemPrompt: string;
+  let contextLabel: string;
+  let contextText: string;
+
+  if (isAllAccounts) {
+    const kb = await buildAllAccountsKnowledgeBase();
+    systemPrompt = ALL_ACCOUNTS_SYSTEM_PROMPT;
+    contextLabel = "PORTFOLIO KNOWLEDGE BASE (all of the SE's accounts)";
+    contextText = kb.contextText;
+  } else {
+    const kb = await buildAccountKnowledgeBase(scope);
+    if (!kb) {
+      return NextResponse.json({ ok: false, error: "Account not found." }, { status: 404 });
+    }
+    systemPrompt = ACCOUNT_AI_SYSTEM_PROMPT;
+    contextLabel = "ACCOUNT KNOWLEDGE BASE (the only data you may rely on)";
+    contextText = kb.contextText;
   }
 
   // Attachments are passed as references (text-only models can't see pixels).
@@ -71,13 +94,7 @@ export async function POST(request: Request) {
 
   const system: ChatMessage = {
     role: "system",
-    content: [
-      ACCOUNT_AI_SYSTEM_PROMPT,
-      "",
-      "=== ACCOUNT KNOWLEDGE BASE (the only data you may rely on) ===",
-      kb.contextText,
-      "=== END KNOWLEDGE BASE ===",
-    ].join("\n"),
+    content: [systemPrompt, "", `=== ${contextLabel} ===`, contextText, "=== END KNOWLEDGE BASE ==="].join("\n"),
   };
 
   const messages: ChatMessage[] = [system, ...turns];

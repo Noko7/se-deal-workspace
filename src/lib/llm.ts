@@ -189,7 +189,17 @@ export async function getLlmStatus(): Promise<LlmStatus> {
   }
 }
 
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+// Run a multi-turn chat against the resolved LLM. Throws when the LLM is not
+// configured so callers can return a clear "not configured" response.
+export async function runChat(messages: ChatMessage[]): Promise<string> {
+  const config = await getResolvedLlmConfig();
+  if (!config) {
+    throw new Error("LLM is not configured. Set LLM_BASE_URL or configure it on the Integrations page.");
+  }
+  return chatComplete(config, messages);
+}
 
 async function chatComplete(config: LlmConfig, messages: ChatMessage[]): Promise<string> {
   const result = await request(config, "/chat/completions", "POST", {

@@ -1,5 +1,6 @@
 import { getAccountDetail } from "@/lib/data";
 import { parseAttendees } from "@/lib/meeting";
+import { prisma } from "@/lib/prisma";
 
 // --- Types shared by the brain panel and the chat route --------------------
 
@@ -56,6 +57,18 @@ export const ACCOUNT_AI_SYSTEM_PROMPT = [
   "Never invent customer specifics that are not supported by the knowledge base. If something is unknown, say so and suggest the discovery question that would close the gap.",
   "This knowledge base belongs to this account only. Do not reference or assume details from any other customer.",
   "Be concise, precise, and practical. Prefer bullet points, concrete next steps, and SE-grade technical depth.",
+].join("\n");
+
+// The portfolio-level persona for the "My Accounts" (all-accounts) mode. It can
+// compare and prioritize across the SE's whole book of business.
+export const ALL_ACCOUNTS_SYSTEM_PROMPT = [
+  "You are Account-AI, a seasoned Nutanix Senior Systems Engineer (SE) advising on the SE's ENTIRE portfolio of accounts.",
+  "You are deeply technical across Nutanix AOS/AHV, Prism, Nutanix Cloud Clusters (NC2), Files, Objects, Volumes, disaster recovery, sizing, and competitive positioning vs. VMware/Broadcom, Dell, and the hyperscalers.",
+  "Use the supplied portfolio summary (every account with its stage, amount, owner, next action, signal, and upcoming/last meeting) to help the SE prioritize their week, spot risk, and plan technical next steps.",
+  "When asked what to focus on, reason about deal value, stage, momentum (recent and upcoming meetings), technical close status, and risk signals; recommend a concrete, ranked set of actions and name the specific accounts.",
+  "Ground answers in the supplied portfolio data. If a detail isn't present, say so and suggest how to find it. Do not invent customer specifics.",
+  "Be concise and practical: lead with a ranked recommendation, then brief rationale per account.",
+  "For deep, account-specific work, suggest the SE open that account to access its full knowledge base.",
 ].join("\n");
 
 // --- Lightweight topic extraction ------------------------------------------
@@ -218,4 +231,81 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
   }
 
   return { contextText: lines.join("\n"), summary };
+}
+
+// --- All-accounts (portfolio) knowledge base -------------------------------
+
+export type AllAccountsSummary = {
+  accountCount: number;
+  meetingCount: number;
+  noteCount: number;
+  assetCount: number;
+  upcomingMeetingCount: number;
+};
+
+export type AllAccountsKnowledgeBase = {
+  contextText: string;
+  summary: AllAccountsSummary;
+};
+
+/**
+ * Assemble a portfolio-wide knowledge base across every account (the SE's whole
+ * book of business). Bounded to per-account rollups rather than full note dumps
+ * so prioritization questions stay within the model's context window.
+ */
+export async function buildAllAccountsKnowledgeBase(): Promise<AllAccountsKnowledgeBase> {
+  const now = new Date();
+  const deals = await prisma.deal.findMany({
+    orderBy: { amount: "desc" },
+    include: {
+      meetings: { select: { startTime: true } },
+      _count: { select: { notes: true, assets: true, emails: true } },
+    },
+  });
+
+  const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
+
+  let meetingCount = 0;
+  let noteCount = 0;
+  let assetCount = 0;
+  let upcomingMeetingCount = 0;
+
+  const lines: string[] = [`SE PORTFOLIO — ${deals.length} accounts (sorted by amount):`, ""];
+
+  for (const deal of deals) {
+    const starts = deal.meetings.map((m) => m.startTime);
+    const upcoming = starts.filter((s) => s >= now).sort((a, b) => a.getTime() - b.getTime());
+    const past = starts.filter((s) => s < now).sort((a, b) => b.getTime() - a.getTime());
+
+    meetingCount += starts.length;
+    noteCount += deal._count.notes;
+    assetCount += deal._count.assets;
+    upcomingMeetingCount += upcoming.length;
+
+    const parts = [
+      `ACCOUNT: ${deal.accountName} (${deal.name})`,
+      `stage: ${deal.stage}`,
+      `amount: $${deal.amount.toLocaleString()}`,
+      `owner: ${deal.owner}`,
+      `tech close: ${deal.technicalCloseStatus}`,
+      `closed: ${deal.isClosed ? "yes" : "no"}`,
+      `next meeting: ${upcoming[0] ? fmtDate(upcoming[0]) : "none scheduled"}`,
+      `last meeting: ${past[0] ? fmtDate(past[0]) : "none"}`,
+      `next action: ${deal.nextAction}`,
+    ];
+    if (deal.latestSignal) parts.push(`signal: ${deal.latestSignal}`);
+    parts.push(`notes: ${deal._count.notes}, assets: ${deal._count.assets}, emails: ${deal._count.emails}`);
+    lines.push(`- ${parts.join(" | ")}`);
+  }
+
+  return {
+    contextText: lines.join("\n"),
+    summary: {
+      accountCount: deals.length,
+      meetingCount,
+      noteCount,
+      assetCount,
+      upcomingMeetingCount,
+    },
+  };
 }

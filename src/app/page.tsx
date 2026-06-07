@@ -1,24 +1,39 @@
-import { CalendarDays } from "lucide-react";
-import { getDashboardData } from "@/lib/data";
+import { buildAllAccountsKnowledgeBase } from "@/lib/account-ai";
 import { toCalendarMeeting } from "@/lib/calendar";
-import { CalendarWorkspace } from "@/components/calendar-workspace";
-import { Card } from "@/components/ui";
+import { getAccountsOverview, getDashboardData } from "@/lib/data";
+import { AccountAiWorkspace, type AccountOption } from "@/components/account-ai-workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function CalendarPage() {
-  const { meetings } = await getDashboardData();
+export default async function AccountAiHomePage() {
+  const [overview, { meetings }, portfolio] = await Promise.all([
+    getAccountsOverview(),
+    getDashboardData(),
+    buildAllAccountsKnowledgeBase(),
+  ]);
+
+  const accounts: AccountOption[] = overview.map((account) => ({
+    id: account.id,
+    accountName: account.accountName,
+    dealName: account.name,
+    stage: account.stage,
+    owner: account.owner,
+    nextAction: account.nextAction,
+    latestSignal: account.latestSignal,
+  }));
+
   const calendarMeetings = meetings.map(toCalendarMeeting);
 
   return (
-    <div className="space-y-6">
-      <Card
-        title="Calendar"
-        subtitle="Linked with Outlook."
-        icon={<CalendarDays className="h-5 w-5" />}
-      >
-        <CalendarWorkspace meetings={calendarMeetings} />
-      </Card>
-    </div>
+    <AccountAiWorkspace
+      accounts={accounts}
+      meetings={calendarMeetings}
+      aggregate={{
+        accountCount: portfolio.summary.accountCount,
+        meetingCount: portfolio.summary.meetingCount,
+        noteCount: portfolio.summary.noteCount,
+        assetCount: portfolio.summary.assetCount,
+      }}
+    />
   );
 }

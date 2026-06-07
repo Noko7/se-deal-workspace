@@ -3,11 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarRange, ExternalLink, Globe, Sparkles } from "lucide-react";
 import { AccountChat } from "@/components/account-chat";
+import { AccountBrainPanel } from "@/components/account-brain-panel";
 import { MeetingCarousel } from "@/components/meeting-carousel";
 import { MeetingDetailPanel } from "@/components/meeting-detail-panel";
 import { StatusPill } from "@/components/ui";
 import { detectTimeZone, type CalendarMeeting } from "@/lib/calendar";
 import type { BrainSummary } from "@/lib/account-ai";
+
+const ACCOUNT_SUGGESTIONS = [
+  "Summarize where this deal stands and the top technical risks.",
+  "Draft discovery questions for our next meeting.",
+  "What objections should I prepare for, and how do I counter them?",
+];
 
 export function AccountWorkspaceClient({
   dealId,
@@ -32,6 +39,7 @@ export function AccountWorkspaceClient({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [timeZone, setTimeZone] = useState("UTC");
+  const [brainOpen, setBrainOpen] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -99,10 +107,19 @@ export function AccountWorkspaceClient({
   return (
     <>
       <div className="h-[calc(100dvh-9rem)] min-h-[34rem]">
-        <AccountChat dealId={dealId} accountName={accountName} summary={summary} header={header} />
+        <AccountChat
+          scope={dealId}
+          header={header}
+          placeholder={`Ask Account-AI about ${accountName}…`}
+          emptyDescription={`Account-AI is trained on ${accountName}'s knowledge base — ${summary.meetingCount} meetings, ${summary.noteCount} notes, and ${summary.assetCount} documents for this account only.`}
+          suggestions={ACCOUNT_SUGGESTIONS}
+          showBrain
+          onBrainOpen={() => setBrainOpen(true)}
+        />
       </div>
 
       <MeetingDetailPanel meeting={selected} timeZone={timeZone} onClose={() => setSelectedId(null)} />
+      <AccountBrainPanel open={brainOpen} onClose={() => setBrainOpen(false)} summary={summary} dealId={dealId} />
     </>
   );
 }

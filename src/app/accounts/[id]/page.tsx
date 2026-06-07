@@ -4,6 +4,9 @@ import type { MeetingAsset } from "@prisma/client";
 import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, Globe, History, Users } from "lucide-react";
 import { addNoteAction } from "@/lib/actions";
 import { getAccountDetail } from "@/lib/data";
+import { buildAccountKnowledgeBase } from "@/lib/account-ai";
+import { toCalendarMeeting } from "@/lib/calendar";
+import { AccountWorkspaceClient } from "@/components/account-workspace-client";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
@@ -52,6 +55,16 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   if (!deal) {
     notFound();
   }
+
+  // Serialize the account's meetings for the carousel + reused detail panel, and
+  // assemble the per-account knowledge base summary for the Account-AI brain.
+  const calendarMeetings = deal.meetings.map((meeting) =>
+    toCalendarMeeting({
+      ...meeting,
+      deal: { id: deal.id, name: deal.name, accountName: deal.accountName, stage: deal.stage },
+    }),
+  );
+  const knowledgeBase = await buildAccountKnowledgeBase(id);
 
   const notes = deal.notes as AccountNote[];
   const allAssets = deal.assets;
@@ -117,6 +130,16 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           </p>
         ) : null}
       </Card>
+
+      {/* Meeting carousel + Account-AI chatbot (this account's isolated knowledge base) */}
+      {knowledgeBase ? (
+        <AccountWorkspaceClient
+          dealId={deal.id}
+          accountName={deal.accountName}
+          meetings={calendarMeetings}
+          summary={knowledgeBase.summary}
+        />
+      ) : null}
 
       <Card
         title="Account Workspace Summary"

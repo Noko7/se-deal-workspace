@@ -108,6 +108,49 @@ export async function uploadQbrAction(formData: FormData) {
   revalidatePath("/");
 }
 
+// Ingest a single item into an account's "brain": either a typed note or a
+// linked asset (URI). Both can optionally be scoped to a specific meeting.
+export async function ingestAccountDataAction(formData: FormData) {
+  const dealId = String(formData.get("dealId"));
+  if (!dealId) return;
+  const meetingId = formData.get("meetingId") ? String(formData.get("meetingId")) : undefined;
+  const kind = String(formData.get("kind") ?? "note");
+
+  if (kind === "asset") {
+    const type = String(formData.get("type") || "TEXT_BRIEF") as
+      | "PRESENTATION"
+      | "COLLECTOR"
+      | "RV_TOOL"
+      | "ZIP_BUNDLE"
+      | "WHITEBOARD"
+      | "TEXT_BRIEF"
+      | "QBR_REPORT";
+    const title = String(formData.get("title") ?? "").trim();
+    const uri = String(formData.get("uri") ?? "").trim();
+    if (!title || !uri) return;
+    await createArtifact({
+      dealId,
+      meetingId,
+      type,
+      sourceTool: String(formData.get("sourceTool") || "Account-AI"),
+      title,
+      uri,
+      uploadedBy: "se.workspace@nutanix.com",
+      previewImageUri: formData.get("previewImageUri")
+        ? String(formData.get("previewImageUri"))
+        : undefined,
+    });
+  } else {
+    const body = String(formData.get("body") ?? "").trim();
+    if (!body) return;
+    const roleInput = String(formData.get("role") ?? "SE");
+    const role = (["SE", "AE", "SAM"].includes(roleInput) ? roleInput : "SE") as NoteRole;
+    await createNote({ dealId, meetingId, role, body, author: "se.workspace@nutanix.com" });
+  }
+
+  revalidatePath(`/accounts/${dealId}`);
+}
+
 export async function addNoteAction(formData: FormData) {
   const dealId = String(formData.get("dealId"));
   const body = String(formData.get("body") ?? "").trim();

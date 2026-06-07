@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot, Brain, Plus, Send, Sparkles, User, X } from "lucide-react";
 import { AccountBrainPanel } from "@/components/account-brain-panel";
 import type { BrainSummary } from "@/lib/account-ai";
@@ -18,10 +18,13 @@ export function AccountChat({
   dealId,
   accountName,
   summary,
+  header,
 }: {
   dealId: string;
   accountName: string;
   summary: BrainSummary;
+  /** Fixed content rendered at the top of the chat box (account header + carousel). */
+  header?: ReactNode;
 }) {
   const storageKey = `account-chat:${dealId}`;
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -120,30 +123,20 @@ export function AccountChat({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-charcoal-200 bg-white shadow-sm">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-charcoal-200 bg-gradient-to-r from-iris-50 to-white px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-iris-500 text-white">
-            <Sparkles className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="text-sm font-semibold text-charcoal-900">Account-AI · {accountName}</h2>
-            <p className="text-xs text-charcoal-500">Seasoned Nutanix SE trained on this account&apos;s knowledge base.</p>
-          </div>
-        </div>
+      {/* Account header + meeting carousel, fixed at the top of the chat box */}
+      {header ? <div className="shrink-0">{header}</div> : null}
+
+      {/* Messages */}
+      <div ref={scrollRef} className="relative flex-1 space-y-4 overflow-y-auto p-4">
         {turns.length > 0 ? (
           <button
             type="button"
             onClick={clearChat}
-            className="rounded-md border border-charcoal-200 bg-white px-2 py-1 text-xs font-medium text-charcoal-600 hover:bg-charcoal-50"
+            className="sticky top-0 z-10 ml-auto block rounded-md border border-charcoal-200 bg-white/90 px-2 py-1 text-xs font-medium text-charcoal-600 shadow-sm backdrop-blur hover:bg-charcoal-50"
           >
-            Clear
+            Clear chat
           </button>
         ) : null}
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
         {turns.length === 0 ? (
           <div className="mx-auto max-w-xl py-8 text-center">
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-iris-100 text-iris-600">

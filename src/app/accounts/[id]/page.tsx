@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { MeetingAsset } from "@prisma/client";
-import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, Globe, History, Users } from "lucide-react";
+import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, History, Users } from "lucide-react";
 import { addNoteAction } from "@/lib/actions";
 import { getAccountDetail } from "@/lib/data";
 import { buildAccountKnowledgeBase } from "@/lib/account-ai";
@@ -106,36 +106,17 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         <ArrowLeft className="h-4 w-4" /> Back to accounts
       </Link>
 
-      <Card title={deal.accountName} subtitle={deal.name} icon={<Users className="h-5 w-5" />}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill tone="info">{deal.stage}</StatusPill>
-            <StatusPill tone="neutral">Owner: {deal.owner}</StatusPill>
-          </div>
-          <a
-            href={`https://insights.nutanix.com/?account=${encodeURIComponent(deal.accountName)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-3 py-1.5 text-sm font-medium text-charcoal-800 hover:bg-charcoal-50"
-          >
-            <Globe className="h-4 w-4" /> Open in Insights <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </div>
-        <p className="mt-3 text-sm text-charcoal-700">
-          <span className="font-semibold text-charcoal-900">Next action:</span> {deal.nextAction}
-        </p>
-        {deal.latestSignal ? (
-          <p className="mt-1 text-sm text-charcoal-600">
-            <span className="font-semibold text-charcoal-900">Latest signal:</span> {deal.latestSignal}
-          </p>
-        ) : null}
-      </Card>
-
-      {/* Meeting carousel + Account-AI chatbot (this account's isolated knowledge base) */}
+      {/* Full-height Account-AI chatbot — the condensed account header + meeting
+          carousel are contained inside the chat box at the top. */}
       {knowledgeBase ? (
         <AccountWorkspaceClient
           dealId={deal.id}
           accountName={deal.accountName}
+          dealName={deal.name}
+          stage={deal.stage}
+          owner={deal.owner}
+          nextAction={deal.nextAction}
+          latestSignal={deal.latestSignal}
           meetings={calendarMeetings}
           summary={knowledgeBase.summary}
         />

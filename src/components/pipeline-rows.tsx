@@ -33,6 +33,10 @@ export type PipelineDeal = {
   recommendationsCount: number;
 };
 
+function dealOppCode(deal: PipelineDeal): string {
+  return `SF-${deal.id.slice(0, 8).toUpperCase()}`;
+}
+
 function pipelineDealToOpportunity(deal: PipelineDeal): Opportunity {
   return buildOpportunity({
     id: deal.id,
@@ -199,7 +203,7 @@ function PipelineRow({
                   </div>
                   <p className="truncate text-xs text-charcoal-500">{deal.accountName}</p>
                   <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
-                    <span className="truncate">{deal.owner}</span>
+                    <span className="truncate font-medium tracking-wide text-charcoal-500">{dealOppCode(deal)}</span>
                     {deal.closeDate ? <span className="shrink-0">{shortDate(new Date(deal.closeDate))}</span> : null}
                   </div>
                 </Link>
@@ -227,7 +231,7 @@ function PipelineRow({
                 </div>
                 <p className="truncate text-xs text-charcoal-500">{active.deal.accountName}</p>
                 <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
-                  <span className="truncate">{active.deal.owner}</span>
+                  <span className="truncate font-medium tracking-wide text-charcoal-500">{dealOppCode(active.deal)}</span>
                   {active.deal.closeDate ? (
                     <span className="shrink-0">{shortDate(new Date(active.deal.closeDate))}</span>
                   ) : null}
@@ -235,42 +239,32 @@ function PipelineRow({
               </div>
 
               <div
-                className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden rounded-md border border-charcoal-200 border-l-4 bg-white px-4 py-2 shadow-sm"
+                className="flex min-w-0 flex-1 flex-col justify-center gap-2 overflow-hidden rounded-md border border-charcoal-200 border-l-4 bg-white px-5 py-2.5 shadow-sm"
                 style={{ borderLeftColor: row.color, animation: "carousel-from-right 220ms ease-out" }}
               >
-                <div className="min-w-0 max-w-[240px] shrink-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal-500">{active.opp.oppId}</p>
-                  <p className="truncate text-sm font-semibold text-charcoal-900">{active.opp.opportunityName}</p>
-                  <p className="truncate text-xs text-charcoal-500">Account: {active.opp.accountName}</p>
-                </div>
-
-                <div className="h-10 w-px shrink-0 bg-charcoal-200" />
-
-                <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-1 text-xs md:grid-cols-4">
+                <div className="grid min-w-0 grid-cols-2 gap-x-8 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-5">
                   <DetailStat label="Stage" value={active.opp.stage} />
                   <DetailStat label="Probability" value={`${active.opp.probability}%`} accent />
-                  <DetailStat label="Amount" value={`$${active.opp.amount.toLocaleString()}`} />
-                  <DetailStat label="Sim ARR" value={`$${active.opp.arr.toLocaleString()}`} />
+                  <DetailStat label="Amount" value={formatCurrencyShort(active.opp.amount)} />
+                  <DetailStat label="Sim ARR" value={formatCurrencyShort(active.opp.arr)} />
                   <DetailStat label="Close" value={active.opp.closeQuarter} />
-                  <DetailStat label="Owner" value={active.opp.owner} />
                   <DetailStat label="Technical Fit" value={active.opp.fit} />
                   <DetailStat label="Tech Close" value={active.opp.technicalCloseStatus} />
+                  <DetailStat label="Meetings" value={String(active.opp.meetings)} />
+                  <DetailStat label="Emails" value={String(active.opp.emails)} />
+                  <DetailStat label="AI Recs" value={String(active.opp.recommendations)} />
                 </div>
 
-                <div className="h-10 w-px shrink-0 bg-charcoal-200" />
-
-                <div className="min-w-0 max-w-[300px] shrink-0">
-                  <div className="flex flex-wrap gap-1.5 text-[11px] text-charcoal-600">
-                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">Meetings: {active.opp.meetings}</span>
-                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">Emails: {active.opp.emails}</span>
-                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">AI Recs: {active.opp.recommendations}</span>
-                  </div>
-                  <p className="mt-1.5 truncate text-xs text-charcoal-600">
-                    <span className="text-charcoal-500">Next:</span>{" "}
-                    <span className="font-medium text-charcoal-800">{active.opp.nextAction}</span>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-8 gap-y-0.5 border-t border-charcoal-100 pt-2 text-xs">
+                  <p className="min-w-0 max-w-full truncate">
+                    <span className="text-charcoal-500">Next: </span>
+                    <span className="font-semibold text-charcoal-800">{active.opp.nextAction}</span>
                   </p>
                   {active.opp.latestSignal ? (
-                    <p className="truncate text-xs text-charcoal-500">Signal: {active.opp.latestSignal}</p>
+                    <p className="min-w-0 max-w-full truncate">
+                      <span className="text-charcoal-500">Signal: </span>
+                      <span className="font-medium text-charcoal-600">{active.opp.latestSignal}</span>
+                    </p>
                   ) : null}
                 </div>
               </div>
@@ -284,9 +278,7 @@ function PipelineRow({
 
 export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; query?: string }) {
   const [period, setPeriod] = useState<Period>("quarter");
-  const [owner, setOwner] = useState("all");
 
-  const owners = useMemo(() => Array.from(new Set(deals.map((deal) => deal.owner))).sort(), [deals]);
   const now = useMemo(() => new Date(), []);
 
   const filtered = useMemo(() => {
@@ -297,9 +289,8 @@ export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; que
     const needle = query.trim().toLowerCase();
 
     return deals.filter((deal) => {
-      if (owner !== "all" && deal.owner !== owner) return false;
       if (needle) {
-        const haystack = [deal.accountName, deal.name, deal.owner, deal.stage, deal.latestSignal ?? ""]
+        const haystack = [deal.accountName, deal.name, dealOppCode(deal), deal.stage, deal.latestSignal ?? ""]
           .join(" ")
           .toLowerCase();
         if (!haystack.includes(needle)) return false;
@@ -309,7 +300,7 @@ export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; que
       const close = new Date(deal.closeDate);
       return close >= range.start && close < range.end;
     });
-  }, [deals, owner, period, now, query]);
+  }, [deals, period, now, query]);
 
   const totalAmount = filtered.reduce((sum, deal) => sum + deal.amount, 0);
   const closedAmount = filtered.filter((deal) => deal.isClosed).reduce((sum, deal) => sum + deal.amount, 0);
@@ -328,47 +319,27 @@ export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; que
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-lg border border-charcoal-200 bg-charcoal-50 p-0.5">
-            {(
-              [
-                { key: "quarter", label: "Quarter" },
-                { key: "fy", label: "Fiscal Year" },
-                { key: "all", label: "All Time" },
-              ] as { key: Period; label: string }[]
-            ).map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setPeriod(option.key)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  period === option.key ? "bg-iris-500 text-white shadow-sm" : "bg-transparent text-charcoal-600 hover:bg-iris-50"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <label htmlFor="pipeline-owner" className="whitespace-nowrap">
-              SE
-            </label>
-            <select
-              id="pipeline-owner"
-              value={owner}
-              onChange={(event) => setOwner(event.target.value)}
-              className="sm:max-w-[200px]"
+        <div className="inline-flex shrink-0 rounded-lg border border-charcoal-200 bg-charcoal-50 p-0.5">
+          {(
+            [
+              { key: "quarter", label: "Quarter" },
+              { key: "fy", label: "Fiscal Year" },
+              { key: "all", label: "All Time" },
+            ] as { key: Period; label: string }[]
+          ).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setPeriod(option.key)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                period === option.key ? "bg-iris-500 text-white shadow-sm" : "bg-transparent text-charcoal-600 hover:bg-iris-50"
+              }`}
             >
-              <option value="all">All SEs</option>
-              {owners.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
+              {option.label}
+            </button>
+          ))}
         </div>
-        <div className="order-last w-full min-w-[240px] flex-1 lg:order-none lg:w-auto">
+        <div className="order-last w-full min-w-[280px] flex-1 lg:order-none lg:w-auto">
           <PipelineStatusChart bars={statusBars} />
         </div>
         <div className="flex items-center gap-4 text-right">

@@ -114,6 +114,8 @@ export function AccountWorkspaceClient({
           emptyDescription={`Account-AI is trained on ${accountName}'s knowledge base — ${summary.meetingCount} meetings, ${summary.noteCount} notes, and ${summary.assetCount} documents for this account only.`}
           suggestions={ACCOUNT_SUGGESTIONS}
           showBrain
+          allowUploads
+          accountLabel={accountName}
           onBrainOpen={() => setBrainOpen(true)}
         />
       </div>

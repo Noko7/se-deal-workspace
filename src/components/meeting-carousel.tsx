@@ -89,8 +89,20 @@ export function MeetingCarousel({
   const canGoPast = start > 0;
   const canGoFuture = start < maxStart;
 
-  const goPast = () => setWindowStart(Math.max(0, start - perPage));
-  const goFuture = () => setWindowStart(Math.min(maxStart, start + perPage));
+  // Each paging action bumps a counter so the cards row remounts and replays a
+  // slide-in animation from the direction the user navigated.
+  const [slide, setSlide] = useState<{ id: number; dir: "past" | "future" } | null>(null);
+
+  const goPast = () => {
+    if (!canGoPast) return;
+    setWindowStart(Math.max(0, start - perPage));
+    setSlide((s) => ({ id: (s?.id ?? 0) + 1, dir: "past" }));
+  };
+  const goFuture = () => {
+    if (!canGoFuture) return;
+    setWindowStart(Math.min(maxStart, start + perPage));
+    setSlide((s) => ({ id: (s?.id ?? 0) + 1, dir: "future" }));
+  };
 
   return (
     <div className="flex items-stretch gap-3">
@@ -112,9 +124,15 @@ export function MeetingCarousel({
 
       {/* Cards */}
       <div
+        key={slide?.id ?? "init"}
         ref={containerRef}
         className="grid min-w-0 flex-1 gap-3"
-        style={{ gridTemplateColumns: `repeat(${perPage}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${perPage}, minmax(0, 1fr))`,
+          animation: slide
+            ? `${slide.dir === "future" ? "carousel-from-right" : "carousel-from-left"} 280ms ease-out`
+            : undefined,
+        }}
       >
         {visible.map((item, index) => {
           if (item.kind === "placeholder") {

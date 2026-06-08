@@ -134,6 +134,29 @@ body {
   }
 }
 
+/* Meeting carousel paging: slide the row in from the side it came from. */
+@keyframes carousel-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes carousel-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* When the Account Map explorer (filters + map) is fullscreen, keep filters
    visible/usable and let the map fill the remaining height. */
 .account-map-fs:fullscreen {

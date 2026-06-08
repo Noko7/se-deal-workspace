@@ -127,7 +127,7 @@ export function AccountAiWorkspace({
           }`}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="pt-3">
+            <div className="pt-3 pb-2">
               <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="flex items-center gap-2">
                   <CalendarRange className="h-4 w-4 text-iris-600" />

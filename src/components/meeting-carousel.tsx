@@ -64,7 +64,9 @@ export function MeetingCarousel({
   }, [meetings, now]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [perPage, setPerPage] = useState(3);
+  // Default to 4 (the common wide-screen count) so the row doesn't visibly
+  // jump from 3 → 4 after the first measurement on load.
+  const [perPage, setPerPage] = useState(4);
   const [windowStart, setWindowStart] = useState(defaultStart);
 
   // Measure available width and fit 1-4 cards so the row always looks full.
@@ -89,19 +91,26 @@ export function MeetingCarousel({
   const canGoPast = start > 0;
   const canGoFuture = start < maxStart;
 
-  // Each paging action bumps a counter so the cards row remounts and replays a
-  // slide-in animation from the direction the user navigated.
-  const [slide, setSlide] = useState<{ id: number; dir: "past" | "future" } | null>(null);
+  // Replay the slide-in animation imperatively on the (stable) cards node so we
+  // never remount it — remounting would reset the ResizeObserver that measures
+  // how many cards fit, briefly collapsing the row to a single card.
+  const playSlide = (dir: "past" | "future") => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.style.animation = "none";
+    void el.offsetWidth; // force reflow so the animation can restart
+    el.style.animation = `${dir === "future" ? "carousel-from-right" : "carousel-from-left"} 280ms ease-out`;
+  };
 
   const goPast = () => {
     if (!canGoPast) return;
     setWindowStart(Math.max(0, start - perPage));
-    setSlide((s) => ({ id: (s?.id ?? 0) + 1, dir: "past" }));
+    playSlide("past");
   };
   const goFuture = () => {
     if (!canGoFuture) return;
     setWindowStart(Math.min(maxStart, start + perPage));
-    setSlide((s) => ({ id: (s?.id ?? 0) + 1, dir: "future" }));
+    playSlide("future");
   };
 
   return (
@@ -124,15 +133,9 @@ export function MeetingCarousel({
 
       {/* Cards */}
       <div
-        key={slide?.id ?? "init"}
         ref={containerRef}
         className="grid min-w-0 flex-1 gap-3"
-        style={{
-          gridTemplateColumns: `repeat(${perPage}, minmax(0, 1fr))`,
-          animation: slide
-            ? `${slide.dir === "future" ? "carousel-from-right" : "carousel-from-left"} 280ms ease-out`
-            : undefined,
-        }}
+        style={{ gridTemplateColumns: `repeat(${perPage}, minmax(0, 1fr))` }}
       >
         {visible.map((item, index) => {
           if (item.kind === "placeholder") {

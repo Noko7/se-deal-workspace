@@ -193,7 +193,7 @@ function PipelineRow({
   );
 }
 
-export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
+export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; query?: string }) {
   const [period, setPeriod] = useState<Period>("quarter");
   const [owner, setOwner] = useState("all");
   const [hover, setHover] = useState<{ opp: Opportunity; rect: DOMRect } | null>(null);
@@ -211,14 +211,22 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
     if (period === "quarter") range = fiscalQuarterBounds(now);
     else if (period === "fy") range = fiscalYearBounds(now);
 
+    const needle = query.trim().toLowerCase();
+
     return deals.filter((deal) => {
       if (owner !== "all" && deal.owner !== owner) return false;
+      if (needle) {
+        const haystack = [deal.accountName, deal.name, deal.owner, deal.stage, deal.latestSignal ?? ""]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
       if (!range) return true;
       if (!deal.closeDate) return false;
       const close = new Date(deal.closeDate);
       return close >= range.start && close < range.end;
     });
-  }, [deals, owner, period, now]);
+  }, [deals, owner, period, now, query]);
 
   const totalAmount = filtered.reduce((sum, deal) => sum + deal.amount, 0);
   const closedAmount = filtered.filter((deal) => deal.isClosed).reduce((sum, deal) => sum + deal.amount, 0);
@@ -326,7 +334,7 @@ function DealHoverPreview({ opp, rect }: { opp: Opportunity; rect: DOMRect }) {
       style={{ left, top, width: WIDTH, transform: placeAbove ? "translateY(-100%)" : undefined }}
     >
       <div className="rounded-lg shadow-2xl ring-1 ring-charcoal-900/5">
-        <OpportunityCard opp={opp} />
+        <OpportunityCard opp={opp} hideNotePolicy />
       </div>
     </div>,
     document.body,

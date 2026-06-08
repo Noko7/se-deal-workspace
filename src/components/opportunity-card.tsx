@@ -4,18 +4,28 @@ import type { Opportunity } from "@/lib/opportunity";
 
 // The Salesforce-style opportunity card body, shared between the Current Deals
 // page (with action buttons) and the Pipeline hover preview (no actions).
-export function OpportunityCard({ opp, actions }: { opp: Opportunity; actions?: ReactNode }) {
+export function OpportunityCard({
+  opp,
+  actions,
+  hideNotePolicy = false,
+}: {
+  opp: Opportunity;
+  actions?: ReactNode;
+  hideNotePolicy?: boolean;
+}) {
   return (
     <div className="rounded-lg border border-charcoal-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-500">{opp.oppId}</p>
           <h3 className="text-sm font-semibold text-charcoal-900">{opp.opportunityName}</h3>
           <p className="text-xs text-charcoal-500">Account: {opp.accountName}</p>
         </div>
-        <StatusPill tone={opp.notePolicy === "implementation-only" ? "info" : "neutral"}>
-          {opp.notePolicy === "implementation-only" ? "Implementation Notes Only" : "Regular Notes"}
-        </StatusPill>
+        {hideNotePolicy ? null : (
+          <StatusPill tone={opp.notePolicy === "implementation-only" ? "info" : "neutral"}>
+            {opp.notePolicy === "implementation-only" ? "Implementation Notes Only" : "Regular Notes"}
+          </StatusPill>
+        )}
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-charcoal-600">

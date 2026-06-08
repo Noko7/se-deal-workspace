@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrencyShort, shortDate } from "@/lib/format";
 import { PipelineStatusChart } from "@/components/pipeline-status-chart";
+import { OpportunityCard } from "@/components/opportunity-card";
+import { buildOpportunity, type Opportunity } from "@/lib/opportunity";
 
 export type PipelineDeal = {
   id: string;
@@ -17,7 +20,29 @@ export type PipelineDeal = {
   technicalCloseStatus: string;
   closeDate: string | null;
   isClosed: boolean;
+  latestSignal: string | null;
+  meetingsCount: number;
+  emailsCount: number;
+  recommendationsCount: number;
 };
+
+function pipelineDealToOpportunity(deal: PipelineDeal): Opportunity {
+  return buildOpportunity({
+    id: deal.id,
+    name: deal.name,
+    accountName: deal.accountName,
+    stage: deal.stage,
+    amount: deal.amount,
+    closeDate: deal.closeDate ? new Date(deal.closeDate) : null,
+    owner: deal.owner,
+    nextAction: deal.nextAction,
+    technicalCloseStatus: deal.technicalCloseStatus,
+    latestSignal: deal.latestSignal,
+    meetingsCount: deal.meetingsCount,
+    emailsCount: deal.emailsCount,
+    recommendationsCount: deal.recommendationsCount,
+  });
+}
 
 type Period = "quarter" | "fy" | "all";
 
@@ -63,9 +88,13 @@ function rowKey(deal: PipelineDeal) {
 function PipelineRow({
   row,
   deals,
+  onCardEnter,
+  onCardLeave,
 }: {
   row: (typeof ROWS)[number];
   deals: PipelineDeal[];
+  onCardEnter: (opp: Opportunity, rect: DOMRect) => void;
+  onCardLeave: () => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
@@ -138,14 +167,18 @@ function PipelineRow({
                 <Link
                   key={deal.id}
                   href={`/accounts/${deal.id}`}
+                  onMouseEnter={(event) =>
+                    onCardEnter(pipelineDealToOpportunity(deal), event.currentTarget.getBoundingClientRect())
+                  }
+                  onMouseLeave={onCardLeave}
                   className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md"
                   style={{ borderLeftColor: row.color }}
                 >
                   <div className="flex items-start justify-between gap-1.5">
-                    <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{deal.accountName}</p>
+                    <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{deal.name}</p>
                     <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(deal.amount)}</span>
                   </div>
-                  <p className="truncate text-xs text-charcoal-500">{deal.name}</p>
+                  <p className="truncate text-xs text-charcoal-500">{deal.accountName}</p>
                   <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
                     <span className="truncate">{deal.owner}</span>
                     {deal.closeDate ? <span className="shrink-0">{shortDate(new Date(deal.closeDate))}</span> : null}
@@ -163,6 +196,12 @@ function PipelineRow({
 export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
   const [period, setPeriod] = useState<Period>("quarter");
   const [owner, setOwner] = useState("all");
+  const [hover, setHover] = useState<{ opp: Opportunity; rect: DOMRect } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const owners = useMemo(() => Array.from(new Set(deals.map((deal) => deal.owner))).sort(), [deals]);
   const now = useMemo(() => new Date(), []);
@@ -255,9 +294,41 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
 
       <div className="space-y-2">
         {ROWS.map((row) => (
-          <PipelineRow key={row.key} row={row} deals={filtered.filter((deal) => rowKey(deal) === row.key)} />
+          <PipelineRow
+            key={row.key}
+            row={row}
+            deals={filtered.filter((deal) => rowKey(deal) === row.key)}
+            onCardEnter={(opp, rect) => setHover({ opp, rect })}
+            onCardLeave={() => setHover(null)}
+          />
         ))}
       </div>
+
+      {mounted && hover ? <DealHoverPreview opp={hover.opp} rect={hover.rect} /> : null}
     </div>
+  );
+}
+
+// Floating preview of the full opportunity card, rendered in a portal so it is
+// never clipped by the horizontally-scrolling pipeline rows.
+function DealHoverPreview({ opp, rect }: { opp: Opportunity; rect: DOMRect }) {
+  const WIDTH = 360;
+  const ESTIMATED_HEIGHT = 300;
+  const GAP = 8;
+
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - WIDTH - 8));
+  const placeAbove = rect.bottom + ESTIMATED_HEIGHT + GAP > window.innerHeight && rect.top > ESTIMATED_HEIGHT;
+  const top = placeAbove ? rect.top - GAP : rect.bottom + GAP;
+
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-50"
+      style={{ left, top, width: WIDTH, transform: placeAbove ? "translateY(-100%)" : undefined }}
+    >
+      <div className="rounded-lg shadow-2xl ring-1 ring-charcoal-900/5">
+        <OpportunityCard opp={opp} />
+      </div>
+    </div>,
+    document.body,
   );
 }

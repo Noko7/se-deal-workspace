@@ -90,12 +90,17 @@ export async function getPipelineDeals() {
       technicalCloseStatus: true,
       closeDate: true,
       isClosed: true,
+      latestSignal: true,
+      _count: { select: { meetings: true, emails: true, recommendations: true } },
     },
   });
 
-  return deals.map((deal) => ({
+  return deals.map(({ _count, ...deal }) => ({
     ...deal,
     closeDate: deal.closeDate ? deal.closeDate.toISOString() : null,
+    meetingsCount: _count.meetings,
+    emailsCount: _count.emails,
+    recommendationsCount: _count.recommendations,
   }));
 }
 

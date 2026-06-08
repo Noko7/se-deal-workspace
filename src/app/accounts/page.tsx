@@ -14,14 +14,13 @@ export default async function AccountsPage() {
     cookies(),
   ]);
 
-  // Scope everything to the logged-in SE's book of business.
+  // This is a single-SE workspace: every deal/account belongs to the logged-in
+  // SE, so we reassign ownership to them and show the whole book.
   const session = verifySessionToken(store.get(SESSION_COOKIE)?.value);
-  const se = resolveSeOwner(
-    pipelineDeals.map((deal) => deal.owner),
-    session?.name,
-  );
-  const myPipelineDeals = se ? pipelineDeals.filter((deal) => deal.owner === se) : pipelineDeals;
-  const myAccounts = se ? accounts.filter((account) => account.owner === se) : accounts;
+  const se =
+    session?.name?.trim() || resolveSeOwner(pipelineDeals.map((deal) => deal.owner), null) || "Me";
+  const myPipelineDeals = pipelineDeals.map((deal) => ({ ...deal, owner: se }));
+  const myAccounts = accounts.map((account) => ({ ...account, owner: se }));
 
   return (
     <div className="space-y-6">

@@ -15,20 +15,17 @@ export default async function AccountAiHomePage() {
     cookies(),
   ]);
 
-  // Scope the account list to the logged-in SE's book of business.
+  // Single-SE workspace: every account belongs to the logged-in SE.
   const session = verifySessionToken(store.get(SESSION_COOKIE)?.value);
-  const se = resolveSeOwner(
-    overview.map((account) => account.owner),
-    session?.name,
-  );
-  const myOverview = se ? overview.filter((account) => account.owner === se) : overview;
+  const se =
+    session?.name?.trim() || resolveSeOwner(overview.map((account) => account.owner), null) || "Me";
 
-  const accounts: AccountOption[] = myOverview.map((account) => ({
+  const accounts: AccountOption[] = overview.map((account) => ({
     id: account.id,
     accountName: account.accountName,
     dealName: account.name,
     stage: account.stage,
-    owner: account.owner,
+    owner: se,
     nextAction: account.nextAction,
     latestSignal: account.latestSignal,
   }));

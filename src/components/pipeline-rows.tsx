@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrencyShort, shortDate } from "@/lib/format";
 import { PipelineStatusChart } from "@/components/pipeline-status-chart";
-import { OpportunityCard } from "@/components/opportunity-card";
 import { buildOpportunity, type Opportunity } from "@/lib/opportunity";
+
+function DetailStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <p className="truncate">
+      <span className="text-charcoal-500">{label}: </span>
+      <span className={`font-semibold ${accent ? "text-iris-600" : "text-charcoal-800"}`}>{value}</span>
+    </p>
+  );
+}
 
 export type PipelineDeal = {
   id: string;
@@ -88,17 +95,17 @@ function rowKey(deal: PipelineDeal) {
 function PipelineRow({
   row,
   deals,
-  onCardEnter,
-  onCardLeave,
 }: {
   row: (typeof ROWS)[number];
   deals: PipelineDeal[];
-  onCardEnter: (opp: Opportunity, rect: DOMRect) => void;
-  onCardLeave: () => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
+  // On hover, the chosen card slides to the far left and a wide detail tile
+  // expands to its right (replacing the classic popup).
+  const [active, setActive] = useState<{ deal: PipelineDeal; opp: Opportunity; from: number } | null>(null);
+  const [slid, setSlid] = useState(false);
 
   const update = () => {
     const el = scroller.current;
@@ -113,10 +120,25 @@ function PipelineRow({
     return () => window.removeEventListener("resize", update);
   }, [deals.length]);
 
+  // Animate from the card's current on-screen position to the far left.
+  useEffect(() => {
+    if (!active) return;
+    const id = requestAnimationFrame(() => setSlid(true));
+    return () => cancelAnimationFrame(id);
+  }, [active]);
+
   const scrollBy = (direction: number) => {
     const el = scroller.current;
     if (!el) return;
     el.scrollBy({ left: direction * (el.clientWidth - 60), behavior: "smooth" });
+  };
+
+  const openDetail = (deal: PipelineDeal, cardEl: HTMLElement) => {
+    const sc = scroller.current?.getBoundingClientRect();
+    // 8px = the scroller's p-2 left padding, so the overlay card starts flush.
+    const from = sc ? cardEl.getBoundingClientRect().left - sc.left - 8 : 0;
+    setSlid(false);
+    setActive({ deal, opp: pipelineDealToOpportunity(deal), from });
   };
 
   const total = deals.reduce((sum, deal) => sum + deal.amount, 0);
@@ -134,7 +156,7 @@ function PipelineRow({
         </div>
 
         <div className="relative min-w-0 flex-1">
-          {canLeft ? (
+          {canLeft && !active ? (
             <button
               type="button"
               aria-label="Scroll left"
@@ -144,7 +166,7 @@ function PipelineRow({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {canRight ? (
+          {canRight && !active ? (
             <button
               type="button"
               aria-label="Scroll right"
@@ -167,10 +189,7 @@ function PipelineRow({
                 <Link
                   key={deal.id}
                   href={`/accounts/${deal.id}`}
-                  onMouseEnter={(event) =>
-                    onCardEnter(pipelineDealToOpportunity(deal), event.currentTarget.getBoundingClientRect())
-                  }
-                  onMouseLeave={onCardLeave}
+                  onMouseEnter={(event) => openDetail(deal, event.currentTarget)}
                   className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md"
                   style={{ borderLeftColor: row.color }}
                 >
@@ -187,6 +206,76 @@ function PipelineRow({
               ))
             )}
           </div>
+
+          {/* Hover detail: focused card on the left + wide info tile filling the row. */}
+          {active ? (
+            <Link
+              href={`/accounts/${active.opp.id}`}
+              onMouseLeave={() => setActive(null)}
+              className="absolute inset-0 z-20 flex items-stretch gap-2 bg-white p-2"
+            >
+              <div
+                className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition-transform duration-200 ease-out"
+                style={{
+                  borderLeftColor: row.color,
+                  transform: slid ? "translateX(0)" : `translateX(${active.from}px)`,
+                }}
+              >
+                <div className="flex items-start justify-between gap-1.5">
+                  <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{active.deal.name}</p>
+                  <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(active.deal.amount)}</span>
+                </div>
+                <p className="truncate text-xs text-charcoal-500">{active.deal.accountName}</p>
+                <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
+                  <span className="truncate">{active.deal.owner}</span>
+                  {active.deal.closeDate ? (
+                    <span className="shrink-0">{shortDate(new Date(active.deal.closeDate))}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div
+                className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden rounded-md border border-charcoal-200 border-l-4 bg-white px-4 py-2 shadow-sm"
+                style={{ borderLeftColor: row.color, animation: "carousel-from-right 220ms ease-out" }}
+              >
+                <div className="min-w-0 max-w-[240px] shrink-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-charcoal-500">{active.opp.oppId}</p>
+                  <p className="truncate text-sm font-semibold text-charcoal-900">{active.opp.opportunityName}</p>
+                  <p className="truncate text-xs text-charcoal-500">Account: {active.opp.accountName}</p>
+                </div>
+
+                <div className="h-10 w-px shrink-0 bg-charcoal-200" />
+
+                <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-1 text-xs md:grid-cols-4">
+                  <DetailStat label="Stage" value={active.opp.stage} />
+                  <DetailStat label="Probability" value={`${active.opp.probability}%`} accent />
+                  <DetailStat label="Amount" value={`$${active.opp.amount.toLocaleString()}`} />
+                  <DetailStat label="Sim ARR" value={`$${active.opp.arr.toLocaleString()}`} />
+                  <DetailStat label="Close" value={active.opp.closeQuarter} />
+                  <DetailStat label="Owner" value={active.opp.owner} />
+                  <DetailStat label="Technical Fit" value={active.opp.fit} />
+                  <DetailStat label="Tech Close" value={active.opp.technicalCloseStatus} />
+                </div>
+
+                <div className="h-10 w-px shrink-0 bg-charcoal-200" />
+
+                <div className="min-w-0 max-w-[300px] shrink-0">
+                  <div className="flex flex-wrap gap-1.5 text-[11px] text-charcoal-600">
+                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">Meetings: {active.opp.meetings}</span>
+                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">Emails: {active.opp.emails}</span>
+                    <span className="rounded-full bg-charcoal-100 px-2 py-0.5">AI Recs: {active.opp.recommendations}</span>
+                  </div>
+                  <p className="mt-1.5 truncate text-xs text-charcoal-600">
+                    <span className="text-charcoal-500">Next:</span>{" "}
+                    <span className="font-medium text-charcoal-800">{active.opp.nextAction}</span>
+                  </p>
+                  {active.opp.latestSignal ? (
+                    <p className="truncate text-xs text-charcoal-500">Signal: {active.opp.latestSignal}</p>
+                  ) : null}
+                </div>
+              </div>
+            </Link>
+          ) : null}
         </div>
       </div>
     </div>
@@ -196,12 +285,6 @@ function PipelineRow({
 export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; query?: string }) {
   const [period, setPeriod] = useState<Period>("quarter");
   const [owner, setOwner] = useState("all");
-  const [hover, setHover] = useState<{ opp: Opportunity; rect: DOMRect } | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const owners = useMemo(() => Array.from(new Set(deals.map((deal) => deal.owner))).sort(), [deals]);
   const now = useMemo(() => new Date(), []);
@@ -302,41 +385,9 @@ export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; que
 
       <div className="space-y-2">
         {ROWS.map((row) => (
-          <PipelineRow
-            key={row.key}
-            row={row}
-            deals={filtered.filter((deal) => rowKey(deal) === row.key)}
-            onCardEnter={(opp, rect) => setHover({ opp, rect })}
-            onCardLeave={() => setHover(null)}
-          />
+          <PipelineRow key={row.key} row={row} deals={filtered.filter((deal) => rowKey(deal) === row.key)} />
         ))}
       </div>
-
-      {mounted && hover ? <DealHoverPreview opp={hover.opp} rect={hover.rect} /> : null}
     </div>
-  );
-}
-
-// Floating preview of the full opportunity card, rendered in a portal so it is
-// never clipped by the horizontally-scrolling pipeline rows.
-function DealHoverPreview({ opp, rect }: { opp: Opportunity; rect: DOMRect }) {
-  const WIDTH = 360;
-  const ESTIMATED_HEIGHT = 300;
-  const GAP = 8;
-
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - WIDTH - 8));
-  const placeAbove = rect.bottom + ESTIMATED_HEIGHT + GAP > window.innerHeight && rect.top > ESTIMATED_HEIGHT;
-  const top = placeAbove ? rect.top - GAP : rect.bottom + GAP;
-
-  return createPortal(
-    <div
-      className="pointer-events-none fixed z-50"
-      style={{ left, top, width: WIDTH, transform: placeAbove ? "translateY(-100%)" : undefined }}
-    >
-      <div className="rounded-lg shadow-2xl ring-1 ring-charcoal-900/5">
-        <OpportunityCard opp={opp} hideNotePolicy />
-      </div>
-    </div>,
-    document.body,
   );
 }

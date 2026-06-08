@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, ChevronDown, ChevronUp, ExternalLink, Globe, Loader2 } from "lucide-react";
+import { CalendarRange, ChevronUp, ExternalLink, Globe, Loader2 } from "lucide-react";
 import { AccountChat } from "@/components/account-chat";
 import { AccountBrainPanel } from "@/components/account-brain-panel";
 import { ComposerAccountSelector } from "@/components/composer-account-selector";
@@ -118,56 +118,63 @@ export function AccountAiWorkspace({
     : "#";
 
   const header = (
-    <div className="border-b border-charcoal-200 px-4 pt-3">
-      {!meetingsCollapsed ? (
-        <>
-          <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="flex items-center gap-2">
-              <CalendarRange className="h-4 w-4 text-iris-600" />
-              <h3 className="text-xs font-semibold text-charcoal-900">
-                {isAll ? "Upcoming & past meetings" : `Meetings with ${selectedAccount?.accountName ?? "this account"}`}
-              </h3>
-              <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
-            </span>
-            {selectedAccount ? (
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
-                <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
-                <span>
-                  <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
-                </span>
-                {selectedAccount.latestSignal ? (
-                  <span>
-                    <span className="font-semibold text-charcoal-800">Signal:</span> {selectedAccount.latestSignal}
-                  </span>
-                ) : null}
-                <a
-                  href={insightsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-2 py-0.5 font-medium text-charcoal-800 hover:bg-charcoal-50"
-                >
-                  <Globe className="h-3.5 w-3.5" /> Open in Insights <ExternalLink className="h-3 w-3" />
-                </a>
+    <div className="relative border-b border-charcoal-200 px-4">
+      {/* Animated collapse: the grid-rows trick gives a smooth height transition. */}
+      <div
+        className={`grid overflow-hidden transition-all duration-300 ease-out ${
+          meetingsCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="pt-3">
+            <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex items-center gap-2">
+                <CalendarRange className="h-4 w-4 text-iris-600" />
+                <h3 className="text-xs font-semibold text-charcoal-900">
+                  {isAll ? "Upcoming & past meetings" : `Meetings with ${selectedAccount?.accountName ?? "this account"}`}
+                </h3>
+                <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
               </span>
-            ) : null}
+              {selectedAccount ? (
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
+                  <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
+                  <span>
+                    <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
+                  </span>
+                  {selectedAccount.latestSignal ? (
+                    <span>
+                      <span className="font-semibold text-charcoal-800">Signal:</span> {selectedAccount.latestSignal}
+                    </span>
+                  ) : null}
+                  <a
+                    href={insightsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-2 py-0.5 font-medium text-charcoal-800 hover:bg-charcoal-50"
+                  >
+                    <Globe className="h-3.5 w-3.5" /> Open in Insights <ExternalLink className="h-3 w-3" />
+                  </a>
+                </span>
+              ) : null}
+            </div>
+            <MeetingCarousel meetings={filteredMeetings} timeZone={timeZone} onSelectMeeting={setSelectedMeetingId} />
           </div>
-          <MeetingCarousel meetings={filteredMeetings} timeZone={timeZone} onSelectMeeting={setSelectedMeetingId} />
-        </>
-      ) : null}
-
-      {/* Collapse toggle sits on the bottom line of the meetings strip, directly above the chat. */}
-      <div className="flex justify-center">
-        <button
-          type="button"
-          onClick={() => setMeetingsCollapsed((v) => !v)}
-          aria-expanded={!meetingsCollapsed}
-          aria-label={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
-          title={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
-          className="-mb-3 flex h-6 w-12 items-center justify-center rounded-full border border-charcoal-200 bg-white text-charcoal-400 shadow-sm transition hover:border-iris-300 hover:text-iris-600"
-        >
-          {meetingsCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </button>
+        </div>
       </div>
+
+      {/* Collapse toggle straddles the bottom divider line, centered above the chat. */}
+      <button
+        type="button"
+        onClick={() => setMeetingsCollapsed((v) => !v)}
+        aria-expanded={!meetingsCollapsed}
+        aria-label={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
+        title={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
+        className="absolute bottom-0 left-1/2 z-10 flex h-7 w-14 -translate-x-1/2 translate-y-1/2 items-center justify-center rounded-full border border-charcoal-200 bg-white text-iris-600 shadow-sm transition hover:border-iris-300 hover:bg-iris-50"
+      >
+        <ChevronUp
+          className={`h-4 w-4 transition-transform duration-300 ease-out ${meetingsCollapsed ? "rotate-180" : ""}`}
+        />
+      </button>
     </div>
   );
 

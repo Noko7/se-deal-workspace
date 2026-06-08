@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, Brain, Plus, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Plus, Send, Sparkles, User, X } from "lucide-react";
+import { SideBrainIcon } from "@/components/side-brain-icon";
 
 type Attachment = { id: string; name: string; url: string };
 type ChatTurn = { role: "user" | "assistant"; content: string; images?: string[] };
@@ -303,7 +304,7 @@ export function AccountChat({
               title="View ingested knowledge base"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-iris-200 bg-iris-50 text-iris-600 transition hover:bg-iris-100"
             >
-              <Brain className="h-5 w-5" />
+              <SideBrainIcon className="h-5 w-5" />
             </button>
           ) : null}
         </div>

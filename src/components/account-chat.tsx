@@ -265,7 +265,7 @@ export function AccountChat({
             {composerLeading ? (
               <div className="flex shrink-0 items-center gap-1.5">
                 {composerPrefix && !input ? (
-                  <span className="hidden whitespace-nowrap text-sm text-charcoal-400 sm:inline">{composerPrefix}</span>
+                  <span className="hidden whitespace-nowrap text-sm font-medium text-iris-700 sm:inline">{composerPrefix}</span>
                 ) : null}
                 {composerLeading}
               </div>

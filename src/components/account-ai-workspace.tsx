@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, ExternalLink, Globe, Loader2 } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronUp, ExternalLink, Globe, Loader2 } from "lucide-react";
 import { AccountChat } from "@/components/account-chat";
 import { AccountBrainPanel } from "@/components/account-brain-panel";
 import { ComposerAccountSelector } from "@/components/composer-account-selector";
@@ -38,6 +38,7 @@ export function AccountAiWorkspace({
   const [brainOpen, setBrainOpen] = useState(false);
   const [brainSummary, setBrainSummary] = useState<BrainSummary | null>(null);
   const [brainLoading, setBrainLoading] = useState(false);
+  const [meetingsCollapsed, setMeetingsCollapsed] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -94,7 +95,7 @@ export function AccountAiWorkspace({
           "Which of my deals look at risk, and why?",
           "Summarize what's on my calendar across all accounts this week.",
         ],
-        placeholder: "— ask anything across your accounts…",
+        placeholder: "Ask anything across your accounts…",
       };
     }
     const name = selectedAccount?.accountName ?? "this account";
@@ -108,7 +109,7 @@ export function AccountAiWorkspace({
         "Draft discovery questions for our next meeting.",
         "What objections should I prepare for, and how do I counter them?",
       ],
-      placeholder: `— ask anything about ${name}…`,
+      placeholder: `Ask anything about ${name}…`,
     };
   }, [isAll, aggregate, selectedAccount, brainSummary, filteredMeetings.length]);
 
@@ -117,38 +118,56 @@ export function AccountAiWorkspace({
     : "#";
 
   const header = (
-    <div className="border-b border-charcoal-200 px-4 py-3">
-      <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="flex items-center gap-2">
-          <CalendarRange className="h-4 w-4 text-iris-600" />
-          <h3 className="text-xs font-semibold text-charcoal-900">
-            {isAll ? "Upcoming & past meetings" : `Meetings with ${selectedAccount?.accountName ?? "this account"}`}
-          </h3>
-          <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
-        </span>
-        {selectedAccount ? (
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
-            <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
-            <span>
-              <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
+    <div className="border-b border-charcoal-200 px-4 pt-3">
+      {!meetingsCollapsed ? (
+        <>
+          <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="flex items-center gap-2">
+              <CalendarRange className="h-4 w-4 text-iris-600" />
+              <h3 className="text-xs font-semibold text-charcoal-900">
+                {isAll ? "Upcoming & past meetings" : `Meetings with ${selectedAccount?.accountName ?? "this account"}`}
+              </h3>
+              <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
             </span>
-            {selectedAccount.latestSignal ? (
-              <span>
-                <span className="font-semibold text-charcoal-800">Signal:</span> {selectedAccount.latestSignal}
+            {selectedAccount ? (
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
+                <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
+                <span>
+                  <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
+                </span>
+                {selectedAccount.latestSignal ? (
+                  <span>
+                    <span className="font-semibold text-charcoal-800">Signal:</span> {selectedAccount.latestSignal}
+                  </span>
+                ) : null}
+                <a
+                  href={insightsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-2 py-0.5 font-medium text-charcoal-800 hover:bg-charcoal-50"
+                >
+                  <Globe className="h-3.5 w-3.5" /> Open in Insights <ExternalLink className="h-3 w-3" />
+                </a>
               </span>
             ) : null}
-            <a
-              href={insightsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-charcoal-300 bg-white px-2 py-0.5 font-medium text-charcoal-800 hover:bg-charcoal-50"
-            >
-              <Globe className="h-3.5 w-3.5" /> Open in Insights <ExternalLink className="h-3 w-3" />
-            </a>
-          </span>
-        ) : null}
+          </div>
+          <MeetingCarousel meetings={filteredMeetings} timeZone={timeZone} onSelectMeeting={setSelectedMeetingId} />
+        </>
+      ) : null}
+
+      {/* Collapse toggle sits on the bottom line of the meetings strip, directly above the chat. */}
+      <div className="flex justify-center">
+        <button
+          type="button"
+          onClick={() => setMeetingsCollapsed((v) => !v)}
+          aria-expanded={!meetingsCollapsed}
+          aria-label={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
+          title={meetingsCollapsed ? "Show meetings" : "Hide meetings"}
+          className="-mb-3 flex h-6 w-12 items-center justify-center rounded-full border border-charcoal-200 bg-white text-charcoal-400 shadow-sm transition hover:border-iris-300 hover:text-iris-600"
+        >
+          {meetingsCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        </button>
       </div>
-      <MeetingCarousel meetings={filteredMeetings} timeZone={timeZone} onSelectMeeting={setSelectedMeetingId} />
     </div>
   );
 

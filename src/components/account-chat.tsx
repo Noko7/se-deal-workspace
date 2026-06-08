@@ -14,6 +14,8 @@ export function AccountChat({
   suggestions,
   showBrain,
   onBrainOpen,
+  composerLeading,
+  composerPrefix,
 }: {
   /** "all" for the portfolio, or a dealId for a single account. Drives history + posting. */
   scope: string;
@@ -24,6 +26,10 @@ export function AccountChat({
   suggestions: string[];
   showBrain: boolean;
   onBrainOpen?: () => void;
+  /** Optional control rendered inside the prompt field (e.g. the account selector chip). */
+  composerLeading?: ReactNode;
+  /** Faint text shown before composerLeading while the prompt is empty (e.g. "Ask Account-AI about"). */
+  composerPrefix?: string;
 }) {
   const storageKey = `account-chat:${scope}`;
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -254,19 +260,30 @@ export function AccountChat({
             <Plus className="h-5 w-5" />
           </button>
 
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send(input);
-              }
-            }}
-            rows={1}
-            placeholder={placeholder}
-            className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg py-2 text-sm"
-          />
+          {/* Unified prompt field: optional account chip + the textarea read as one field. */}
+          <div className="flex min-h-[40px] flex-1 items-center gap-2 rounded-lg border border-charcoal-300 bg-white px-2.5 py-1.5 focus-within:border-iris-400">
+            {composerLeading ? (
+              <div className="flex shrink-0 items-center gap-1.5">
+                {composerPrefix && !input ? (
+                  <span className="hidden whitespace-nowrap text-sm text-charcoal-400 sm:inline">{composerPrefix}</span>
+                ) : null}
+                {composerLeading}
+              </div>
+            ) : null}
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send(input);
+                }
+              }}
+              rows={1}
+              placeholder={placeholder}
+              className="max-h-32 min-h-[24px] flex-1 resize-none border-0 bg-transparent p-0 text-sm focus:outline-none focus:ring-0"
+            />
+          </div>
 
           <button
             type="button"

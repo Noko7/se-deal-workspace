@@ -194,6 +194,7 @@ export function AccountAiWorkspace({
           showBrain={!isAll}
           allowUploads={!isAll}
           accountLabel={selectedAccount?.accountName}
+          onScopeRevert={setSelected}
           onBrainOpen={() => setBrainOpen(true)}
           composerPrefix="Ask Account-AI about"
           composerLeading={

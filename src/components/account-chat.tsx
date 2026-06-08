@@ -19,6 +19,7 @@ export function AccountChat({
   composerPrefix,
   allowUploads = true,
   accountLabel,
+  onScopeRevert,
 }: {
   /** "all" for the portfolio, or a dealId for a single account. Drives history + posting. */
   scope: string;
@@ -37,6 +38,8 @@ export function AccountChat({
   allowUploads?: boolean;
   /** Display name of the selected account, used in the ingest confirmation. */
   accountLabel?: string;
+  /** Revert the active scope (used to cancel a switch that would drop uploads). */
+  onScopeRevert?: (scope: string) => void;
 }) {
   const storageKey = `account-chat:${scope}`;
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -50,6 +53,10 @@ export function AccountChat({
   // account's brain (persistent) or kept temporary for just this chat.
   const [pendingText, setPendingText] = useState<string | null>(null);
   const [ingesting, setIngesting] = useState(false);
+  // Guards switching to a no-upload scope (e.g. "My Accounts") while files are
+  // attached, since uploads must belong to a specific account's brain.
+  const [scopeGuard, setScopeGuard] = useState<{ prevScope: string } | null>(null);
+  const prevScopeRef = useRef(scope);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -82,6 +89,18 @@ export function AccountChat({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns, loading]);
+
+  // When the scope changes into a mode that can't hold uploads (e.g. "My
+  // Accounts") while files are still attached, prompt before dropping them.
+  useEffect(() => {
+    if (prevScopeRef.current === scope) return;
+    const prevScope = prevScopeRef.current;
+    prevScopeRef.current = scope;
+    if (!allowUploads && attachments.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setScopeGuard({ prevScope });
+    }
+  }, [scope, allowUploads, attachments.length]);
 
   const onPickImages = (files: FileList | null) => {
     if (!files) return;
@@ -385,10 +404,11 @@ export function AccountChat({
                   Heads up — this goes into {accountLabel ? `${accountLabel}'s` : "this account's"} brain
                 </h3>
                 <p className="mt-1 text-sm text-charcoal-600">
-                  The {attachments.length === 1 ? "file" : `${attachments.length} files`} you attached will be ingested into
-                  this account&apos;s Account-AI brain so it can use {attachments.length === 1 ? "it" : "them"} in future
-                  chats. If you&apos;d rather not, keep {attachments.length === 1 ? "it" : "them"} temporary for just this
-                  conversation.
+                  {`The ${attachments.length === 1 ? "file" : `${attachments.length} files`} you attached will be ingested into this account's Account-AI brain so it can use ${
+                    attachments.length === 1 ? "it" : "them"
+                  } in future chats. If you'd rather not, keep ${
+                    attachments.length === 1 ? "it" : "them"
+                  } temporary for just this conversation.`}
                 </p>
               </div>
             </div>
@@ -408,6 +428,56 @@ export function AccountChat({
                 className="rounded-lg bg-iris-500 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-iris-600 disabled:opacity-50"
               >
                 {ingesting ? "Adding…" : "Add to account brain"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Guard: switching to a scope that can't hold uploads while files attached. */}
+      {scopeGuard !== null ? (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-charcoal-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-xl border border-charcoal-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl leading-none" aria-hidden="true">
+                🧠
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-charcoal-900">Your upload will be removed</h3>
+                <p className="mt-1 text-sm text-charcoal-600">
+                  {`Uploads have to be assigned to a specific account so Account-AI knows which brain to put ${
+                    attachments.length === 1 ? "it" : "them"
+                  } in. The general "My Accounts" knowledge base can't hold ${
+                    attachments.length === 1 ? "a file" : "files"
+                  }, so switching will remove ${attachments.length === 1 ? "the file" : "the files"} you attached.`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  const prev = scopeGuard.prevScope;
+                  setScopeGuard(null);
+                  onScopeRevert?.(prev);
+                }}
+                className="rounded-lg border border-charcoal-300 bg-white px-3.5 py-2 text-sm font-medium text-charcoal-700 transition hover:bg-charcoal-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachments([]);
+                  setScopeGuard(null);
+                }}
+                className="rounded-lg bg-iris-500 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-iris-600"
+              >
+                Continue, remove uploads
               </button>
             </div>
           </div>

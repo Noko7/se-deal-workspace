@@ -10,7 +10,6 @@ import {
   NotebookPen,
   Paperclip,
   Plus,
-  Pointer,
   Users,
   X,
 } from "lucide-react";
@@ -150,11 +149,10 @@ export function MeetingDetailPanel({
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.location)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-sm text-charcoal-700 transition hover:border-iris-300 hover:text-iris-700"
+                    title="Open in Google Maps"
+                    className="min-w-0 truncate text-sm font-medium text-iris-700 underline underline-offset-2 transition hover:text-iris-800"
                   >
-                    <MapPin className="h-4 w-4 shrink-0 text-iris-500" />
-                    <span className="truncate">{data.location}</span>
-                    <Pointer className="h-3.5 w-3.5 shrink-0 text-iris-500" />
+                    {data.location}
                   </a>
                 ) : data.platform ? (
                   <MeetingPlatformIcon joinUrl={data.joinUrl} showAffordance />
@@ -204,15 +202,15 @@ export function MeetingDetailPanel({
                   type="button"
                   onClick={() => setNotesOpen((value) => !value)}
                   aria-expanded={notesOpen}
-                  className="flex w-full items-center justify-between gap-2 py-1 text-left"
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-iris-500 px-3 py-2 text-left text-white hover:bg-iris-600"
                 >
-                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
-                    <NotebookPen className="h-3.5 w-3.5 text-iris-500" />
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                    <NotebookPen className="h-3.5 w-3.5 text-white" />
                     Meeting notes
-                    <span className="font-normal text-charcoal-400">({data.notes.length})</span>
+                    <span className="font-normal text-white/75">({data.notes.length})</span>
                   </span>
                   <ChevronDown
-                    className={`h-4 w-4 shrink-0 text-iris-500 transition-transform duration-300 ${notesOpen ? "rotate-180" : ""}`}
+                    className={`h-4 w-4 shrink-0 text-white transition-transform duration-300 ${notesOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <div
@@ -284,15 +282,15 @@ export function MeetingDetailPanel({
                   type="button"
                   onClick={() => setAssetsOpen((value) => !value)}
                   aria-expanded={assetsOpen}
-                  className="flex w-full items-center justify-between gap-2 py-1 text-left"
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-iris-500 px-3 py-2 text-left text-white hover:bg-iris-600"
                 >
-                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
-                    <Paperclip className="h-3.5 w-3.5 text-iris-500" />
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                    <Paperclip className="h-3.5 w-3.5 text-white" />
                     Linked assets
-                    <span className="font-normal text-charcoal-400">({data.assets.length})</span>
+                    <span className="font-normal text-white/75">({data.assets.length})</span>
                   </span>
                   <ChevronDown
-                    className={`h-4 w-4 shrink-0 text-iris-500 transition-transform duration-300 ${assetsOpen ? "rotate-180" : ""}`}
+                    className={`h-4 w-4 shrink-0 text-white transition-transform duration-300 ${assetsOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 <div

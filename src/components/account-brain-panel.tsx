@@ -9,7 +9,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { SideBrainIcon } from "@/components/side-brain-icon";
 import { ingestAccountDataAction } from "@/lib/actions";
 import { Button, StatusPill } from "@/components/ui";
 import type { BrainGroup, BrainSummary } from "@/lib/account-ai";
@@ -172,7 +171,7 @@ export function AccountBrainPanel({
         <div className="flex items-start justify-between gap-3 border-b border-charcoal-200 p-5">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-charcoal-900">
-              <SideBrainIcon className="h-5 w-5 text-iris-600" /> Account-AI Brain
+              <span className="text-lg leading-none" aria-hidden="true">🧠</span> Account-AI Brain
             </h2>
             <p className="mt-0.5 truncate text-sm text-charcoal-500">
               Everything {summary.accountName}&apos;s AI has ingested. Knowledge base is isolated to this account.

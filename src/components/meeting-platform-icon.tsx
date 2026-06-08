@@ -1,3 +1,4 @@
+import { Pointer } from "lucide-react";
 import { detectMeetingPlatform, meetingPlatformLabel, type MeetingPlatform } from "@/lib/meeting";
 
 function ZoomGlyph() {
@@ -50,7 +51,14 @@ const GLYPHS: Record<MeetingPlatform, () => React.ReactElement> = {
  * the Outlook join link. When a join URL is present it links straight to the
  * meeting so it can be joined from here.
  */
-export function MeetingPlatformIcon({ joinUrl }: { joinUrl: string | null | undefined }) {
+export function MeetingPlatformIcon({
+  joinUrl,
+  showAffordance = false,
+}: {
+  joinUrl: string | null | undefined;
+  /** Append a pointer-finger icon to signal the badge is clickable. */
+  showAffordance?: boolean;
+}) {
   const platform = detectMeetingPlatform(joinUrl);
   if (!platform) return null;
 
@@ -60,6 +68,7 @@ export function MeetingPlatformIcon({ joinUrl }: { joinUrl: string | null | unde
     <>
       <Glyph />
       <span className="font-medium">{label}</span>
+      {showAffordance && joinUrl ? <Pointer className="h-3.5 w-3.5 text-iris-500" /> : null}
     </>
   );
 

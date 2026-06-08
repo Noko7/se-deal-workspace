@@ -44,6 +44,7 @@ export async function uploadArtifactAction(formData: FormData) {
   });
 
   revalidatePath("/");
+  revalidatePath("/calendar");
 }
 
 export async function assignEmailAction(formData: FormData) {
@@ -170,6 +171,7 @@ export async function addNoteAction(formData: FormData) {
 
   revalidatePath("/accounts");
   revalidatePath(`/accounts/${dealId}`);
+  revalidatePath("/calendar");
 }
 
 export async function updateQbrChecklistAction(formData: FormData) {

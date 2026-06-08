@@ -1,18 +1,29 @@
+import { cookies } from "next/headers";
 import { buildAllAccountsKnowledgeBase } from "@/lib/account-ai";
 import { toCalendarMeeting } from "@/lib/calendar";
-import { getAccountsOverview, getDashboardData } from "@/lib/data";
+import { getAccountsOverview, getDashboardData, resolveSeOwner } from "@/lib/data";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { AccountAiWorkspace, type AccountOption } from "@/components/account-ai-workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountAiHomePage() {
-  const [overview, { meetings }, portfolio] = await Promise.all([
+  const [overview, { meetings }, portfolio, store] = await Promise.all([
     getAccountsOverview(),
     getDashboardData(),
     buildAllAccountsKnowledgeBase(),
+    cookies(),
   ]);
 
-  const accounts: AccountOption[] = overview.map((account) => ({
+  // Scope the account list to the logged-in SE's book of business.
+  const session = verifySessionToken(store.get(SESSION_COOKIE)?.value);
+  const se = resolveSeOwner(
+    overview.map((account) => account.owner),
+    session?.name,
+  );
+  const myOverview = se ? overview.filter((account) => account.owner === se) : overview;
+
+  const accounts: AccountOption[] = myOverview.map((account) => ({
     id: account.id,
     accountName: account.accountName,
     dealName: account.name,

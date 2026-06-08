@@ -28,7 +28,7 @@ export function AccountsWorkspace({
               view === "pipeline" ? "bg-iris-500 text-white shadow-sm" : "bg-transparent text-charcoal-600 hover:bg-iris-50"
             }`}
           >
-            <KanbanSquare className="h-4 w-4" /> Pipeline
+            <KanbanSquare className="h-4 w-4" /> Opportunity Pipeline
           </button>
           <button
             type="button"
@@ -48,7 +48,7 @@ export function AccountsWorkspace({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by account, deal, owner, or signal"
+            placeholder="Search by account, deal, opportunity ID, or signal"
             className="w-full pl-9"
           />
         </label>

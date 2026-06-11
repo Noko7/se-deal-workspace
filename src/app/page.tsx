@@ -7,12 +7,17 @@ import { AccountAiWorkspace, type AccountOption } from "@/components/account-ai-
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountAiHomePage() {
-  const [overview, { meetings }, portfolio, store] = await Promise.all([
+export default async function AccountAiHomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ account?: string }>;
+}) {
+  const [overview, { meetings }, portfolio, store, params] = await Promise.all([
     getAccountsOverview(),
     getDashboardData(),
     buildAllAccountsKnowledgeBase(),
     cookies(),
+    searchParams,
   ]);
 
   // Single-SE workspace: every account belongs to the logged-in SE.
@@ -32,10 +37,14 @@ export default async function AccountAiHomePage() {
 
   const calendarMeetings = meetings.map(toCalendarMeeting);
 
+  // Deep-link from My Accounts: ?account=<id> preselects that account.
+  const initialSelected = params.account && accounts.some((a) => a.id === params.account) ? params.account : undefined;
+
   return (
     <AccountAiWorkspace
       accounts={accounts}
       meetings={calendarMeetings}
+      initialSelected={initialSelected}
       aggregate={{
         accountCount: portfolio.summary.accountCount,
         meetingCount: portfolio.summary.meetingCount,

@@ -157,6 +157,22 @@ body {
   }
 }
 
+/* Scroll-down affordance: pulse a purple ring to invite a click (runs 3x). */
+@keyframes pulse-iris {
+  0% {
+    box-shadow: 0 0 0 0 rgba(120, 85, 250, 0);
+    border-color: var(--color-iris-500);
+  }
+  40% {
+    box-shadow: 0 0 0 6px rgba(120, 85, 250, 0.3);
+    border-color: var(--color-iris-500);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(120, 85, 250, 0);
+    border-color: var(--color-charcoal-200);
+  }
+}
+
 /* When the Account Map explorer (filters + map) is fullscreen, keep filters
    visible/usable and let the map fill the remaining height. */
 .account-map-fs:fullscreen {

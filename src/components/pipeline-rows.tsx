@@ -192,7 +192,7 @@ function PipelineRow({
               deals.map((deal) => (
                 <Link
                   key={deal.id}
-                  href={`/accounts/${deal.id}`}
+                  href={`/?account=${deal.id}`}
                   onMouseEnter={(event) => openDetail(deal, event.currentTarget)}
                   className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md"
                   style={{ borderLeftColor: row.color }}
@@ -214,7 +214,7 @@ function PipelineRow({
           {/* Hover detail: focused card on the left + wide info tile filling the row. */}
           {active ? (
             <Link
-              href={`/accounts/${active.opp.id}`}
+              href={`/?account=${active.opp.id}`}
               onMouseLeave={() => setActive(null)}
               className="absolute inset-0 z-20 flex items-stretch gap-2 bg-white p-2"
             >

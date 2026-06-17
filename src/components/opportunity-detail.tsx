@@ -81,18 +81,18 @@ export function OpportunityDetail({ opp }: { opp: OpportunityDetailView }) {
         </div>
       </Card>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-1 border-b border-charcoal-200">
+      {/* Tabs — high-contrast segmented control */}
+      <div className="flex flex-wrap gap-1.5 rounded-lg border border-charcoal-300 bg-charcoal-100 p-1">
         {TABS.map((name) => (
           <button
             key={name}
             type="button"
             onClick={() => setTab(name)}
             aria-current={tab === name ? "page" : undefined}
-            className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition ${
+            className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
               tab === name
-                ? "border-iris-500 text-iris-700"
-                : "border-transparent text-charcoal-500 hover:text-charcoal-800"
+                ? "bg-iris-600 text-white shadow-sm"
+                : "border border-charcoal-300 bg-white text-charcoal-900 hover:bg-iris-50 hover:text-iris-700"
             }`}
           >
             {name}

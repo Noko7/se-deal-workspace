@@ -442,6 +442,13 @@ async function main() {
         setupNotes: "Use manual upload fallback until auth automation is available.",
       },
       {
+        integrationKey: "zoom",
+        displayName: "Zoom",
+        status: IntegrationStatus.NOT_CONNECTED,
+        setupNotes:
+          "Configure in the Zoom section below: enable auto-sync, set the webhook secret, and point Zoom's recording/summary webhook at /api/integrations/zoom/webhook. Auto-attaches notes, AI summary, and transcript to feed Account-AI and the Note Formatter.",
+      },
+      {
         integrationKey: "local_llm",
         displayName: "Enterprise AI (LLM)",
         status: IntegrationStatus.NOT_CONNECTED,

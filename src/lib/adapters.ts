@@ -1,4 +1,5 @@
 import { getLlmStatus } from "@/lib/llm";
+import { getZoomStatus } from "@/lib/zoom";
 
 export type IntegrationAdapterKey =
   | "outlook"
@@ -6,6 +7,7 @@ export type IntegrationAdapterKey =
   | "lucidchart"
   | "google_drive"
   | "cs360_qbr"
+  | "zoom"
   | "local_llm";
 
 export type AdapterHealth = "ok" | "warning" | "offline";
@@ -73,6 +75,24 @@ export const integrationAdapters: Record<IntegrationAdapterKey, IntegrationAdapt
     "QBR report retrieval workflow with manual fallback.",
     ["qbr_report_import", "account_report_linking"],
   ),
+  // Live adapter: when enabled, Zoom auto-syncs meeting notes, AI summary, and
+  // the full transcript to the matching meeting, feeding Account-AI + Note
+  // Formatter. Configured + verified from the Integrations page Zoom section.
+  zoom: {
+    key: "zoom",
+    label: "Zoom",
+    description: "Auto-attach Zoom meeting notes, AI summary, and transcript to feed Account-AI and the Note Formatter.",
+    mode: "live",
+    health: "warning",
+    capabilities: ["meeting_notes_sync", "ai_summary_ingest", "transcript_ingest", "feeds_account_ai", "feeds_note_formatter"],
+    async testConnection() {
+      const status = await getZoomStatus();
+      if (status.configured && status.enabled) {
+        return { success: true, details: status.detail };
+      }
+      return { success: false, details: status.detail };
+    },
+  },
   // Real, live adapter: the Note Formatter sends notes to a local LLM over the
   // standard OpenAI-compatible API. Configure with LOCAL_LLM_BASE_URL / _MODEL.
   local_llm: {

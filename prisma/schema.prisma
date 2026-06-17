@@ -81,6 +81,7 @@ model Deal {
   qbrArtifacts        QBRArtifact[]
   qbrChecklistItems   QBRChecklistItem[]
   notes               MeetingNote[]
+  transcripts         MeetingTranscript[]
 }
 
 model Meeting {
@@ -101,6 +102,7 @@ model Meeting {
   assets          MeetingAsset[]
   contexts        CustomerContext[]
   notes           MeetingNote[]
+  transcript      MeetingTranscript?
 
   @@index([dealId])
 }
@@ -131,6 +133,46 @@ model LlmCredential {
   updatedBy        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+// Singleton config for the Zoom connector (set on the Integrations page). It
+// controls whether Zoom meeting notes, the AI summary, and the full transcript
+// are auto-attached to the matching meeting and fed to Account-AI and the Note
+// Formatter. The webhook verification secret is encrypted at rest.
+model ZoomConfig {
+  id                      String   @id @default(cuid())
+  singleton               String   @unique @default("default")
+  enabled                 Boolean  @default(false)
+  accountId               String?
+  autoAttachNotes         Boolean  @default(true)
+  autoAttachSummary       Boolean  @default(true)
+  autoAttachTranscript    Boolean  @default(true)
+  feedAccountAi           Boolean  @default(true)
+  feedNoteFormatter       Boolean  @default(true)
+  webhookSecretCiphertext String?
+  updatedBy               String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+// Zoom-sourced artifacts for one meeting: the AI summary, the full transcript,
+// and any meeting notes. One row per meeting; updated in place on re-ingest.
+// Account-AI and the Opportunity view read this as a first-class note source.
+model MeetingTranscript {
+  id             String   @id @default(cuid())
+  meetingId      String   @unique
+  dealId         String
+  source         String   @default("zoom")
+  summary        String?
+  transcript     String?
+  notes          String?
+  autoIngestedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  meeting        Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  deal           Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
 }
 
 model MeetingAsset {

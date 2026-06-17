@@ -18,6 +18,7 @@ import {
 import { integrationAdapters } from "./adapters";
 import { upsertZoomConfig } from "./zoom";
 import { createSalesforceTask } from "./salesforce";
+import { updateOpportunity } from "./opportunity-detail";
 import { sanitizeField } from "./sanitize";
 
 export async function uploadArtifactAction(formData: FormData) {
@@ -206,6 +207,55 @@ export async function saveLlmCredentialsAction(formData: FormData) {
   });
 
   revalidatePath("/integrations");
+}
+
+export async function updateOpportunityAction(formData: FormData) {
+  const dealId = String(formData.get("dealId") ?? "");
+  if (!dealId) return;
+
+  const num = (name: string) => {
+    const value = Number(String(formData.get(name) ?? "").replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(value) ? value : 0;
+  };
+  const text = (name: string, max = 4000) => {
+    const value = sanitizeField(formData.get(name), max);
+    return value ? value : null;
+  };
+  const checked = (name: string) => String(formData.get(name) ?? "") === "on";
+
+  const techCloseRaw = String(formData.get("technicalCloseDate") ?? "").trim();
+  const technicalCloseDate = techCloseRaw ? new Date(`${techCloseRaw}T00:00:00`) : null;
+
+  const tags = sanitizeField(formData.get("tags"), 500)
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  await updateOpportunity({
+    dealId,
+    acvAmount: num("acvAmount"),
+    servicesAcv: num("servicesAcv"),
+    forecastCategory: text("forecastCategory", 120),
+    portfolio: text("portfolio", 120),
+    hypervisor: text("hypervisor", 120),
+    partners: text("partners", 200),
+    products: formData.getAll("products").map((value) => String(value)),
+    tags,
+    intendToUseForNc2: checked("intendToUseForNc2"),
+    bomAttached: checked("bomAttached"),
+    xrayUsed: checked("xrayUsed"),
+    technicalCloseDate: technicalCloseDate && !Number.isNaN(technicalCloseDate.getTime()) ? technicalCloseDate : null,
+    technicalDecisionMaker: text("technicalDecisionMaker", 200),
+    outcome: text("outcome"),
+    nextStepsToClose: text("nextStepsToClose"),
+    whyNow: text("whyNow"),
+    whyNutanix: text("whyNutanix"),
+    channelNotes: text("channelNotes"),
+    keyContacts: text("keyContacts"),
+  });
+
+  revalidatePath(`/deals/${dealId}`);
+  revalidatePath("/deals");
 }
 
 export async function logSalesforceTaskAction(formData: FormData) {

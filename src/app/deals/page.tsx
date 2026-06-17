@@ -91,12 +91,19 @@ export default async function DealsPage({ searchParams }: DealsPageProps) {
                 actions={
                   <>
                     <Link
+                      href={`/deals/${opp.id}`}
+                      className="rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600"
+                    >
+                      View Opportunity
+                    </Link>
+                    <Link
                       href={
                         opp.notePolicy === "implementation-only"
                           ? "/note-formatter?noteType=plan&locked=1"
                           : "/note-formatter?noteType=meeting"
                       }
-                      className="rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600"
+                      className="rounded-md bg-white px-3 py-2 text-sm font-medium text-charcoal-800 hover:bg-charcoal-50"
+                      style={{ border: "1px solid var(--color-charcoal-300)" }}
                     >
                       {opp.notePolicy === "implementation-only" ? "Create Implementation Note" : "Create New Note"}
                     </Link>

@@ -1,4 +1,19 @@
+import {
+  diskTierForIops,
+  effectiveStorageFactor,
+  licenseTier as deriveLicenseTier,
+  minNodesForRf,
+  networkRecommendation as deriveNetworkRecommendation,
+  recommendedClusterCount,
+  validateBuild,
+  type DiskTier,
+  type LicenseTier,
+  type StorageEfficiency,
+} from "@/lib/sizing-guidance";
+
 export type SizerSource = "collector_excel" | "rvtools" | "liveoptics";
+
+export type { StorageEfficiency } from "@/lib/sizing-guidance";
 
 export type ClusterHardwareModel = {
   model: string;
@@ -61,6 +76,12 @@ export type SizerSettings = {
   nodeCount: number;
   rf: 2 | 3;
   storageBasis: "provisioned" | "consumed";
+  // N+1 = 1 (default), N+2 = 2. HA failover capacity reserved for restarts.
+  failoverHosts?: number;
+  // Storage efficiency assumption applied to raw capacity sizing.
+  storageEfficiency?: StorageEfficiency;
+  // Observed cluster peak IOPS (7-day, 4K random) — drives disk-tier guidance.
+  peakIops?: number | null;
 };
 
 export type SizerRecommendation = {
@@ -75,6 +96,15 @@ export type SizerRecommendation = {
   clusterTotalStorageTiB: number;
   monsterVmRisk: boolean;
   monsterVmReason: string | null;
+  // Nutanix build guidance derived from the inputs above.
+  effectiveNodeCount: number;
+  failoverHosts: number;
+  clusterCount: number;
+  licenseTier: LicenseTier;
+  diskTier: DiskTier | null;
+  perNodeIops: number | null;
+  networkRecommendation: string;
+  warnings: string[];
 };
 
 export type ClusterRecommendation = {
@@ -96,6 +126,8 @@ export function computeSizerRecommendation(parsed: ParsedEnvironment, settings: 
         : parsed.aggStorageProvisionedTiB,
     maxVmVcpu: parsed.maxVmVcpu,
     maxVmRamGiB: parsed.maxVmRamGiB,
+    vmCount: parsed.totalVms,
+    peakIops: settings.peakIops ?? null,
     settings,
   });
 }
@@ -114,6 +146,8 @@ export function computeClusterRecommendations(
           : cluster.aggStorageProvisionedTiB,
       maxVmVcpu: cluster.maxVmVcpu,
       maxVmRamGiB: cluster.maxVmRamGiB,
+      vmCount: cluster.totalVms,
+      peakIops: null,
       settings,
     });
     return { clusterName: cluster.name, recommendation };
@@ -126,10 +160,18 @@ function computeRecommendationFromAggregates(input: {
   aggStorageTiB: number;
   maxVmVcpu: number | null;
   maxVmRamGiB: number | null;
+  vmCount: number | null;
+  peakIops: number | null;
   settings: SizerSettings;
 }): SizerRecommendation {
-  const n = Math.max(3, input.settings.nodeCount);
+  const rf = input.settings.rf;
+  const efficiency: StorageEfficiency = input.settings.storageEfficiency ?? "none";
+  // Enforce the RF minimum (RF2 → 3 nodes, RF3 → 5 nodes).
+  const n = Math.max(minNodesForRf(rf), input.settings.nodeCount);
   const ratio = Math.max(1, input.settings.vcpuToPcoreRatio);
+  // HA failover reservation: N+1 by default, capped so ≥1 node carries workload.
+  const failoverHosts = Math.min(Math.max(1, input.settings.failoverHosts ?? 1), n - 1);
+  const workNodes = n - failoverHosts;
 
   // Business constants
   const CVM_PCORES_PER_NODE = 4;
@@ -143,14 +185,13 @@ function computeRecommendationFromAggregates(input: {
   const workloadPCores = Math.ceil(input.aggVcpu / ratio);
   const basePCores = workloadPCores + PC_PCORES;
   const baseRamGiB = input.aggRamGiB + PC_RAM_GB;
-  const storageRf = input.settings.rf;
-  const storageRfApplied = input.aggStorageTiB * storageRf;
-  const totalRawStorageTiB = storageRfApplied / STORAGE_SLACK_UTIL_TARGET;
+  const storageFactor = effectiveStorageFactor(rf, efficiency);
+  const totalRawStorageTiB = (input.aggStorageTiB * storageFactor) / STORAGE_SLACK_UTIL_TARGET;
 
-  // Pass 2 (N-1)
-  const nodeWorkloadPCores = basePCores / (n - 1);
+  // Pass 2 — workload distributes across surviving (N − failover) nodes.
+  const nodeWorkloadPCores = basePCores / workNodes;
   const nodeTotalPCores = nodeWorkloadPCores + CVM_PCORES_PER_NODE;
-  const nodeWorkloadRam = baseRamGiB / (n - 1);
+  const nodeWorkloadRam = baseRamGiB / workNodes;
   const nodeTotalRamGiB = (nodeWorkloadRam + CVM_RAM_GB_PER_NODE) * (1 + HYPERVISOR_RAM_OVERHEAD);
   const nodeStorageTiB = totalRawStorageTiB / n;
 
@@ -160,13 +201,15 @@ function computeRecommendationFromAggregates(input: {
 
   const maxVmPcoreNeed = input.maxVmVcpu == null ? null : input.maxVmVcpu / ratio;
   const workloadPcorePerNode = nodeTotalPCores - CVM_PCORES_PER_NODE;
-  const workloadRamPerNode = baseRamGiB / (n - 1);
+  const workloadRamPerNode = baseRamGiB / workNodes;
   const monsterVmCpuRisk = maxVmPcoreNeed != null && maxVmPcoreNeed > workloadPcorePerNode;
   const monsterVmRamRisk = input.maxVmRamGiB != null && input.maxVmRamGiB > workloadRamPerNode;
   const monsterVmRisk = monsterVmCpuRisk || monsterVmRamRisk;
   const monsterVmReason = monsterVmRisk
     ? `VM exceeds per-node workload envelope (${monsterVmCpuRisk ? "CPU" : ""}${monsterVmCpuRisk && monsterVmRamRisk ? " and " : ""}${monsterVmRamRisk ? "RAM" : ""}).`
     : null;
+
+  const perNodeIops = input.peakIops != null && input.peakIops > 0 ? Math.round(input.peakIops / n) : null;
 
   return {
     basePCores: round2(basePCores),
@@ -180,6 +223,21 @@ function computeRecommendationFromAggregates(input: {
     clusterTotalStorageTiB: round2(clusterTotalStorageTiB),
     monsterVmRisk,
     monsterVmReason,
+    effectiveNodeCount: n,
+    failoverHosts,
+    clusterCount: recommendedClusterCount(n),
+    licenseTier: deriveLicenseTier(n, input.vmCount),
+    diskTier: diskTierForIops(perNodeIops),
+    perNodeIops,
+    networkRecommendation: deriveNetworkRecommendation(perNodeIops),
+    warnings: validateBuild({
+      rf,
+      nodeCount: n,
+      failoverHosts,
+      vmCount: input.vmCount,
+      vcpuPcoreRatio: ratio,
+      storageEfficiency: efficiency,
+    }),
   };
 }
 

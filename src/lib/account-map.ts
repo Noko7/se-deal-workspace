@@ -220,9 +220,99 @@ function mergeRecords(target: AccountMapRecord, src: AccountMapRecord): void {
   }
 }
 
+// Build one record from a plain object whose keys may be our field names OR any
+// of the accepted CSV header aliases (case-insensitive). Lets a live source emit
+// either schema without transformation.
+function recordFromObject(row: Record<string, unknown>): AccountMapRecord {
+  const lookup = new Map<string, unknown>();
+  for (const [key, value] of Object.entries(row)) {
+    lookup.set(key.trim().toLowerCase(), value);
+  }
+  const raw = (field: keyof AccountMapRecord): string => {
+    const direct = lookup.get(field.toLowerCase());
+    if (direct !== undefined && direct !== null) return String(direct);
+    for (const alias of HEADER_ALIASES[field]) {
+      const hit = lookup.get(alias);
+      if (hit !== undefined && hit !== null) return String(hit);
+    }
+    return "";
+  };
+  return {
+    accountName: raw("accountName"),
+    accountExecutive: raw("accountExecutive"),
+    accountExecutiveEmail: raw("accountExecutiveEmail"),
+    systemEngineer: raw("systemEngineer"),
+    systemEngineerEmail: raw("systemEngineerEmail"),
+    theater: raw("theater"),
+    region: raw("region"),
+    subRegion: raw("subRegion"),
+    vertical: raw("vertical"),
+    lastSales: asNumber(raw("lastSales")),
+    accountType: raw("accountType"),
+    country: raw("country"),
+    state: raw("state"),
+    city: raw("city"),
+    street: raw("street"),
+    activeClusterCount: asNumber(raw("activeClusterCount")),
+    nodeCount: asNumber(raw("nodeCount")),
+    vmCount: asNumber(raw("vmCount")),
+    latitude: asNumber(raw("latitude")),
+    longitude: asNumber(raw("longitude")),
+  };
+}
+
+/**
+ * Production Salesforce account data-source seam.
+ *
+ * When `ACCOUNT_MAP_SOURCE_URL` is set, the map pulls the live account list from
+ * that endpoint instead of the static CSV files, so it auto-updates from the
+ * production Salesforce account list with no code change. The endpoint may return
+ * either JSON (an array of account objects, or `{ records: [...] }`) or CSV.
+ *
+ * Optional `ACCOUNT_MAP_SOURCE_TOKEN` is sent as a Bearer token. Until the
+ * endpoint exists, this returns null and the CSV fallback is used.
+ */
+async function fetchAccountMapFromSource(): Promise<AccountMapRecord[] | null> {
+  const url = process.env.ACCOUNT_MAP_SOURCE_URL;
+  if (!url) return null;
+
+  const token = process.env.ACCOUNT_MAP_SOURCE_TOKEN;
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    // The account list is treated as fresh on each render so production picks up
+    // Salesforce changes without a rebuild.
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Account map source responded ${response.status} from ${url}`);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("json") || url.toLowerCase().endsWith(".json");
+  if (isJson) {
+    const data = (await response.json()) as unknown;
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray((data as { records?: unknown }).records)
+        ? ((data as { records: unknown[] }).records)
+        : [];
+    return rows
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+      .map(recordFromObject)
+      .filter((record) => record.accountName.trim().length > 0)
+      .filter(hasExactCoords);
+  }
+
+  return parseCsv(await response.text()).filter(hasExactCoords);
+}
+
 export async function getAccountMapRecords(
   environment: EnvironmentId = "foundation",
 ): Promise<AccountMapRecord[]> {
+  // Live Salesforce source takes precedence when configured (production path).
+  const live = await fetchAccountMapFromSource();
+  if (live) return live;
+
   const files = resolveFilesForEnvironment(environment);
   const csvs = (await Promise.all(files.map(readCsvIfPresent))).filter(
     (csv): csv is string => csv !== null,

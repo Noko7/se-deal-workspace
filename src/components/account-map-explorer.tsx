@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
 import { FormRow, SectionHeader } from "@/components/ui";
 import { MapLoading } from "@/components/map-loading";
 import type { AccountMapRecord } from "@/lib/account-map";
@@ -68,10 +68,10 @@ export function AccountMapExplorer({ records }: Props) {
   // The whole explorer (filters + map) is the fullscreen target so filters stay
   // usable in fullscreen, instead of only the map element going fullscreen.
   const fullscreenRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
   const [theater, setTheater] = useState(ALL);
   const [subRegion, setSubRegion] = useState(ALL);
   const [vertical, setVertical] = useState(ALL);
-  const [state, setState] = useState(ALL);
   const [me, setMe] = useState(EVERYONE);
   const [onlyMine, setOnlyMine] = useState(false);
   const [types, setTypes] = useState<Record<string, boolean>>(() => defaultTypeState(records));
@@ -104,29 +104,30 @@ export function AccountMapExplorer({ records }: Props) {
     () => [ALL, ...[...new Set(records.map((record) => record.vertical).filter(Boolean))].sort()],
     [records],
   );
-  const states = useMemo(
-    () => [ALL, ...[...new Set(records.map((record) => record.state).filter(Boolean))].sort()],
-    [records],
-  );
   const systemEngineers = useMemo(
     () => [EVERYONE, ...[...new Set(records.map((record) => record.systemEngineer).filter(Boolean))].sort()],
     [records],
   );
 
   const meSe = me === EVERYONE ? null : me;
+  const search = query.trim().toLowerCase();
 
   const filtered = useMemo(
     () =>
       records.filter(
         (record) =>
+          (search === "" ||
+            record.accountName.toLowerCase().includes(search) ||
+            record.accountExecutive.toLowerCase().includes(search) ||
+            record.systemEngineer.toLowerCase().includes(search) ||
+            record.city.toLowerCase().includes(search)) &&
           (theater === ALL || record.theater === theater) &&
           (subRegion === ALL || record.subRegion === subRegion) &&
           (vertical === ALL || record.vertical === vertical) &&
-          (state === ALL || record.state === state) &&
           (types[record.accountType] ?? DEFAULT_ON_TYPES.has(record.accountType)) &&
           (!onlyMine || (meSe !== null && record.systemEngineer === meSe)),
       ),
-    [records, theater, subRegion, vertical, state, types, onlyMine, meSe],
+    [records, search, theater, subRegion, vertical, types, onlyMine, meSe],
   );
 
   const totalSales = filtered.reduce((sum, record) => sum + record.lastSales, 0);
@@ -137,18 +138,18 @@ export function AccountMapExplorer({ records }: Props) {
     (t) => (types[t] ?? DEFAULT_ON_TYPES.has(t)) === DEFAULT_ON_TYPES.has(t),
   );
   const hasActiveFilters =
+    search !== "" ||
     theater !== ALL ||
     subRegion !== ALL ||
     vertical !== ALL ||
-    state !== ALL ||
     me !== EVERYONE ||
     onlyMine ||
     !typesAtDefault;
   const resetFilters = () => {
+    setQuery("");
     setTheater(ALL);
     setSubRegion(ALL);
     setVertical(ALL);
-    setState(ALL);
     setMe(EVERYONE);
     setOnlyMine(false);
     setTypes(defaultTypeState(records));
@@ -184,6 +185,18 @@ export function AccountMapExplorer({ records }: Props) {
           </div>
 
           <div className="space-y-5 px-4 pb-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" aria-hidden />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search account, AE, SE, or city"
+                aria-label="Search accounts"
+                className="w-full pl-8"
+              />
+            </div>
+
             <FilterGroup label="Coverage">
               <FormRow label="Theater" htmlFor="theaterFilter">
                 <select id="theaterFilter" value={theater} onChange={(event) => handleTheaterChange(event.target.value)}>
@@ -198,16 +211,6 @@ export function AccountMapExplorer({ records }: Props) {
               <FormRow label="Sub-Region" htmlFor="subRegionFilter">
                 <select id="subRegionFilter" value={subRegion} onChange={(event) => setSubRegion(event.target.value)}>
                   {subRegions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </FormRow>
-
-              <FormRow label="State" htmlFor="stateFilter">
-                <select id="stateFilter" value={state} onChange={(event) => setState(event.target.value)}>
-                  {states.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>

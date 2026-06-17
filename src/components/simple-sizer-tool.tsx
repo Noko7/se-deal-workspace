@@ -10,7 +10,9 @@ import {
   type ParsedEnvironment,
   type SizerSettings,
   type SizerSource,
+  type StorageEfficiency,
 } from "@/lib/simple-sizer-core";
+import { KEY_RESOURCES, SIZING_REFERENCE, storageEfficiencyLabel } from "@/lib/sizing-guidance";
 import { Button, Card, StatusPill } from "@/components/ui";
 
 const DEFAULT_SETTINGS: SizerSettings = {
@@ -18,6 +20,9 @@ const DEFAULT_SETTINGS: SizerSettings = {
   nodeCount: 3,
   rf: 2,
   storageBasis: "consumed",
+  failoverHosts: 1,
+  storageEfficiency: "none",
+  peakIops: null,
 };
 
 function format(value: number, unit: string): string {
@@ -244,6 +249,54 @@ export function SimpleSizerTool() {
                   <option value="provisioned">Provisioned</option>
                 </select>
               </div>
+
+              <div>
+                <label htmlFor="failover">HA Failover Reservation</label>
+                <select
+                  id="failover"
+                  value={settings.failoverHosts ?? 1}
+                  onChange={(e) => setSettings((s) => ({ ...s, failoverHosts: Number(e.target.value) }))}
+                  className="w-full"
+                >
+                  <option value={1}>N+1 (reserve 1 host)</option>
+                  <option value={2}>N+2 (HA-critical)</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="efficiency">Storage Efficiency</label>
+                <select
+                  id="efficiency"
+                  value={settings.storageEfficiency ?? "none"}
+                  onChange={(e) =>
+                    setSettings((s) => ({ ...s, storageEfficiency: e.target.value as StorageEfficiency }))
+                  }
+                  className="w-full"
+                >
+                  <option value="none">None (full RF copies)</option>
+                  <option value="compression">Compression (~30%)</option>
+                  <option value="ecx">Erasure Coding (EC-X, ≥4 nodes)</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="peakIops">Observed Peak IOPS (cluster, 7-day)</label>
+                <input
+                  id="peakIops"
+                  type="number"
+                  min={0}
+                  step={1000}
+                  placeholder="optional — drives disk tier"
+                  value={settings.peakIops ?? ""}
+                  onChange={(e) =>
+                    setSettings((s) => ({
+                      ...s,
+                      peakIops: e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  className="w-full"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -281,6 +334,52 @@ export function SimpleSizerTool() {
             </div>
             {recommendation.monsterVmRisk ? (
               <p className="mt-2 text-sm font-semibold text-[#9a3b27]">NUMA/Monster VM Risk: {recommendation.monsterVmReason}</p>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-lg border-2 border-charcoal-900 bg-white p-4">
+            <h3 className="text-sm font-semibold text-charcoal-900">Nutanix Build Guidance</h3>
+            <div className="mt-2 grid gap-2 text-sm text-charcoal-800 md:grid-cols-2">
+              <p>
+                Cluster topology:{" "}
+                <span className="font-semibold">
+                  {recommendation.effectiveNodeCount} nodes (RF{settings.rf}, N+{recommendation.failoverHosts})
+                </span>
+                {recommendation.clusterCount > 1 ? (
+                  <span className="ml-1 text-[#9a3b27]">→ split into {recommendation.clusterCount} clusters</span>
+                ) : null}
+              </p>
+              <p>
+                Licensing: <span className="font-semibold">{recommendation.licenseTier.tier}</span>
+                <span className="ml-1 text-xs text-charcoal-500">{recommendation.licenseTier.detail}</span>
+              </p>
+              <p>
+                Storage efficiency:{" "}
+                <span className="font-semibold">{storageEfficiencyLabel(settings.storageEfficiency ?? "none")}</span>
+              </p>
+              <p>
+                Network: <span className="font-semibold">{recommendation.networkRecommendation}</span>
+              </p>
+              {recommendation.diskTier ? (
+                <p className="md:col-span-2">
+                  Disk tier (~{recommendation.perNodeIops?.toLocaleString()} IOPS/node):{" "}
+                  <span className="font-semibold">{recommendation.diskTier.tier}</span>
+                  <span className="ml-1 text-xs text-charcoal-500">
+                    {recommendation.diskTier.latency} · {recommendation.diskTier.workloads}
+                  </span>
+                </p>
+              ) : (
+                <p className="md:col-span-2 text-xs text-charcoal-500">
+                  Enter observed peak IOPS to get a disk-tier (Hybrid → NVMe/Optane) recommendation.
+                </p>
+              )}
+            </div>
+            {recommendation.warnings.length ? (
+              <ul className="mt-3 space-y-1 rounded-md border border-[#e2b8ad] bg-[#fbeee9] p-3 text-xs text-[#7a2e1d]">
+                {recommendation.warnings.map((w) => (
+                  <li key={w}>• {w}</li>
+                ))}
+              </ul>
             ) : null}
           </div>
 
@@ -344,6 +443,56 @@ export function SimpleSizerTool() {
           </div>
         </Card>
       ) : null}
+
+      <Card
+        title="Sizing Reference & Sources"
+        subtitle="Nutanix cluster build guidance the sizer applies — redundancy, ratios, storage, network, and HA."
+        icon={<FileSpreadsheet className="h-5 w-5" />}
+      >
+        <details>
+          <summary className="cursor-pointer text-sm font-semibold text-iris-700">
+            Show sizing principles & documentation links
+          </summary>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            {SIZING_REFERENCE.map((group) => (
+              <div key={group.title} className="rounded-lg border border-charcoal-200 bg-white p-3">
+                <h4 className="text-sm font-semibold text-charcoal-900">{group.title}</h4>
+                <ul className="mt-2 space-y-2 text-xs text-charcoal-700">
+                  {group.items.map((item) => (
+                    <li key={item.rule}>
+                      <span className="font-semibold text-charcoal-900">{item.rule}:</span> {item.detail}{" "}
+                      <a
+                        href={item.source.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-iris-700 underline"
+                      >
+                        {item.source.label} ↗
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+            <h4 className="text-sm font-semibold text-charcoal-900">Key Resources</h4>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {KEY_RESOURCES.map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-iris-700 underline"
+                >
+                  {link.label} ↗
+                </a>
+              ))}
+            </div>
+          </div>
+        </details>
+      </Card>
     </div>
   );
 }
@@ -524,7 +673,26 @@ function buildSizingAttachmentText(
   lines.push(`- vCPU:pCore Ratio: ${settings.vcpuToPcoreRatio}:1`);
   lines.push(`- Node Count: ${settings.nodeCount}`);
   lines.push(`- RF: RF${settings.rf}`);
+  lines.push(`- HA Failover Reservation: N+${settings.failoverHosts ?? 1}`);
+  lines.push(`- Storage Efficiency: ${storageEfficiencyLabel(settings.storageEfficiency ?? "none")}`);
+  if (settings.peakIops) lines.push(`- Observed Peak IOPS (cluster): ${settings.peakIops.toLocaleString()}`);
   lines.push(`- Storage Basis: ${settings.storageBasis}`);
+  lines.push("");
+  lines.push("Nutanix Build Guidance");
+  lines.push(`- Topology: ${recommendation.effectiveNodeCount} nodes, RF${settings.rf}, N+${recommendation.failoverHosts}`);
+  if (recommendation.clusterCount > 1) {
+    lines.push(`- Scale-out: exceeds 32-node max — split into ${recommendation.clusterCount} clusters under one Prism Central`);
+  }
+  lines.push(`- Licensing: ${recommendation.licenseTier.tier} (${recommendation.licenseTier.detail})`);
+  lines.push(`- Network: ${recommendation.networkRecommendation}`);
+  if (recommendation.diskTier) {
+    lines.push(
+      `- Disk tier (~${recommendation.perNodeIops?.toLocaleString()} IOPS/node): ${recommendation.diskTier.tier} (${recommendation.diskTier.latency})`,
+    );
+  }
+  for (const warning of recommendation.warnings) {
+    lines.push(`- Check: ${warning}`);
+  }
   lines.push("");
   lines.push("Recommended Environment");
   lines.push(`- Per Node CPU (pCores): ${recommendation.nodeTotalPCores}`);

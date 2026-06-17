@@ -16,6 +16,7 @@ import {
   clearLlmCredentialApiKey,
 } from "./data";
 import { integrationAdapters } from "./adapters";
+import { upsertZoomConfig } from "./zoom";
 import { sanitizeField } from "./sanitize";
 
 export async function uploadArtifactAction(formData: FormData) {
@@ -200,6 +201,25 @@ export async function saveLlmCredentialsAction(formData: FormData) {
     timeoutMs: Number.isFinite(timeoutMs) ? Math.min(Math.max(timeoutMs, 1000), 180000) : 60000,
     insecureTls,
     apiKey: apiKeyRaw.trim() ? apiKeyRaw.trim() : undefined,
+    updatedBy: "se.workspace@nutanix.com",
+  });
+
+  revalidatePath("/integrations");
+}
+
+export async function saveZoomConfigAction(formData: FormData) {
+  const checked = (name: string) => String(formData.get(name) ?? "") === "on";
+  const webhookSecretRaw = String(formData.get("webhookSecret") ?? "").trim();
+
+  await upsertZoomConfig({
+    enabled: checked("enabled"),
+    accountId: sanitizeField(formData.get("accountId"), 120),
+    autoAttachNotes: checked("autoAttachNotes"),
+    autoAttachSummary: checked("autoAttachSummary"),
+    autoAttachTranscript: checked("autoAttachTranscript"),
+    feedAccountAi: checked("feedAccountAi"),
+    feedNoteFormatter: checked("feedNoteFormatter"),
+    webhookSecret: webhookSecretRaw ? webhookSecretRaw : undefined,
     updatedBy: "se.workspace@nutanix.com",
   });
 

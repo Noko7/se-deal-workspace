@@ -9,12 +9,15 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 // Pages reachable without a session.
 const PUBLIC_PAGES = new Set(["/login", "/signup"]);
 // API routes reachable without a session (the auth endpoints + health probe).
+// Inbound webhooks (e.g. Zoom) are external machine-to-machine callers with no
+// session cookie; they authenticate via their own signed-payload verification.
 const PUBLIC_APIS = new Set([
   "/api/auth/login",
   "/api/auth/signup",
   "/api/auth/check-email",
   "/api/auth/logout",
   "/api/health",
+  "/api/integrations/zoom/webhook",
 ]);
 
 export function proxy(request: NextRequest) {

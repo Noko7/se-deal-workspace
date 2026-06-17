@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CalendarClock,
-  ExternalLink,
+  ChevronDown,
   MapPin,
   NotebookPen,
   Paperclip,
@@ -13,8 +13,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { uploadArtifactAction } from "@/lib/actions";
-import { meetingPlatformLabel } from "@/lib/meeting";
+import { addNoteAction, uploadArtifactAction } from "@/lib/actions";
 import { MeetingPlatformIcon } from "@/components/meeting-platform-icon";
 import { Button, StatusPill } from "@/components/ui";
 import { zonedNaiveISO, type CalendarMeeting } from "@/lib/calendar";
@@ -63,13 +62,21 @@ export function MeetingDetailPanel({
   // render (the React-recommended pattern) rather than in an effect.
   const [cached, setCached] = useState<CalendarMeeting | null>(meeting);
   const [showAddAsset, setShowAddAsset] = useState(false);
+  const [showAddNote, setShowAddNote] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const open = Boolean(meeting);
 
   if (meeting && meeting !== cached) {
     const idChanged = meeting.id !== cached?.id;
     setCached(meeting);
-    if (idChanged) setShowAddAsset(false);
+    if (idChanged) {
+      setShowAddAsset(false);
+      setShowAddNote(false);
+      setNotesOpen(false);
+      setAssetsOpen(false);
+    }
   }
 
   useEffect(() => {
@@ -131,9 +138,9 @@ export function MeetingDetailPanel({
 
             {/* Body */}
             <div className="flex-1 space-y-6 overflow-y-auto p-5">
-              {/* Where */}
-              <section>
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
+              {/* Where — single line: label + clickable target */}
+              <section className="flex items-center gap-2.5">
+                <p className="flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
                   <MapPin className="h-3.5 w-3.5 text-iris-500" />
                   Where
                 </p>
@@ -142,20 +149,16 @@ export function MeetingDetailPanel({
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.location)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border border-charcoal-200 bg-white px-2.5 py-1.5 text-sm text-charcoal-700 transition hover:border-iris-300 hover:text-iris-700"
+                    title="Open in Google Maps"
+                    className="min-w-0 truncate text-sm font-medium text-iris-700 underline underline-offset-2 transition hover:text-iris-800"
                   >
-                    <MapPin className="h-4 w-4 text-iris-500" />
                     {data.location}
-                    <ExternalLink className="h-3.5 w-3.5 text-charcoal-400" />
                   </a>
                 ) : data.platform ? (
-                  <MeetingPlatformIcon joinUrl={data.joinUrl} />
+                  <MeetingPlatformIcon joinUrl={data.joinUrl} showAffordance />
                 ) : (
                   <p className="text-sm text-charcoal-400">No location provided.</p>
                 )}
-                {data.platform && data.joinUrl ? (
-                  <p className="mt-1 text-xs text-charcoal-400">Click to join via {meetingPlatformLabel(data.platform)}.</p>
-                ) : null}
               </section>
 
               {/* Attendees */}
@@ -193,107 +196,183 @@ export function MeetingDetailPanel({
                 )}
               </section>
 
-              {/* Assets */}
+              {/* Meeting notes (collapsible) */}
               <section>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
-                    <Paperclip className="h-3.5 w-3.5 text-iris-500" />
-                    Linked assets
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddAsset((value) => !value)}
-                    className="inline-flex items-center gap-1 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-xs font-medium text-iris-700 hover:bg-iris-50"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add asset
-                  </button>
-                </div>
-
-                {showAddAsset ? (
-                  <form
-                    action={uploadArtifactAction}
-                    className="mb-3 space-y-2 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3"
-                  >
-                    <input type="hidden" name="dealId" value={data.deal.id} />
-                    <input type="hidden" name="meetingId" value={data.id} />
-                    <select name="type" required defaultValue="PRESENTATION" className="w-full text-sm">
-                      <option value="PRESENTATION">Presentation</option>
-                      <option value="WHITEBOARD">Whiteboard</option>
-                      <option value="COLLECTOR">Collector</option>
-                      <option value="RV_TOOL">RV Tool</option>
-                      <option value="ZIP_BUNDLE">Zip Bundle</option>
-                      <option value="TEXT_BRIEF">Text Brief</option>
-                      <option value="QBR_REPORT">QBR Report</option>
-                    </select>
-                    <input name="title" placeholder="Title (e.g. Acme QBR Deck)" required className="w-full text-sm" />
-                    <input name="sourceTool" placeholder="Source tool (e.g. PowerPoint)" required className="w-full text-sm" />
-                    <input name="uri" placeholder="https:// or file:// location" required className="w-full text-sm" />
-                    <input name="previewImageUri" placeholder="Preview image URL (optional)" className="w-full text-sm" />
-                    <div className="flex justify-end">
-                      <Button type="submit" className="px-3 py-1.5 text-xs">
-                        Save asset
-                      </Button>
-                    </div>
-                  </form>
-                ) : null}
-
-                {data.assets.length === 0 ? (
-                  <p className="text-sm text-charcoal-400">No assets linked yet.</p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {data.assets.map((asset) => (
-                      <div key={asset.id} className="rounded-md border border-charcoal-200 p-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-iris-600">
-                          {asset.type.replaceAll("_", " ")}
-                        </p>
-                        {asset.previewImageUri ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={asset.previewImageUri}
-                            alt={`${asset.title} preview`}
-                            className="mt-1.5 h-20 w-full rounded border border-charcoal-200 object-cover"
-                          />
-                        ) : (
-                          <div className="mt-1.5 flex h-20 flex-col items-center justify-center gap-1 rounded border border-charcoal-200 bg-gradient-to-br from-iris-50 to-white text-charcoal-500">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-iris-600">
-                              {asset.type.replaceAll("_", " ")}
-                            </span>
-                            <span className="text-[10px]">Generating preview…</span>
-                          </div>
-                        )}
-                        <p className="mt-1.5 line-clamp-2 text-xs font-semibold text-charcoal-800">{asset.title}</p>
-                        <div className="mt-1 flex items-center justify-between gap-1">
-                          <span className="truncate text-[10px] text-charcoal-500">{asset.sourceTool}</span>
-                          <StatusPill tone={previewTone(asset.previewStatus)}>{asset.previewStatus}</StatusPill>
-                        </div>
+                <button
+                  type="button"
+                  onClick={() => setNotesOpen((value) => !value)}
+                  aria-expanded={notesOpen}
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-iris-500 px-3 py-2 text-left text-white hover:bg-iris-600"
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                    <NotebookPen className="h-3.5 w-3.5 text-white" />
+                    Meeting notes
+                    <span className="font-normal text-white/75">({data.notes.length})</span>
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-white transition-transform duration-300 ${notesOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <div
+                  className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="space-y-2 pt-2">
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddNote((value) => !value)}
+                          className="inline-flex items-center gap-1 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-xs font-medium text-iris-700 hover:bg-iris-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add note
+                        </button>
                       </div>
-                    ))}
+
+                      {showAddNote ? (
+                        <form
+                          action={addNoteAction}
+                          className="space-y-2 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3"
+                        >
+                          <input type="hidden" name="dealId" value={data.deal.id} />
+                          <input type="hidden" name="meetingId" value={data.id} />
+                          <select name="role" defaultValue="SE" className="w-full text-sm">
+                            <option value="SE">SE</option>
+                            <option value="AE">AE</option>
+                            <option value="SAM">SAM</option>
+                          </select>
+                          <textarea
+                            name="body"
+                            required
+                            rows={3}
+                            placeholder="Add a note for this meeting…"
+                            className="w-full text-sm"
+                          />
+                          <div className="flex justify-end">
+                            <Button type="submit" className="px-3 py-1.5 text-xs">
+                              Save note
+                            </Button>
+                          </div>
+                        </form>
+                      ) : null}
+
+                      {data.notes.length === 0 ? (
+                        <p className="text-sm text-charcoal-400">No notes captured for this meeting.</p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {data.notes.map((note) => (
+                            <li key={note.id} className="rounded-md border border-charcoal-200 bg-white p-2.5">
+                              <div className="mb-1 flex items-center gap-2">
+                                <StatusPill tone={ROLE_TONE[note.role] ?? "neutral"}>{note.role}</StatusPill>
+                                <span className="truncate text-xs text-charcoal-400">{note.author}</span>
+                              </div>
+                              <p className="text-sm text-charcoal-700">{note.body}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
               </section>
 
-              {/* Quick notes */}
+              {/* Linked assets (collapsible) */}
               <section>
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
-                  <NotebookPen className="h-3.5 w-3.5 text-iris-500" />
-                  Quick notes
-                </p>
-                {data.notes.length === 0 ? (
-                  <p className="text-sm text-charcoal-400">No notes captured for this meeting.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {data.notes.map((note) => (
-                      <li key={note.id} className="rounded-md border border-charcoal-200 bg-white p-2.5">
-                        <div className="mb-1 flex items-center gap-2">
-                          <StatusPill tone={ROLE_TONE[note.role] ?? "neutral"}>{note.role}</StatusPill>
-                          <span className="truncate text-xs text-charcoal-400">{note.author}</span>
+                <button
+                  type="button"
+                  onClick={() => setAssetsOpen((value) => !value)}
+                  aria-expanded={assetsOpen}
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-iris-500 px-3 py-2 text-left text-white hover:bg-iris-600"
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                    <Paperclip className="h-3.5 w-3.5 text-white" />
+                    Linked assets
+                    <span className="font-normal text-white/75">({data.assets.length})</span>
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-white transition-transform duration-300 ${assetsOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <div
+                  className={`grid transition-[grid-template-rows] duration-300 ease-out ${assetsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="space-y-2 pt-2">
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddAsset((value) => !value)}
+                          className="inline-flex items-center gap-1 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-xs font-medium text-iris-700 hover:bg-iris-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add asset
+                        </button>
+                      </div>
+
+                      {showAddAsset ? (
+                        <form
+                          action={uploadArtifactAction}
+                          className="space-y-2 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3"
+                        >
+                          <input type="hidden" name="dealId" value={data.deal.id} />
+                          <input type="hidden" name="meetingId" value={data.id} />
+                          <select name="type" required defaultValue="PRESENTATION" className="w-full text-sm">
+                            <option value="PRESENTATION">Presentation</option>
+                            <option value="WHITEBOARD">Whiteboard</option>
+                            <option value="COLLECTOR">Collector</option>
+                            <option value="RV_TOOL">RV Tool</option>
+                            <option value="ZIP_BUNDLE">Zip Bundle</option>
+                            <option value="TEXT_BRIEF">Text Brief</option>
+                            <option value="QBR_REPORT">QBR Report</option>
+                          </select>
+                          <input name="title" placeholder="Title (e.g. Acme QBR Deck)" required className="w-full text-sm" />
+                          <input name="sourceTool" placeholder="Source tool (e.g. PowerPoint)" required className="w-full text-sm" />
+                          <input name="uri" placeholder="https:// or file:// location" required className="w-full text-sm" />
+                          <input name="previewImageUri" placeholder="Preview image URL (optional)" className="w-full text-sm" />
+                          <div className="flex justify-end">
+                            <Button type="submit" className="px-3 py-1.5 text-xs">
+                              Save asset
+                            </Button>
+                          </div>
+                        </form>
+                      ) : null}
+
+                      {data.assets.length === 0 ? (
+                        <p className="text-sm text-charcoal-400">No assets linked yet.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {data.assets.map((asset) => (
+                            <div key={asset.id} className="rounded-md border border-charcoal-200 p-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-iris-600">
+                                {asset.type.replaceAll("_", " ")}
+                              </p>
+                              {asset.previewImageUri ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={asset.previewImageUri}
+                                  alt={`${asset.title} preview`}
+                                  className="mt-1.5 h-20 w-full rounded border border-charcoal-200 object-cover"
+                                />
+                              ) : (
+                                <div className="mt-1.5 flex h-20 flex-col items-center justify-center gap-1 rounded border border-charcoal-200 bg-gradient-to-br from-iris-50 to-white text-charcoal-500">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-iris-600">
+                                    {asset.type.replaceAll("_", " ")}
+                                  </span>
+                                  <span className="text-[10px]">Generating preview…</span>
+                                </div>
+                              )}
+                              <p className="mt-1.5 line-clamp-2 text-xs font-semibold text-charcoal-800">{asset.title}</p>
+                              <div className="mt-1 flex items-center justify-between gap-1">
+                                <span className="truncate text-[10px] text-charcoal-500">{asset.sourceTool}</span>
+                                <StatusPill tone={previewTone(asset.previewStatus)}>{asset.previewStatus}</StatusPill>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        <p className="text-sm text-charcoal-700">{note.body}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                      )}
+                    </div>
+                  </div>
+                </div>
               </section>
             </div>
 

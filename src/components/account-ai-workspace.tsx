@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, ChevronUp, ExternalLink, Globe, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CalendarRange, ChevronDown, ChevronUp, ExternalLink, Globe, Loader2 } from "lucide-react";
 import { AccountChat } from "@/components/account-chat";
 import { AccountBrainPanel } from "@/components/account-brain-panel";
 import { ComposerAccountSelector } from "@/components/composer-account-selector";
@@ -27,23 +27,38 @@ export function AccountAiWorkspace({
   accounts,
   meetings,
   aggregate,
+  initialSelected,
 }: {
   accounts: AccountOption[];
   meetings: CalendarMeeting[];
   aggregate: { accountCount: number; meetingCount: number; noteCount: number; assetCount: number };
+  initialSelected?: string;
 }) {
-  const [selected, setSelected] = useState<Scope>("all");
+  const [selected, setSelected] = useState<Scope>(initialSelected ?? "all");
   const [timeZone, setTimeZone] = useState("UTC");
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [brainOpen, setBrainOpen] = useState(false);
   const [brainSummary, setBrainSummary] = useState<BrainSummary | null>(null);
   const [brainLoading, setBrainLoading] = useState(false);
   const [meetingsCollapsed, setMeetingsCollapsed] = useState(false);
+  // Bumped whenever an account is selected; restarts the scroll-down pulse.
+  const [pulseToken, setPulseToken] = useState(0);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeZone(detectTimeZone());
   }, []);
+
+  // Pulse the scroll-down affordance whenever a specific account becomes active
+  // (via the dropdown or a deep-link from My Accounts).
+  useEffect(() => {
+    if (selected === "all") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPulseToken((t) => t + 1);
+  }, [selected]);
+
+  const scrollToDetails = () => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // Lazily load the selected account's brain summary (counts + grouped items).
   useEffect(() => {
@@ -184,23 +199,50 @@ export function AccountAiWorkspace({
 
   return (
     <>
-      <div className="h-[calc(100dvh-7rem)] min-h-[34rem]">
-        <AccountChat
-          scope={selected}
-          header={header}
-          placeholder={placeholder}
-          emptyDescription={description}
-          suggestions={suggestions}
-          showBrain={!isAll}
-          allowUploads={!isAll}
-          accountLabel={selectedAccount?.accountName}
-          onBrainOpen={() => setBrainOpen(true)}
-          composerPrefix="Ask Account-AI about"
-          composerLeading={
-            <ComposerAccountSelector accounts={accounts} selected={selected} onSelect={setSelected} />
-          }
-        />
+      {/* Chat fills the viewport but leaves room for the scroll-down pill below it. */}
+      <div>
+        <div className="h-[calc(100dvh-10.5rem)] min-h-[28rem]">
+          <AccountChat
+            scope={selected}
+            header={header}
+            placeholder={placeholder}
+            emptyDescription={description}
+            suggestions={suggestions}
+            showBrain={!isAll}
+            allowUploads={!isAll}
+            accountLabel={selectedAccount?.accountName}
+            onScopeRevert={setSelected}
+            onBrainOpen={() => setBrainOpen(true)}
+            composerPrefix="Ask Account-AI about"
+            composerLeading={
+              <ComposerAccountSelector accounts={accounts} selected={selected} onSelect={setSelected} />
+            }
+          />
+        </div>
+
+        {/* Scroll-down affordance — same pill design as the meetings collapse toggle. */}
+        <div className="flex justify-center pt-2">
+          <button
+            key={pulseToken}
+            type="button"
+            onClick={scrollToDetails}
+            aria-label="Scroll down for account details"
+            title="More below"
+            style={pulseToken ? { animation: "pulse-iris 0.6s ease-out 3" } : undefined}
+            className="flex h-6 w-14 items-center justify-center rounded-full border border-charcoal-200 bg-white text-iris-600 shadow-sm transition hover:border-iris-300 hover:bg-iris-50"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {/* Below-the-fold account detail (built out next). Sized so the scroll-down
+          action fully clears the chat window on any screen. */}
+      <section ref={detailRef} id="account-details" className="min-h-[100dvh] scroll-mt-20 pt-6">
+        <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-charcoal-200 text-sm text-charcoal-400">
+          {selectedAccount ? `${selectedAccount.accountName} details` : "Account details"} coming soon.
+        </div>
+      </section>
 
       <MeetingDetailPanel meeting={selectedMeeting} timeZone={timeZone} onClose={() => setSelectedMeetingId(null)} />
 

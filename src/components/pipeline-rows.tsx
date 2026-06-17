@@ -5,6 +5,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrencyShort, shortDate } from "@/lib/format";
 import { PipelineStatusChart } from "@/components/pipeline-status-chart";
+import { buildOpportunity, type Opportunity } from "@/lib/opportunity";
+
+function DetailStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <p className="truncate">
+      <span className="text-charcoal-500">{label}: </span>
+      <span className={`font-semibold ${accent ? "text-iris-600" : "text-charcoal-800"}`}>{value}</span>
+    </p>
+  );
+}
 
 export type PipelineDeal = {
   id: string;
@@ -17,7 +27,33 @@ export type PipelineDeal = {
   technicalCloseStatus: string;
   closeDate: string | null;
   isClosed: boolean;
+  latestSignal: string | null;
+  meetingsCount: number;
+  emailsCount: number;
+  recommendationsCount: number;
 };
+
+function dealOppCode(deal: PipelineDeal): string {
+  return `SF-${deal.id.slice(0, 8).toUpperCase()}`;
+}
+
+function pipelineDealToOpportunity(deal: PipelineDeal): Opportunity {
+  return buildOpportunity({
+    id: deal.id,
+    name: deal.name,
+    accountName: deal.accountName,
+    stage: deal.stage,
+    amount: deal.amount,
+    closeDate: deal.closeDate ? new Date(deal.closeDate) : null,
+    owner: deal.owner,
+    nextAction: deal.nextAction,
+    technicalCloseStatus: deal.technicalCloseStatus,
+    latestSignal: deal.latestSignal,
+    meetingsCount: deal.meetingsCount,
+    emailsCount: deal.emailsCount,
+    recommendationsCount: deal.recommendationsCount,
+  });
+}
 
 type Period = "quarter" | "fy" | "all";
 
@@ -70,6 +106,10 @@ function PipelineRow({
   const scroller = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
+  // On hover, the chosen card slides to the far left and a wide detail tile
+  // expands to its right (replacing the classic popup).
+  const [active, setActive] = useState<{ deal: PipelineDeal; opp: Opportunity; from: number } | null>(null);
+  const [slid, setSlid] = useState(false);
 
   const update = () => {
     const el = scroller.current;
@@ -84,10 +124,25 @@ function PipelineRow({
     return () => window.removeEventListener("resize", update);
   }, [deals.length]);
 
+  // Animate from the card's current on-screen position to the far left.
+  useEffect(() => {
+    if (!active) return;
+    const id = requestAnimationFrame(() => setSlid(true));
+    return () => cancelAnimationFrame(id);
+  }, [active]);
+
   const scrollBy = (direction: number) => {
     const el = scroller.current;
     if (!el) return;
     el.scrollBy({ left: direction * (el.clientWidth - 60), behavior: "smooth" });
+  };
+
+  const openDetail = (deal: PipelineDeal, cardEl: HTMLElement) => {
+    const sc = scroller.current?.getBoundingClientRect();
+    // 8px = the scroller's p-2 left padding, so the overlay card starts flush.
+    const from = sc ? cardEl.getBoundingClientRect().left - sc.left - 8 : 0;
+    setSlid(false);
+    setActive({ deal, opp: pipelineDealToOpportunity(deal), from });
   };
 
   const total = deals.reduce((sum, deal) => sum + deal.amount, 0);
@@ -105,7 +160,7 @@ function PipelineRow({
         </div>
 
         <div className="relative min-w-0 flex-1">
-          {canLeft ? (
+          {canLeft && !active ? (
             <button
               type="button"
               aria-label="Scroll left"
@@ -115,7 +170,7 @@ function PipelineRow({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {canRight ? (
+          {canRight && !active ? (
             <button
               type="button"
               aria-label="Scroll right"
@@ -137,34 +192,93 @@ function PipelineRow({
               deals.map((deal) => (
                 <Link
                   key={deal.id}
-                  href={`/accounts/${deal.id}`}
+                  href={`/?account=${deal.id}`}
+                  onMouseEnter={(event) => openDetail(deal, event.currentTarget)}
                   className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md"
                   style={{ borderLeftColor: row.color }}
                 >
                   <div className="flex items-start justify-between gap-1.5">
-                    <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{deal.accountName}</p>
+                    <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{deal.name}</p>
                     <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(deal.amount)}</span>
                   </div>
-                  <p className="truncate text-xs text-charcoal-500">{deal.name}</p>
+                  <p className="truncate text-xs text-charcoal-500">{deal.accountName}</p>
                   <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
-                    <span className="truncate">{deal.owner}</span>
+                    <span className="truncate font-medium tracking-wide text-charcoal-500">{dealOppCode(deal)}</span>
                     {deal.closeDate ? <span className="shrink-0">{shortDate(new Date(deal.closeDate))}</span> : null}
                   </div>
                 </Link>
               ))
             )}
           </div>
+
+          {/* Hover detail: focused card on the left + wide info tile filling the row. */}
+          {active ? (
+            <Link
+              href={`/?account=${active.opp.id}`}
+              onMouseLeave={() => setActive(null)}
+              className="absolute inset-0 z-20 flex items-stretch gap-2 bg-white p-2"
+            >
+              <div
+                className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition-transform duration-200 ease-out"
+                style={{
+                  borderLeftColor: row.color,
+                  transform: slid ? "translateX(0)" : `translateX(${active.from}px)`,
+                }}
+              >
+                <div className="flex items-start justify-between gap-1.5">
+                  <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{active.deal.name}</p>
+                  <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(active.deal.amount)}</span>
+                </div>
+                <p className="truncate text-xs text-charcoal-500">{active.deal.accountName}</p>
+                <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
+                  <span className="truncate font-medium tracking-wide text-charcoal-500">{dealOppCode(active.deal)}</span>
+                  {active.deal.closeDate ? (
+                    <span className="shrink-0">{shortDate(new Date(active.deal.closeDate))}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div
+                className="flex min-w-0 flex-1 flex-col justify-center gap-2 overflow-hidden rounded-md border border-charcoal-200 border-l-4 bg-white px-5 py-2.5 shadow-sm"
+                style={{ borderLeftColor: row.color, animation: "carousel-from-right 220ms ease-out" }}
+              >
+                <div className="grid min-w-0 grid-cols-2 gap-x-8 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-5">
+                  <DetailStat label="Stage" value={active.opp.stage} />
+                  <DetailStat label="Probability" value={`${active.opp.probability}%`} accent />
+                  <DetailStat label="Amount" value={formatCurrencyShort(active.opp.amount)} />
+                  <DetailStat label="Sim ARR" value={formatCurrencyShort(active.opp.arr)} />
+                  <DetailStat label="Close" value={active.opp.closeQuarter} />
+                  <DetailStat label="Technical Fit" value={active.opp.fit} />
+                  <DetailStat label="Tech Close" value={active.opp.technicalCloseStatus} />
+                  <DetailStat label="Meetings" value={String(active.opp.meetings)} />
+                  <DetailStat label="Emails" value={String(active.opp.emails)} />
+                  <DetailStat label="AI Recs" value={String(active.opp.recommendations)} />
+                </div>
+
+                <div className="flex min-w-0 flex-wrap items-center gap-x-8 gap-y-0.5 border-t border-charcoal-100 pt-2 text-xs">
+                  <p className="min-w-0 max-w-full truncate">
+                    <span className="text-charcoal-500">Next: </span>
+                    <span className="font-semibold text-charcoal-800">{active.opp.nextAction}</span>
+                  </p>
+                  {active.opp.latestSignal ? (
+                    <p className="min-w-0 max-w-full truncate">
+                      <span className="text-charcoal-500">Signal: </span>
+                      <span className="font-medium text-charcoal-600">{active.opp.latestSignal}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </Link>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
+export function PipelineRows({ deals, query = "" }: { deals: PipelineDeal[]; query?: string }) {
   const [period, setPeriod] = useState<Period>("quarter");
-  const [owner, setOwner] = useState("all");
 
-  const owners = useMemo(() => Array.from(new Set(deals.map((deal) => deal.owner))).sort(), [deals]);
   const now = useMemo(() => new Date(), []);
 
   const filtered = useMemo(() => {
@@ -172,14 +286,21 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
     if (period === "quarter") range = fiscalQuarterBounds(now);
     else if (period === "fy") range = fiscalYearBounds(now);
 
+    const needle = query.trim().toLowerCase();
+
     return deals.filter((deal) => {
-      if (owner !== "all" && deal.owner !== owner) return false;
+      if (needle) {
+        const haystack = [deal.accountName, deal.name, dealOppCode(deal), deal.stage, deal.latestSignal ?? ""]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
       if (!range) return true;
       if (!deal.closeDate) return false;
       const close = new Date(deal.closeDate);
       return close >= range.start && close < range.end;
     });
-  }, [deals, owner, period, now]);
+  }, [deals, period, now, query]);
 
   const totalAmount = filtered.reduce((sum, deal) => sum + deal.amount, 0);
   const closedAmount = filtered.filter((deal) => deal.isClosed).reduce((sum, deal) => sum + deal.amount, 0);
@@ -198,47 +319,27 @@ export function PipelineRows({ deals }: { deals: PipelineDeal[] }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-lg border border-charcoal-200 bg-charcoal-50 p-0.5">
-            {(
-              [
-                { key: "quarter", label: "Quarter" },
-                { key: "fy", label: "Fiscal Year" },
-                { key: "all", label: "All Time" },
-              ] as { key: Period; label: string }[]
-            ).map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => setPeriod(option.key)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  period === option.key ? "bg-iris-500 text-white shadow-sm" : "bg-transparent text-charcoal-600 hover:bg-iris-50"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <label htmlFor="pipeline-owner" className="whitespace-nowrap">
-              SE
-            </label>
-            <select
-              id="pipeline-owner"
-              value={owner}
-              onChange={(event) => setOwner(event.target.value)}
-              className="sm:max-w-[200px]"
+        <div className="inline-flex shrink-0 rounded-lg border border-charcoal-200 bg-charcoal-50 p-0.5">
+          {(
+            [
+              { key: "quarter", label: "Quarter" },
+              { key: "fy", label: "Fiscal Year" },
+              { key: "all", label: "All Time" },
+            ] as { key: Period; label: string }[]
+          ).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setPeriod(option.key)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                period === option.key ? "bg-iris-500 text-white shadow-sm" : "bg-transparent text-charcoal-600 hover:bg-iris-50"
+              }`}
             >
-              <option value="all">All SEs</option>
-              {owners.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
+              {option.label}
+            </button>
+          ))}
         </div>
-        <div className="order-last w-full min-w-[240px] flex-1 lg:order-none lg:w-auto">
+        <div className="order-last w-full min-w-[280px] flex-1 lg:order-none lg:w-auto">
           <PipelineStatusChart bars={statusBars} />
         </div>
         <div className="flex items-center gap-4 text-right">

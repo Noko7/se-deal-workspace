@@ -1,70 +1,41 @@
+import { Pointer } from "lucide-react";
 import { detectMeetingPlatform, meetingPlatformLabel, type MeetingPlatform } from "@/lib/meeting";
 
-function ZoomGlyph() {
-  return (
-    <svg viewBox="0 0 32 32" className="h-4 w-4" aria-hidden>
-      <rect width="32" height="32" rx="8" fill="#2D8CFF" />
-      <path
-        d="M8 12.5c0-.83.67-1.5 1.5-1.5h7c.83 0 1.5.67 1.5 1.5v7c0 .83-.67 1.5-1.5 1.5h-7A1.5 1.5 0 0 1 8 19.5v-7Zm11 1.7 4-2.5c.5-.32 1.2.04 1.2.66v8.28c0 .62-.7.98-1.2.66l-4-2.5v-4.6Z"
-        fill="#fff"
-      />
-    </svg>
-  );
-}
-
-function TeamsGlyph() {
-  return (
-    <svg viewBox="0 0 32 32" className="h-4 w-4" aria-hidden>
-      <rect width="32" height="32" rx="8" fill="#5059C9" />
-      <circle cx="20.5" cy="11" r="2.6" fill="#fff" opacity="0.9" />
-      <rect x="8" y="12" width="11" height="10" rx="2" fill="#fff" />
-      <text x="13.5" y="20" fontSize="9" fontWeight="700" fill="#5059C9" textAnchor="middle" fontFamily="Arial, sans-serif">
-        T
-      </text>
-      <path d="M21 14.5h3.4c.6 0 .6.4.6.9v4.2c0 1.6-1.3 2.9-3 2.9-.6 0-1-.1-1.5-.3v-7.7Z" fill="#7B83EB" />
-    </svg>
-  );
-}
-
-function MeetGlyph() {
-  return (
-    <svg viewBox="0 0 32 32" className="h-4 w-4" aria-hidden>
-      <rect width="32" height="32" rx="8" fill="#fff" stroke="#e0e0e0" />
-      <path d="M9 12.5c0-.83.67-1.5 1.5-1.5H17v8H10.5A1.5 1.5 0 0 1 9 17.5v-5Z" fill="#00832D" />
-      <path d="M17 14.2l4-2.5c.5-.3 1.1.05 1.1.64v7.3c0 .59-.6.94-1.1.64l-4-2.5v-3.6Z" fill="#00AC47" />
-      <path d="M17 11h4.6c.77 0 1.4.63 1.4 1.4V14l-6-1.8V11Z" fill="#FFBA00" />
-      <path d="M17 20h4.6c.77 0 1.4-.63 1.4-1.4V17l-6 1.8V20Z" fill="#0066DA" />
-      <path d="M9 17.5c0 .83.67 1.5 1.5 1.5H17v-7H9v5Z" fill="#2684FC" opacity="0.0" />
-    </svg>
-  );
-}
-
-const GLYPHS: Record<MeetingPlatform, () => React.ReactElement> = {
-  zoom: ZoomGlyph,
-  teams: TeamsGlyph,
-  meet: MeetGlyph,
+// Real brand marks live in /public/meeting-icons. Zoom ships as its wordmark
+// (wider), so we constrain by height and let the width scale naturally.
+const ICONS: Record<MeetingPlatform, { src: string; className: string }> = {
+  zoom: { src: "/meeting-icons/zoom.png", className: "h-4 w-auto" },
+  teams: { src: "/meeting-icons/teams.png", className: "h-6 w-auto" },
+  meet: { src: "/meeting-icons/meet.png", className: "h-6 w-auto" },
 };
 
 /**
- * Renders the meeting platform badge (Zoom / Teams / Google Meet) detected from
- * the Outlook join link. When a join URL is present it links straight to the
- * meeting so it can be joined from here.
+ * Renders the meeting platform brand icon (Zoom / Teams / Google Meet) detected
+ * from the Outlook join link. When a join URL is present the icon links straight
+ * to the meeting so it can be joined from here.
  */
-export function MeetingPlatformIcon({ joinUrl }: { joinUrl: string | null | undefined }) {
+export function MeetingPlatformIcon({
+  joinUrl,
+  showAffordance = false,
+}: {
+  joinUrl: string | null | undefined;
+  /** Append a pointer-finger icon to signal the badge is clickable. */
+  showAffordance?: boolean;
+}) {
   const platform = detectMeetingPlatform(joinUrl);
   if (!platform) return null;
 
   const label = meetingPlatformLabel(platform);
-  const Glyph = GLYPHS[platform];
+  const icon = ICONS[platform];
   const content = (
     <>
-      <Glyph />
-      <span className="font-medium">{label}</span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={icon.src} alt={label} className={icon.className} />
+      {showAffordance && joinUrl ? <Pointer className="h-3.5 w-3.5 shrink-0 text-iris-500" /> : null}
     </>
   );
 
-  const className =
-    "inline-flex items-center gap-1.5 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-xs text-charcoal-700";
+  const className = "inline-flex items-center gap-1.5";
 
   if (joinUrl) {
     return (
@@ -73,7 +44,7 @@ export function MeetingPlatformIcon({ joinUrl }: { joinUrl: string | null | unde
         target="_blank"
         rel="noreferrer"
         title={`Join via ${label}`}
-        className={`${className} transition hover:border-iris-300 hover:text-iris-700`}
+        className={`${className} transition hover:opacity-80`}
       >
         {content}
       </a>

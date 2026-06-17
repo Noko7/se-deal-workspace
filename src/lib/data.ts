@@ -43,6 +43,18 @@ function llmCredentialDelegate(): LlmCredentialDelegate | null {
   return delegate ?? null;
 }
 
+// This tool is scoped to a single logged-in systems engineer: they only see
+// their own accounts/opportunities. We map the session to a seed "owner". If
+// the signed-in name doesn't match a seeded SE (e.g. a fresh demo account), we
+// fall back to a stable primary SE so the workspace is never empty.
+const PRIMARY_SE = "Lizi Singletary";
+
+export function resolveSeOwner(owners: string[], sessionName: string | null | undefined): string | null {
+  if (sessionName && owners.includes(sessionName)) return sessionName;
+  if (owners.includes(PRIMARY_SE)) return PRIMARY_SE;
+  return owners[0] ?? null;
+}
+
 export async function getDashboardData() {
   const [deals, meetings, integrations, unassignedEmails] = await Promise.all([
     prisma.deal.findMany({
@@ -90,12 +102,17 @@ export async function getPipelineDeals() {
       technicalCloseStatus: true,
       closeDate: true,
       isClosed: true,
+      latestSignal: true,
+      _count: { select: { meetings: true, emails: true, recommendations: true } },
     },
   });
 
-  return deals.map((deal) => ({
+  return deals.map(({ _count, ...deal }) => ({
     ...deal,
     closeDate: deal.closeDate ? deal.closeDate.toISOString() : null,
+    meetingsCount: _count.meetings,
+    emailsCount: _count.emails,
+    recommendationsCount: _count.recommendations,
   }));
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarClock, FileText, Presentation, Search, StickyNote } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowRight, CalendarClock, FileText, Presentation, StickyNote } from "lucide-react";
 import { relativeDay, shortDate } from "@/lib/format";
 import { EmptyState } from "@/components/ui";
 
@@ -24,9 +24,7 @@ export type AccountOverview = {
   lastActivityAt: string;
 };
 
-export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) {
-  const [query, setQuery] = useState("");
-
+export function AccountsExplorer({ accounts, query = "" }: { accounts: AccountOverview[]; query?: string }) {
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = accounts.filter((account) => {
@@ -41,18 +39,6 @@ export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) 
 
   return (
     <div className="space-y-4">
-      <label className="relative block max-w-md">
-        <span className="sr-only">Search accounts</span>
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-iris-500" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by account, deal, owner, or signal"
-          className="w-full pl-9"
-        />
-      </label>
-
       <p className="text-xs text-charcoal-500">
         Showing {filtered.length} of {accounts.length} accounts (A–Z)
       </p>
@@ -64,7 +50,7 @@ export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) 
           {filtered.map((account) => (
             <Link
               key={account.id}
-              href={`/accounts/${account.id}`}
+              href={`/?account=${account.id}`}
               className="group flex flex-col rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm transition hover:border-l-iris-600 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-2">

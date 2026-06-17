@@ -37,10 +37,9 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [noAccount, setNoAccount] = useState(false);
 
-  const nextParam = () => {
-    if (typeof window === "undefined") return "/";
-    return new URLSearchParams(window.location.search).get("next") || "/";
-  };
+  // Account-AI is the workspace home: always land there after login, regardless
+  // of which page bounced the user to the sign-in screen.
+  const nextParam = () => "/";
 
   const submitEmail = async (event: React.FormEvent) => {
     event.preventDefault();

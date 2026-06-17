@@ -17,6 +17,7 @@ import {
 } from "./data";
 import { integrationAdapters } from "./adapters";
 import { upsertZoomConfig } from "./zoom";
+import { createSalesforceTask } from "./salesforce";
 import { sanitizeField } from "./sanitize";
 
 export async function uploadArtifactAction(formData: FormData) {
@@ -205,6 +206,37 @@ export async function saveLlmCredentialsAction(formData: FormData) {
   });
 
   revalidatePath("/integrations");
+}
+
+export async function logSalesforceTaskAction(formData: FormData) {
+  const taskName = sanitizeField(formData.get("taskName"), 200);
+  if (!taskName) return;
+
+  const dueDateRaw = String(formData.get("dueDate") ?? "").trim();
+  const dueDate = dueDateRaw ? new Date(`${dueDateRaw}T00:00:00`) : null;
+  const durationRaw = String(formData.get("durationHrs") ?? "").trim();
+  const durationHrs = durationRaw ? Number(durationRaw) : null;
+
+  await createSalesforceTask({
+    dealId: formData.get("dealId") ? String(formData.get("dealId")) : undefined,
+    meetingId: formData.get("meetingId") ? String(formData.get("meetingId")) : undefined,
+    taskName,
+    description: sanitizeField(formData.get("description"), 4000),
+    assignee: sanitizeField(formData.get("assignee"), 200),
+    relatedAccount: sanitizeField(formData.get("relatedAccount"), 200),
+    products: formData.getAll("products").map((value) => String(value)),
+    type: sanitizeField(formData.get("type"), 60),
+    status: sanitizeField(formData.get("status"), 60) || "Not Started",
+    dueDate: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null,
+    durationHrs: durationHrs !== null && Number.isFinite(durationHrs) ? durationHrs : null,
+    contact: sanitizeField(formData.get("contact"), 200),
+    priority: sanitizeField(formData.get("priority"), 30) || "Normal",
+    remind: String(formData.get("remind") ?? "") === "on",
+    createdBy: "se.workspace@nutanix.com",
+  });
+
+  revalidatePath("/calendar");
+  revalidatePath("/");
 }
 
 export async function saveZoomConfigAction(formData: FormData) {

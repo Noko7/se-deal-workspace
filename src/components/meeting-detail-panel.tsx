@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   CalendarClock,
   ChevronDown,
+  ClipboardList,
   MapPin,
   NotebookPen,
   Paperclip,
@@ -13,10 +14,28 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { addNoteAction, uploadArtifactAction } from "@/lib/actions";
+import { addNoteAction, logSalesforceTaskAction, uploadArtifactAction } from "@/lib/actions";
 import { MeetingPlatformIcon } from "@/components/meeting-platform-icon";
 import { Button, StatusPill } from "@/components/ui";
 import { zonedNaiveISO, type CalendarMeeting } from "@/lib/calendar";
+import {
+  PRIORITY_OPTIONS,
+  PRODUCT_OPTIONS,
+  TASK_STATUS_OPTIONS,
+  TASK_TYPE_OPTIONS,
+} from "@/lib/salesforce-options";
+
+// "YYYY-MM-DD" for the meeting's day in the viewer's zone (for the due-date default).
+function meetingDateInput(startIso: string, timeZone: string): string {
+  return zonedNaiveISO(startIso, timeZone).slice(0, 10);
+}
+
+// Meeting length in hours (1 decimal) for the task duration default.
+function meetingDurationHrs(startIso: string, endIso: string): string {
+  const hrs = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 3_600_000;
+  if (!Number.isFinite(hrs) || hrs <= 0) return "";
+  return (Math.round(hrs * 10) / 10).toString();
+}
 
 function formatRange(startIso: string, endIso: string, timeZone: string): string {
   // Re-express the instants in the viewer's chosen zone, then format from the
@@ -65,6 +84,7 @@ export function MeetingDetailPanel({
   const [showAddNote, setShowAddNote] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const open = Boolean(meeting);
 
@@ -76,6 +96,7 @@ export function MeetingDetailPanel({
       setShowAddNote(false);
       setNotesOpen(false);
       setAssetsOpen(false);
+      setTaskOpen(false);
     }
   }
 
@@ -371,6 +392,133 @@ export function MeetingDetailPanel({
                         </div>
                       )}
                     </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Log Salesforce task (collapsible) — replaces Helper task entry */}
+              <section>
+                <button
+                  type="button"
+                  onClick={() => setTaskOpen((value) => !value)}
+                  aria-expanded={taskOpen}
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-iris-500 px-3 py-2 text-left text-white hover:bg-iris-600"
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white">
+                    <ClipboardList className="h-3.5 w-3.5 text-white" />
+                    Log Salesforce task
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-white transition-transform duration-300 ${taskOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <div
+                  className={`grid transition-[grid-template-rows] duration-300 ease-out ${taskOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                >
+                  <div className="overflow-hidden">
+                    <form
+                      action={logSalesforceTaskAction}
+                      className="mt-2 space-y-2.5 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3 text-sm"
+                    >
+                      <input type="hidden" name="dealId" value={data.deal.id} />
+                      <input type="hidden" name="meetingId" value={data.id} />
+
+                      <label className="block space-y-1">
+                        <span className="text-xs font-semibold text-charcoal-600">Task Name</span>
+                        <input name="taskName" required defaultValue={`Follow up: ${data.subject}`} className="w-full text-sm" />
+                      </label>
+
+                      <label className="block space-y-1">
+                        <span className="text-xs font-semibold text-charcoal-600">Description / Notes</span>
+                        <textarea name="description" rows={3} placeholder="What needs to happen next?" className="w-full text-sm" />
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Assignee</span>
+                          <input name="assignee" defaultValue={data.organizer} className="w-full text-sm" />
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Related Account</span>
+                          <input name="relatedAccount" defaultValue={data.deal.accountName} className="w-full text-sm" />
+                        </label>
+                      </div>
+
+                      <fieldset className="space-y-1.5 rounded-md border border-charcoal-200 bg-white p-2.5">
+                        <legend className="px-1 text-xs font-semibold text-charcoal-600">Products</legend>
+                        <div className="grid grid-cols-2 gap-1">
+                          {PRODUCT_OPTIONS.map((product) => (
+                            <label key={product} className="flex items-center gap-1.5 text-xs text-charcoal-700">
+                              <input type="checkbox" name="products" value={product} className="h-3.5 w-3.5 accent-iris-600" />
+                              {product}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Type</span>
+                          <select name="type" defaultValue="Meeting" className="w-full text-sm">
+                            {TASK_TYPE_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Status</span>
+                          <select name="status" defaultValue="Not Started" className="w-full text-sm">
+                            {TASK_STATUS_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Due Date</span>
+                          <input type="date" name="dueDate" defaultValue={meetingDateInput(data.start, timeZone)} className="w-full text-sm" />
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Duration (hrs)</span>
+                          <input type="number" step="0.25" min="0" name="durationHrs" defaultValue={meetingDurationHrs(data.start, data.end)} className="w-full text-sm" />
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Contact</span>
+                          <select name="contact" defaultValue="" className="w-full text-sm">
+                            <option value="">No contact</option>
+                            {data.attendees.map((attendee) => (
+                              <option key={attendee.email || attendee.name} value={attendee.name}>
+                                {attendee.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs font-semibold text-charcoal-600">Priority</span>
+                          <select name="priority" defaultValue="Normal" className="w-full text-sm">
+                            {PRIORITY_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs text-charcoal-700">
+                        <input type="checkbox" name="remind" className="h-3.5 w-3.5 accent-iris-600" />
+                        Remind me about this task
+                      </label>
+
+                      <div className="flex justify-end">
+                        <Button type="submit" className="px-3 py-1.5 text-xs">
+                          Log Salesforce Task
+                        </Button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               </section>

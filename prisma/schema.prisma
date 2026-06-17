@@ -82,6 +82,7 @@ model Deal {
   qbrChecklistItems   QBRChecklistItem[]
   notes               MeetingNote[]
   transcripts         MeetingTranscript[]
+  salesforceTasks     SalesforceTask[]
 }
 
 model Meeting {
@@ -103,6 +104,7 @@ model Meeting {
   contexts        CustomerContext[]
   notes           MeetingNote[]
   transcript      MeetingTranscript?
+  salesforceTasks SalesforceTask[]
 
   @@index([dealId])
 }
@@ -312,6 +314,39 @@ model MeetingNote {
   updatedAt  DateTime @updatedAt
   deal       Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
   meeting    Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  @@index([dealId])
+  @@index([meetingId])
+}
+
+// A Salesforce activity Task logged from the calendar (replaces manual entry in
+// the "Helper" tool). Mirrors the Helper task fields. syncStatus tracks the push
+// to the live Salesforce API; until live credentials exist it stays QUEUED.
+model SalesforceTask {
+  id             String    @id @default(cuid())
+  dealId         String?
+  meetingId      String?
+  taskName       String
+  description    String?
+  assignee       String?
+  relatedAccount String?
+  products       String    @default("[]")
+  type           String?
+  status         String    @default("Not Started")
+  dueDate        DateTime?
+  durationHrs    Float?
+  contact        String?
+  priority       String    @default("Normal")
+  remind         Boolean   @default(false)
+  syncStatus     String    @default("QUEUED")
+  syncDetail     String?
+  syncedAt       DateTime?
+  salesforceId   String?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deal           Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  meeting        Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
 
   @@index([dealId])
   @@index([meetingId])

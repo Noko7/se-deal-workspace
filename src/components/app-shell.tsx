@@ -35,7 +35,7 @@ const navigation = [
   { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
   { href: "/simple-sizer", label: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: Calculator },
-  { href: "/qbr", label: "QBR Deck Builder", description: "Prep checklists and deck workflow", icon: Presentation },
+  { href: "/qbr", label: "QBR Deck Builder", description: "Pull CS360 health checks into an on-brand QBR deck", icon: Presentation },
 ];
 
 // Routes that render without the app chrome (their own full-screen layout).

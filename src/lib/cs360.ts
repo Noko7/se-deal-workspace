@@ -16,6 +16,33 @@ export interface OpenCases {
   rfe: number;
 }
 
+// --- Customer Progress Report fields ----------------------------------------
+
+export interface CapabilityRow {
+  version: string;
+  capability: string;
+  usage: "Power" | "Standard" | "Usage Unknown";
+}
+
+export interface CertRow {
+  label: string;
+  users: number;
+  pct: number;
+}
+
+export interface EosSoftwareRow {
+  version: string;
+  eom: string;
+  eos: string;
+  latest: string;
+  clusters: number;
+}
+
+export interface RenewalRow {
+  product: string;
+  earliest: string;
+}
+
 export interface ClusterUtil {
   name: string;
   cpuMaxPct: number;
@@ -98,7 +125,7 @@ export interface Cs360HealthReport {
   account: { name: string; vertical: string };
   pulseEnabled: boolean;
   lastPulse: string;
-  team: { ae: string; se: string[]; csm: string; associateSe: string[] };
+  team: { ae: string; se: string; sam: string; ase: string; executiveSponsor: string; tam: string; csResident: string };
   summary: {
     activeClusters: number;
     totalClusters: number;
@@ -152,6 +179,18 @@ export interface Cs360HealthReport {
     supportRenewals6to12: number;
     nccCritical: number;
   };
+  // --- Progress Report data ---
+  pnpReadiness: { allClusters: number; peClusters: number; prismCentrals: number; licensed: number; ready: number; insufficientData: number; prereqNotMet: number };
+  licenseActivationLabel: string; // e.g. "320 / 320 (100%)"
+  licenseActivationPct: number;
+  productTier: string; // e.g. "NCI Pro"
+  capabilityAdoption: CapabilityRow[];
+  supportOverview: { sinceDate: string; open: number; closed: number; byInitialPriority: OpenCases };
+  renewals: { sinceLabel: string; items: RenewalRow[]; totalQuantity: number; licenseType: string; renewalPeriod: string };
+  certifications: CertRow[];
+  eosSoftware: EosSoftwareRow[];
+  blocksReview: { totalBlocks: number; age3to5: number; ageOver5: number; eomNow: number; eomUnder1yr: number };
+  discoveriesSummary: { critical: number; warning: number; active: number };
 }
 
 // --- deterministic PRNG (mulberry32 seeded by a string hash) -----------------
@@ -187,7 +226,7 @@ const VERTICALS = [
 ];
 
 const AE_POOL = ["Steven Roman", "Priya Natarajan", "Marcus Webb", "Dana Kessler"];
-const CSM_POOL = ["Gabriel Flores", "Erin Mathews", "Tobias Lund", "Sofia Marquez"];
+const SAM_POOL = ["Daniel Rivera", "Erin Mathews", "Tobias Lund", "Sofia Marquez"];
 
 function pick<T>(rng: () => number, arr: T[]): T {
   return arr[Math.floor(rng() * arr.length)];
@@ -206,6 +245,10 @@ function addDays(d: Date, days: number): Date {
   const out = new Date(d);
   out.setDate(out.getDate() + days);
   return out;
+}
+
+function monthsUntilLocal(dateStr: string): number {
+  return (new Date(dateStr).getTime() - Date.now()) / (30.44 * 86400000);
 }
 
 /**
@@ -427,15 +470,35 @@ export function fetchCs360HealthReport(
 
   const npsGiven = rng() > 0.4;
 
+  // --- Progress Report derived fields ---
+  const totalCores = licenses.filter((l) => l.status === "Activated").reduce((a, l) => a + l.entitled, 0);
+  const capabilityAdoption: CapabilityRow[] = [
+    { version: "2.0", capability: "Deployment Scale", usage: "Power" },
+    { version: "2.0", capability: "Enterprise Data Services", usage: featureAdoption.compression ? "Power" : "Standard" },
+    { version: "2.0", capability: "Enterprise Compute", usage: "Power" },
+    { version: "2.0", capability: "Data Protection & Disaster Recovery", usage: featureAdoption.asyncDr ? "Standard" : "Usage Unknown" },
+    { version: "2.0", capability: "Security", usage: "Standard" },
+    { version: "2.0", capability: "Networking & Network Security", usage: featureAdoption.metroAvailability ? "Standard" : "Usage Unknown" },
+    { version: "2.0", capability: "Management & Analytics", usage: featureAdoption.prismCentral ? "Standard" : "Usage Unknown" },
+  ];
+  const closedCases = supportCases.length;
+  const eosSoftware: EosSoftwareRow[] = softwareVersions
+    .filter((s) => monthsUntilLocal(s.aosEos) < 18)
+    .map((s) => ({ version: s.aosVersion, eom: s.aosEom.slice(0, 7).replace("-", "/"), eos: s.aosEos.slice(0, 7).replace("-", "/"), latest: "6.10.1.9", clusters: 1 }));
+  const ageOver5 = blocks.filter((b) => b.contractStatus !== "Under Support").length;
+
   return {
     account: { name: accountName, vertical },
     pulseEnabled: rng() > 0.08,
     lastPulse,
     team: {
       ae: pick(rng, AE_POOL),
-      se: [options.se?.trim() || "Lizi Singletary"],
-      csm: pick(rng, CSM_POOL),
-      associateSe: rng() > 0.5 ? ["Luke Piermarini"] : [],
+      se: options.se?.trim() || "Lizi Singletary",
+      sam: pick(rng, SAM_POOL),
+      ase: rng() > 0.5 ? "Luke Piermarini" : "TBA",
+      executiveSponsor: "-",
+      tam: "-",
+      csResident: "-",
     },
     summary: {
       activeClusters: clusterCount,
@@ -482,6 +545,57 @@ export function fetchCs360HealthReport(
       supportRenewals0to6: aging4Plus,
       supportRenewals6to12: Math.max(0, clusterCount - 1),
       nccCritical: 0,
+    },
+    pnpReadiness: {
+      allClusters: clusterCount + prismCentrals,
+      peClusters: clusterCount,
+      prismCentrals,
+      licensed: clusterCount + prismCentrals,
+      ready: 0,
+      insufficientData: 0,
+      prereqNotMet: 0,
+    },
+    licenseActivationLabel: `${totalCores} / ${totalCores} (100%)`,
+    licenseActivationPct: 100,
+    productTier: clusterSummary[0]?.licenseType ?? "NCI Pro",
+    capabilityAdoption,
+    supportOverview: {
+      sinceDate: isoDate(addDays(now, -365)),
+      open: openCases.p1 + openCases.p2 + openCases.p3 + openCases.p4,
+      closed: closedCases,
+      byInitialPriority: {
+        p1: supportCases.filter((c) => c.initialPriority.startsWith("P1")).length,
+        p2: supportCases.filter((c) => c.initialPriority.startsWith("P2")).length,
+        p3: supportCases.filter((c) => c.initialPriority.startsWith("P3")).length,
+        p4: 0,
+        rfe: 0,
+      },
+    },
+    renewals: {
+      sinceLabel: "Next 12 Months",
+      items: [{ product: "NCI - Cores", earliest: isoDate(addDays(now, 280)).slice(0, 7).replace("-", "/") }],
+      totalQuantity: totalCores,
+      licenseType: clusterSummary[0]?.licenseType ?? "NCI Pro",
+      renewalPeriod: isoDate(addDays(now, 280)).slice(0, 7),
+    },
+    certifications: [
+      { label: "NCA Certified", users: 0, pct: 0 },
+      { label: "NCM Certified", users: 0, pct: 0 },
+      { label: "NCP Certified", users: Math.floor(rng() * 3), pct: 0 },
+      { label: "Uncertified Portal Users", users: 4, pct: 100 },
+    ],
+    eosSoftware,
+    blocksReview: {
+      totalBlocks: blocks.length,
+      age3to5: Math.max(0, blocks.length - ageOver5 - 1),
+      ageOver5,
+      eomNow: eosSoftware.length,
+      eomUnder1yr: 0,
+    },
+    discoveriesSummary: {
+      critical: discoveries.filter((d) => d.severity === "Critical").length,
+      warning: discoveries.filter((d) => d.severity !== "Critical").length,
+      active: discoveries.length,
     },
   };
 }

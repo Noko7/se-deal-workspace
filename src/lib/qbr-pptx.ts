@@ -162,6 +162,63 @@ export async function exportDeckToPptx(
         });
         break;
       }
+      case "team": {
+        const cols = Math.min(c.members.length, 4);
+        const gap = 0.3;
+        const cardW = (PAGE_W - MARGIN * 2 - gap * (cols - 1)) / cols;
+        const cardH = Math.min(h, 3.6);
+        const y0 = top + (h - cardH) / 2;
+        c.members.forEach((m, mi) => {
+          const x = MARGIN + mi * (cardW + gap);
+          const initials = m.name.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "-";
+          slide.addShape(SHAPE.roundRect, { x, y: y0, w: cardW, h: cardH, rectRadius: 0.08, fill: { color: "FBFAFF" }, line: { color: NUTANIX.mist, width: 1 } });
+          const av = 1.0;
+          slide.addShape(SHAPE.ellipse, { x: x + (cardW - av) / 2, y: y0 + 0.4, w: av, h: av, fill: { color: NUTANIX.purple }, line: { type: "none" } });
+          slide.addText(initials, { x: x + (cardW - av) / 2, y: y0 + 0.4, w: av, h: av, align: "center", valign: "middle", color: "FFFFFF", bold: true, fontSize: 22, fontFace: NUTANIX_FONT.heading });
+          slide.addText(m.name, { x: x + 0.1, y: y0 + 1.55, w: cardW - 0.2, h: 0.4, align: "center", bold: true, fontSize: 16, color: NUTANIX.ink, fontFace: NUTANIX_FONT.heading });
+          slide.addText(m.role, { x: x + 0.1, y: y0 + 1.95, w: cardW - 0.2, h: 0.4, align: "center", fontSize: 12, color: NUTANIX.purple, fontFace: NUTANIX_FONT.body });
+        });
+        break;
+      }
+      case "bullets": {
+        const cols = c.columns ?? c.groups.length;
+        const gap = 0.4;
+        const colW = (PAGE_W - MARGIN * 2 - gap * (cols - 1)) / cols;
+        c.groups.forEach((g, gi) => {
+          const x = MARGIN + (gi % cols) * (colW + gap);
+          const y = top + Math.floor(gi / cols) * (h / Math.ceil(c.groups.length / cols));
+          let cursor = y;
+          if (g.heading) {
+            slide.addText(g.heading, { x, y: cursor, w: colW, h: 0.4, bold: true, fontSize: 15, color: NUTANIX.purple, fontFace: NUTANIX_FONT.heading });
+            cursor += 0.5;
+          }
+          const runs = g.items.map((it) => ({ text: it, options: { bullet: { code: "2022", indent: 14 }, color: NUTANIX.ink, fontSize: 13, fontFace: NUTANIX_FONT.body, paraSpaceAfter: 8, breakLine: true } }));
+          slide.addText(runs, { x, y: cursor, w: colW, h: h - (cursor - y) - 0.1, valign: "top" });
+        });
+        break;
+      }
+      case "meters": {
+        const globalMax = Math.max(...c.items.map((x) => x.max ?? x.value), 1);
+        const rowH = Math.min(0.55, h / Math.max(1, c.items.length));
+        const totalH = rowH * c.items.length;
+        const y0 = top + (h - totalH) / 2;
+        const labelW = 3.0;
+        const valueW = 1.6;
+        const barX = MARGIN + labelW + 0.2;
+        const barW = PAGE_W - MARGIN * 2 - labelW - valueW - 0.4;
+        c.items.forEach((it, ii) => {
+          const y = y0 + ii * rowH;
+          const max = it.max ?? globalMax;
+          const w = Math.max(0.04, (it.value / (max || 1))) * barW;
+          const ts = toneStyle(it.tone);
+          const barColor = it.tone ? ts.color : NUTANIX.purple;
+          slide.addText(it.label, { x: MARGIN, y, w: labelW, h: rowH, align: "right", valign: "middle", fontSize: 12, color: NUTANIX.ink, fontFace: NUTANIX_FONT.body });
+          slide.addShape(SHAPE.roundRect, { x: barX, y: y + rowH / 2 - 0.11, w: barW, h: 0.22, rectRadius: 0.11, fill: { color: "EEEEF6" }, line: { type: "none" } });
+          slide.addShape(SHAPE.roundRect, { x: barX, y: y + rowH / 2 - 0.11, w, h: 0.22, rectRadius: 0.11, fill: { color: barColor }, line: { type: "none" } });
+          slide.addText(it.display ?? `${it.value}${c.unit ?? ""}`, { x: barX + barW + 0.15, y, w: valueW, h: rowH, valign: "middle", bold: true, fontSize: 13, color: barColor, fontFace: NUTANIX_FONT.heading });
+        });
+        break;
+      }
       case "metrics": {
         const groups = c.groups;
         const cols = groups.length > 2 ? 2 : groups.length;

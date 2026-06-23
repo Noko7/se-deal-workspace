@@ -215,39 +215,54 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         {/* Slide rail */}
-        <div className="max-h-[72vh] space-y-1.5 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2">
+        <div className="max-h-[72vh] space-y-1 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2">
           {orderedSlides.map((s, i) => {
             const isHidden = hidden[s.id];
             const isActive = s.id === activeId;
             return (
               <div
                 key={s.id}
-                className={`group flex items-center gap-2 rounded-md border px-2 py-1.5 transition ${
-                  isActive ? "border-iris-400 bg-white shadow-sm" : "border-transparent hover:bg-white"
-                } ${isHidden ? "opacity-55" : ""}`}
+                className={`group flex items-stretch gap-1.5 rounded-lg border bg-white transition ${
+                  isActive ? "border-iris-300 shadow-sm ring-1 ring-iris-200" : "border-charcoal-200 hover:border-charcoal-300"
+                } ${isHidden ? "opacity-60" : ""}`}
               >
-                <button onClick={() => setActiveId(s.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                  <span className="w-5 shrink-0 text-center text-[11px] font-semibold text-charcoal-400">{i + 1}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-charcoal-800">{s.title}</span>
-                    <span className="block truncate text-[11px] text-charcoal-500">{s.section}</span>
+                <button
+                  onClick={() => setActiveId(s.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-l-lg bg-transparent px-2 py-2 text-left hover:bg-charcoal-50"
+                >
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold ${
+                      isActive ? "bg-iris-500 text-white" : "bg-iris-50 text-iris-700"
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0 leading-tight">
+                    <span className={`block truncate text-[13px] font-semibold ${isHidden ? "text-charcoal-500" : "text-charcoal-900"}`}>
+                      {s.title}
+                    </span>
+                    <span className="block truncate text-[11px] text-charcoal-500">{isHidden ? "Hidden · " : ""}{s.section}</span>
                   </span>
                 </button>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-                  <button onClick={() => move(s.id, -1)} className="rounded p-1 text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" aria-label="Move up">
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => move(s.id, 1)} className="rounded p-1 text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" aria-label="Move down">
-                    <ArrowDown className="h-3.5 w-3.5" />
+                <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+                  <span className="flex flex-col opacity-0 transition group-hover:opacity-100">
+                    <button onClick={() => move(s.id, -1)} className="rounded bg-transparent px-1 py-0.5 text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" aria-label="Move up">
+                      <ArrowUp className="h-3 w-3" />
+                    </button>
+                    <button onClick={() => move(s.id, 1)} className="rounded bg-transparent px-1 py-0.5 text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" aria-label="Move down">
+                      <ArrowDown className="h-3 w-3" />
+                    </button>
+                  </span>
+                  <button
+                    onClick={() => setHidden((h) => ({ ...h, [s.id]: !h[s.id] }))}
+                    className={`shrink-0 rounded-md bg-transparent p-1.5 ${
+                      isHidden ? "text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" : "text-iris-500 hover:bg-iris-50 hover:text-iris-700"
+                    }`}
+                    aria-label={isHidden ? "Show slide" : "Hide slide"}
+                  >
+                    {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <button
-                  onClick={() => setHidden((h) => ({ ...h, [s.id]: !h[s.id] }))}
-                  className={`shrink-0 rounded p-1 ${isHidden ? "text-charcoal-400 hover:text-charcoal-700" : "text-iris-500 hover:text-iris-700"}`}
-                  aria-label={isHidden ? "Show slide" : "Hide slide"}
-                >
-                  {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
               </div>
             );
           })}

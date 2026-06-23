@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { fetchCs360HealthReport } from "@/lib/cs360";
+import { buildUclaSampleReport, UCLA_SAMPLE_ACCOUNT } from "@/lib/qbr-sample-ucla";
 import { buildQbrDeck, type QbrDeck, type QbrSlide } from "@/lib/qbr-deck";
 import type { HealthTone } from "@/lib/nutanix-brand";
 import { exportDeckToPptx } from "@/lib/qbr-pptx";
@@ -53,7 +54,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     setLoading(true);
     // Simulated CS360 pull latency so the flow matches the live connector.
     window.setTimeout(() => {
-      const report = fetchCs360HealthReport(selected, { se: defaultSe });
+      const report =
+        selected === UCLA_SAMPLE_ACCOUNT ? buildUclaSampleReport(defaultSe) : fetchCs360HealthReport(selected, { se: defaultSe });
       const built = buildQbrDeck(report);
       setDeck(built);
       setOrder(built.slides.map((s) => s.id));

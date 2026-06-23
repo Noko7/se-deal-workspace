@@ -117,6 +117,66 @@ function Content({ content }: { content: SlideContent }) {
           ))}
         </div>
       );
+    case "team":
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(content.members.length, 4)}, 1fr)`, gap: 22, height: "100%", alignItems: "center" }}>
+          {content.members.map((m) => {
+            const initials = m.name.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "—";
+            return (
+              <div key={m.role} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 16, background: "#FBFAFF", padding: "28px 18px", textAlign: "center" }}>
+                <div style={{ width: 88, height: 88, borderRadius: "50%", margin: "0 auto 16px", background: `linear-gradient(135deg, ${cssHex(NUTANIX.purple)}, ${cssHex(NUTANIX.deepPurple)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 800 }}>{initials}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: cssHex(NUTANIX.ink) }}>{m.name}</div>
+                <div style={{ fontSize: 15, color: cssHex(NUTANIX.purple), marginTop: 4 }}>{m.role}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    case "bullets": {
+      const cols = content.columns ?? content.groups.length;
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 28, height: "100%", alignContent: "center" }}>
+          {content.groups.map((g, gi) => {
+            const tc = toneColors(g.tone);
+            return (
+              <div key={gi} style={{ display: "flex", flexDirection: "column" }}>
+                {g.heading ? <div style={{ fontSize: 19, fontWeight: 800, color: cssHex(NUTANIX.purple), marginBottom: 14 }}>{g.heading}</div> : null}
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 11 }}>
+                  {g.items.map((it, ii) => (
+                    <li key={ii} style={{ display: "flex", gap: 11, fontSize: 17, color: cssHex(NUTANIX.ink), lineHeight: 1.4 }}>
+                      <span style={{ marginTop: 8, width: 8, height: 8, borderRadius: "50%", background: g.tone ? tc.color : cssHex(NUTANIX.purple), flexShrink: 0 }} />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    case "meters": {
+      const globalMax = Math.max(...content.items.map((x) => x.max ?? x.value), 1);
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, justifyContent: "center", height: "100%" }}>
+          {content.items.map((it, ii) => {
+            const tc = toneColors(it.tone);
+            const max = it.max ?? globalMax;
+            const w = Math.max(2, (it.value / (max || 1)) * 100);
+            const barColor = it.tone ? tc.color : cssHex(NUTANIX.purple);
+            return (
+              <div key={ii} style={{ display: "flex", alignItems: "center", gap: 18 }}>
+                <div style={{ width: 240, fontSize: 17, color: cssHex(NUTANIX.ink), textAlign: "right", flexShrink: 0 }}>{it.label}</div>
+                <div style={{ flex: 1, height: 24, background: "#EEEEF6", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ width: `${w}%`, height: "100%", background: barColor, borderRadius: 999 }} />
+                </div>
+                <div style={{ width: 150, fontSize: 18, fontWeight: 800, color: barColor, flexShrink: 0 }}>{it.display ?? `${it.value}${content.unit ?? ""}`}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
     case "metrics": {
       const cols = content.groups.length > 2 ? 2 : content.groups.length;
       return (

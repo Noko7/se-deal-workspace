@@ -184,3 +184,39 @@ body {
 .account-map-fs:fullscreen .account-map-canvas {
   height: calc(100vh - 32px);
 }
+
+/* QBR deck — off-screen print surface. Kept at the native 1280×720 board size
+   so each slide renders at scale 1, then printed one slide per landscape page
+   (Save as PDF). Hidden off-screen during normal use. */
+.qbr-print-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 1280px;
+}
+
+@media print {
+  @page {
+    size: 1280px 720px;
+    margin: 0;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  .qbr-print-root,
+  .qbr-print-root * {
+    visibility: visible !important;
+  }
+  .qbr-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 1280px !important;
+  }
+  .qbr-print-page {
+    break-after: page;
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+  }
+}

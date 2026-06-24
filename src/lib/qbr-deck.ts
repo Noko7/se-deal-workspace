@@ -86,6 +86,106 @@ function todayLabel(): string {
   return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+// Normalize a person's name for display: title-case all-lowercase names
+// (e.g. a login like "noah" → "Noah") while leaving acronyms (TBA), placeholders
+// ("-"), and already-capitalized names ("Steven Roman") untouched.
+function formatName(name: string): string {
+  const n = (name ?? "").trim();
+  if (!n || n === "-") return n || "—";
+  if (n === n.toUpperCase()) return n;
+  if (n === n.toLowerCase()) return n.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return n;
+}
+
+// --- pagination: split oversized content into "(pt. N)" continuation slides ---
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function longestCellLength(rows: Cell[][]): number {
+  let m = 0;
+  for (const row of rows) {
+    for (const cell of row) {
+      const t = typeof cell === "string" ? cell : cell.text;
+      if (t && t.length > m) m = t.length;
+    }
+  }
+  return m;
+}
+
+// How many table rows fit on one 1280×720 board, accounting for an insight bar
+// and for long text that wraps to multiple lines.
+function tableRowsPerSlide(slide: QbrSlide): number {
+  if (slide.content.type !== "table") return Infinity;
+  const hasInsight = Boolean(slide.insight) || Boolean(slide.content.note);
+  const longest = longestCellLength(slide.content.rows);
+  if (longest > 80) return hasInsight ? 4 : 5;
+  if (longest > 45) return hasInsight ? 6 : 8;
+  return hasInsight ? 9 : 11;
+}
+
+const METERS_PER_SLIDE = (s: QbrSlide) => (s.insight ? 8 : 10);
+const METRIC_GROUPS_PER_SLIDE = 4;
+
+function continuation(s: QbrSlide, idx: number, content: SlideContent): QbrSlide {
+  if (idx === 0) return { ...s, content };
+  return {
+    ...s,
+    id: `${s.id}__pt${idx + 1}`,
+    title: `${s.title} (pt. ${idx + 1})`,
+    subtitle: undefined,
+    insight: undefined,
+    talkTrack: "Continued from the previous slide.",
+    content,
+  };
+}
+
+// Expand any slide whose content overflows a single board into ordered
+// "(pt. 2)", "(pt. 3)" … continuation slides so large environments always
+// render correctly.
+function paginateSlides(slides: QbrSlide[]): QbrSlide[] {
+  const out: QbrSlide[] = [];
+  for (const s of slides) {
+    const c = s.content;
+    if (c.type === "table" && c.rows.length > tableRowsPerSlide(s)) {
+      const groups = chunk(c.rows, tableRowsPerSlide(s));
+      groups.forEach((rows, i) =>
+        out.push(continuation(s, i, { type: "table", columns: c.columns, rows, note: i === groups.length - 1 ? c.note : undefined })),
+      );
+    } else if (c.type === "meters" && c.items.length > METERS_PER_SLIDE(s)) {
+      const groups = chunk(c.items, METERS_PER_SLIDE(s));
+      groups.forEach((items, i) => out.push(continuation(s, i, { type: "meters", unit: c.unit, items })));
+    } else if (c.type === "metrics" && c.groups.length > METRIC_GROUPS_PER_SLIDE) {
+      const groups = chunk(c.groups, METRIC_GROUPS_PER_SLIDE);
+      groups.forEach((g, i) => out.push(continuation(s, i, { type: "metrics", groups: g })));
+    } else if (c.type === "lines" && c.series.length > 6) {
+      const groups = chunk(c.series, 6);
+      groups.forEach((series, i) => out.push(continuation(s, i, { type: "lines", unit: c.unit, series })));
+    } else if (c.type === "bullets") {
+      // Split when any single column would overflow (~10 bullet lines).
+      const maxItems = Math.max(...c.groups.map((g) => g.items.length), 0);
+      if (maxItems > 10) {
+        const partsPerGroup = c.groups.map((g) => chunk(g.items, 10));
+        const pages = Math.max(...partsPerGroup.map((p) => p.length));
+        for (let i = 0; i < pages; i++) {
+          const groups = c.groups
+            .map((g, gi) => ({ heading: g.heading, tone: g.tone, items: partsPerGroup[gi][i] ?? [] }))
+            .filter((g) => g.items.length);
+          out.push(continuation(s, i, { type: "bullets", columns: c.columns, groups }));
+        }
+      } else {
+        out.push(s);
+      }
+    } else {
+      out.push(s);
+    }
+  }
+  return out;
+}
+
 // Static Nutanix messaging carried by the Progress Report (not per-account).
 const EOS_PRODUCTS = ["AOS (CBL, NBL, VDI, RoBo)", "Flow", "Prism Pro, Prism Ultimate, Calm", "Files, Objects, Mine", "ERA"];
 const EOS_NEW_REQS = ["Minimum AOS 6.10", "Prism Central 2024.2", "Prism Central required for licensing"];
@@ -153,10 +253,10 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     content: {
       type: "team",
       members: [
-        { name: r.team.ae, role: "Enterprise Account Manager" },
-        { name: r.team.se, role: "Systems Engineer" },
-        { name: r.team.sam, role: "Subscription Account Manager" },
-        { name: r.team.ase, role: "Customer Success Engineer" },
+        { name: formatName(r.team.ae), role: "Account Executive" },
+        { name: formatName(r.team.se), role: "Systems Engineer" },
+        { name: formatName(r.team.sam), role: "Subscription Account Manager" },
+        { name: formatName(r.team.ase), role: "Customer Success Engineer" },
       ],
     },
   });
@@ -787,10 +887,10 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     meta: {
       customer: r.account.name,
       vertical: r.account.vertical,
-      preparedBy: r.team.se,
+      preparedBy: formatName(r.team.se),
       dateLabel: todayLabel(),
       lastPulse: r.lastPulse,
     },
-    slides,
+    slides: paginateSlides(slides),
   };
 }

@@ -180,18 +180,20 @@ function Content({ content }: { content: SlideContent }) {
     case "metrics": {
       const cols = content.groups.length > 2 ? 2 : content.groups.length;
       return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 20, height: "100%" }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 18, height: "100%" }}>
           {content.groups.map((g) => (
-            <div key={g.label} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 14, background: "#FBFAFF", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <div style={{ height: 6, background: cssHex(NUTANIX.purple) }} />
-              <div style={{ padding: "14px 20px", flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: 1, color: cssHex(NUTANIX.purple), textTransform: "uppercase", marginBottom: 10 }}>{g.label}</div>
-                {g.stats.map((st) => (
-                  <div key={st.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0" }}>
-                    <span style={{ fontSize: 17, color: cssHex(NUTANIX.gray) }}>{st.label}</span>
-                    <span style={{ fontSize: 22, fontWeight: 800, color: toneColors(st.tone).color }}>{st.value}</span>
-                  </div>
-                ))}
+            <div key={g.label} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 14, background: "#FBFAFF", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <div style={{ height: 6, background: cssHex(NUTANIX.purple), flexShrink: 0 }} />
+              <div style={{ padding: "12px 20px 14px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1, color: cssHex(NUTANIX.purple), textTransform: "uppercase", marginBottom: 4, flexShrink: 0 }}>{g.label}</div>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-around", minHeight: 0 }}>
+                  {g.stats.map((st) => (
+                    <div key={st.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                      <span style={{ fontSize: 15, color: cssHex(NUTANIX.gray), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{st.label}</span>
+                      <span style={{ fontSize: 20, fontWeight: 800, color: toneColors(st.tone).color, flexShrink: 0 }}>{st.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           ))}

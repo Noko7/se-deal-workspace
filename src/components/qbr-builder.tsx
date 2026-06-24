@@ -12,6 +12,7 @@ import {
   ImagePlus,
   Lightbulb,
   Loader2,
+  Pencil,
   RefreshCw,
   Server,
   X,
@@ -282,64 +283,82 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
               </div>
 
               {activeSlide.talkTrack ? (
-                <div className="rounded-lg border border-iris-100 bg-iris-50/60 p-3">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-iris-700">
-                    <Lightbulb className="h-4 w-4" /> SE coaching · Health Check Guide
+                <div className="overflow-hidden rounded-xl border border-iris-200 bg-white shadow-sm">
+                  <div className="flex items-center gap-2 bg-gradient-to-r from-iris-500 to-iris-700 px-4 py-2.5 text-white">
+                    <Lightbulb className="h-4 w-4" />
+                    <span className="text-sm font-semibold">SE coaching</span>
+                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium">Health Check Guide</span>
                   </div>
-                  <p className="mt-1 text-sm leading-relaxed text-charcoal-700">{activeSlide.talkTrack}</p>
+                  <p className="px-4 py-3 text-sm leading-relaxed text-charcoal-700">{activeSlide.talkTrack}</p>
                 </div>
               ) : null}
 
-              <div className="grid gap-3 rounded-lg border border-charcoal-200 bg-white p-4 sm:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-charcoal-800">Slide title</span>
-                  <input value={activeSlide.title} onChange={(e) => patchSlide(activeSlide.id, { title: e.target.value })} />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-charcoal-800">Subtitle</span>
-                  <input value={activeSlide.subtitle ?? ""} onChange={(e) => patchSlide(activeSlide.id, { subtitle: e.target.value })} />
-                </label>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <span className="text-sm font-medium text-charcoal-800">SE Insight callout</span>
-                  <div className="flex gap-2">
-                    <select
-                      value={activeSlide.insight?.tone ?? "neutral"}
-                      onChange={(e) =>
-                        patchSlide(activeSlide.id, {
-                          insight: { tone: e.target.value as HealthTone, text: activeSlide.insight?.text ?? "" },
-                        })
-                      }
-                      className="w-28 shrink-0"
-                    >
-                      {TONES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      value={activeSlide.insight?.text ?? ""}
-                      placeholder="Optional callout shown on the slide"
-                      onChange={(e) =>
-                        patchSlide(activeSlide.id, {
-                          insight: e.target.value
-                            ? { tone: activeSlide.insight?.tone ?? "neutral", text: e.target.value }
-                            : undefined,
-                        })
-                      }
-                      className="flex-1"
-                    />
+              <div className="overflow-hidden rounded-xl border border-charcoal-200 bg-white shadow-sm">
+                <div className="flex items-center gap-2 border-b border-charcoal-100 bg-gradient-to-r from-iris-50 to-white px-4 py-3">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-iris-100 text-iris-600">
+                    <Pencil className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-charcoal-900">Edit slide</p>
+                    <p className="truncate text-xs text-charcoal-500">{activeSlide.section}</p>
                   </div>
                 </div>
-                <label className="space-y-1.5 sm:col-span-2">
-                  <span className="text-sm font-medium text-charcoal-800">Coaching / talk-track notes</span>
-                  <textarea
-                    value={activeSlide.talkTrack}
-                    rows={3}
-                    onChange={(e) => patchSlide(activeSlide.id, { talkTrack: e.target.value })}
-                    className="w-full"
-                  />
-                </label>
+                <div className="grid gap-4 p-4">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Slide title</span>
+                    <input value={activeSlide.title} onChange={(e) => patchSlide(activeSlide.id, { title: e.target.value })} />
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Subtitle</span>
+                    <input
+                      value={activeSlide.subtitle ?? ""}
+                      placeholder="Optional subtitle shown under the title"
+                      onChange={(e) => patchSlide(activeSlide.id, { subtitle: e.target.value })}
+                      className="w-full"
+                    />
+                  </label>
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">SE Insight callout</span>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        value={activeSlide.insight?.tone ?? "neutral"}
+                        onChange={(e) =>
+                          patchSlide(activeSlide.id, {
+                            insight: { tone: e.target.value as HealthTone, text: activeSlide.insight?.text ?? "" },
+                          })
+                        }
+                        className="w-full shrink-0 sm:w-32"
+                      >
+                        {TONES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={activeSlide.insight?.text ?? ""}
+                        placeholder="Optional callout shown on the slide"
+                        onChange={(e) =>
+                          patchSlide(activeSlide.id, {
+                            insight: e.target.value
+                              ? { tone: activeSlide.insight?.tone ?? "neutral", text: e.target.value }
+                              : undefined,
+                          })
+                        }
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Coaching / talk-track notes</span>
+                    <textarea
+                      value={activeSlide.talkTrack}
+                      rows={3}
+                      onChange={(e) => patchSlide(activeSlide.id, { talkTrack: e.target.value })}
+                      className="w-full"
+                    />
+                  </label>
+                </div>
               </div>
             </>
           ) : null}

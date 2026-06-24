@@ -6,7 +6,7 @@
 import { sanitizeNotes } from "@/lib/sanitize";
 
 // The kind of note the SE is formatting. "plan" produces an implementation plan;
-// "meeting" produces a structured meeting summary (Date / Attendees / Notes).
+// "meeting" is the general/regular note mode used in the Deal Workspace.
 export type NoteKind = "plan" | "meeting";
 
 export type FormatOptions = {
@@ -334,47 +334,45 @@ export function formatNotes(input: string, options: FormatOptions): FormattedNot
 export const DEFAULT_SYSTEM_PROMPT = [
   "You are a senior systems engineer assistant that turns messy notes into a clean, actionable implementation plan.",
   "Return PLAIN TEXT ONLY. Do not output Markdown, headings with #, bullets with -, checkboxes, or code fences.",
-  "Use this clean structure with labels and blank lines:",
-  "<Date and time if present>",
-  "<Meeting or plan title>",
+  "Use this implementation-plan structure with labels and blank lines:",
+  "<Plan title>",
   "",
-  "Attendees:",
-  "<attendee list as plain text>",
+  "Scope:",
+  "<what this plan covers>",
   "",
-  "Summary:",
-  "<1-2 short paragraphs in plain text>",
+  "Implementation Steps:",
+  "1) <step>",
+  "2) <step>",
   "",
-  "Action Items:",
-  "<numbered list using 1), 2), 3) only when action items exist>",
+  "Validation:",
+  "<how to verify success>",
   "",
   "Open Questions:",
   "<numbered list using 1), 2), 3) only when questions exist>",
   "Be concise; preserve the author's intent; do not invent facts, names, or numbers that aren't implied by the notes.",
 ].join("\n");
 
-// System prompt for the "meeting" note kind. Produces a structured meeting
-// summary instead of an implementation plan.
+// System prompt for the regular note mode used by most deal workspace note
+// capture. Keep this broad and not implementation-plan specific.
 export const DEFAULT_MEETING_SYSTEM_PROMPT = [
-  "You are an assistant that turns a systems engineer's raw meeting notes into a clean, structured meeting summary.",
+  "You are an assistant that turns a systems engineer's raw notes into a clean, structured regular note for the deal workspace.",
   "Return PLAIN TEXT ONLY. Do not output Markdown, bullets, checkboxes, or code fences.",
-  "Format to match this style:",
-  "05/20/2026 2:00 PM",
-  "Nutanix x HGTC: Nutanix Technology Session",
+  "Format to match this style with clear labels:",
+  "<Date and time if present>",
+  "<Note title>",
   "",
-  "Attendees:",
-  "Nutanix: <names>",
-  "Customer: <names>",
+  "Context:",
+  "<account, meeting, or situation context>",
   "",
   "Summary:",
   "<short paragraph(s) in plain text>",
   "",
   "Action Items:",
-  "1) <item>",
-  "2) <item>",
+  "<use 1), 2), 3) only when there are concrete actions>",
   "",
   "Open Questions:",
-  "1) <question>",
-  "Be concise; preserve the author's intent; do not invent attendees, dates, owners, or facts that aren't in the notes.",
+  "<use 1), 2), 3) only when there are unresolved questions>",
+  "Be concise; preserve the author's intent; do not invent attendees, owners, dates, or facts that are not in the notes.",
 ].join("\n");
 
 // Returns the bundled default system prompt for a given note kind.

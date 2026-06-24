@@ -217,8 +217,9 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        {/* Slide rail */}
-        <div className="max-h-[72vh] space-y-1 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2">
+        {/* Slide rail — stretches to match the editor column height */}
+        <div className="relative lg:min-h-0">
+          <div className="max-h-[60vh] space-y-1 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2 lg:absolute lg:inset-0 lg:max-h-none">
           {orderedSlides.map((s, i) => {
             const isHidden = hidden[s.id];
             const isActive = s.id === activeId;
@@ -269,6 +270,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
               </div>
             );
           })}
+          </div>
         </div>
 
         {/* Preview + editor */}
@@ -305,8 +307,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                 </div>
                 <div className="grid gap-4 p-4">
                   <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Slide title</span>
-                    <input value={activeSlide.title} onChange={(e) => patchSlide(activeSlide.id, { title: e.target.value })} />
+                    <span className="block text-xs font-semibold uppercase tracking-wide text-iris-700">Slide title</span>
+                    <input value={activeSlide.title} onChange={(e) => patchSlide(activeSlide.id, { title: e.target.value })} className="w-full" />
                   </label>
                   <label className="space-y-1.5">
                     <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Subtitle</span>

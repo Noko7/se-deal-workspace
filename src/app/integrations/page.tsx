@@ -4,6 +4,7 @@ import { integrationAdapters } from "@/lib/adapters";
 import { getDashboardData, getLlmCredentialSummary } from "@/lib/data";
 import { getZoomConfigSummary } from "@/lib/zoom";
 import { ActionBar, Button, Card, EmptyState, IntegrationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
+import { NaiTestPanel } from "@/components/nai-test-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ const ZOOM_WEBHOOK_PATH = "/api/integrations/zoom/webhook";
 
 export default async function IntegrationsPage() {
   const { integrations } = await getDashboardData();
+  const nonNaiIntegrations = integrations.filter((integration) => integration.integrationKey !== "local_llm");
   const llm = await getLlmCredentialSummary();
   const zoom = await getZoomConfigSummary();
 
@@ -24,16 +26,16 @@ export default async function IntegrationsPage() {
         <SectionHeader
           title="Connector Catalog"
           subtitle="Track connector health and run setup checks before enabling live credentials."
-          action={<StatusPill tone="info">{integrations.length} connectors</StatusPill>}
+          action={<StatusPill tone="info">{nonNaiIntegrations.length} connectors</StatusPill>}
         />
         <div className="space-y-4">
-          {integrations.length === 0 ? (
+          {nonNaiIntegrations.length === 0 ? (
             <EmptyState
               title="No integrations configured"
               description="Add connector records to display setup and status actions."
             />
           ) : null}
-          {integrations.map((integration) => {
+          {nonNaiIntegrations.map((integration) => {
             const adapter = integrationAdapters[integration.integrationKey as keyof typeof integrationAdapters];
             return (
               <article key={integration.id} className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm">
@@ -168,13 +170,13 @@ export default async function IntegrationsPage() {
       </Card>
 
       <Card
-        title="LLM Credentials"
-        subtitle="Configure the Note Formatter model endpoint and secret API key. Secrets are encrypted at rest and never shown back in plaintext."
+        title="Nutanix NAI (LLM)"
+        subtitle="Configure credentials and run a live, step-by-step NAI test in one place. Secrets are encrypted at rest and never shown in plaintext."
         icon={<Plug className="h-5 w-5" />}
       >
         <SectionHeader
-          title="Enterprise AI Configuration"
-          subtitle="These values are stored server-side; environment variables still override them when present."
+          title="Enterprise AI Configuration + Testing"
+          subtitle="Uses saved credentials unless overridden by env vars (LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TIMEOUT_MS, LLM_INSECURE_TLS)."
           action={<StatusPill tone={llm.configured ? "good" : "warning"}>{llm.configured ? "Configured" : "Not configured"}</StatusPill>}
         />
         <form action={saveLlmCredentialsAction} className="grid gap-3 rounded-lg border border-charcoal-200 bg-white p-4 lg:grid-cols-2">
@@ -224,13 +226,8 @@ export default async function IntegrationsPage() {
               Clear Saved API Key
             </Button>
           </form>
-          <form action={integrationTestAction}>
-            <input type="hidden" name="integrationKey" value="local_llm" />
-            <Button type="submit" tone="secondary">
-              Test LLM Connection
-            </Button>
-          </form>
         </ActionBar>
+        <NaiTestPanel />
       </Card>
     </div>
   );

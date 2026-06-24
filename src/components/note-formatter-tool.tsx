@@ -33,7 +33,7 @@ const SECONDARY_BORDER = { border: "1px solid var(--color-charcoal-300)" };
 
 const KIND_META: Record<NoteKind, { label: string; sample: string }> = {
   plan: { label: "Implementation Plan", sample: SAMPLE_NOTES },
-  meeting: { label: "Meeting Notes", sample: SAMPLE_MEETING_NOTES },
+  meeting: { label: "Regular Notes", sample: SAMPLE_MEETING_NOTES },
 };
 
 function StatusBadge({ status }: { status: LlmStatus | null }) {
@@ -76,7 +76,7 @@ function downloadText(text: string, title: string) {
 
 export function NoteFormatterTool() {
   const searchParams = useSearchParams();
-  const [kindState, setKindState] = useState<NoteKind>("plan");
+  const [kindState, setKindState] = useState<NoteKind>("meeting");
   const [notes, setNotes] = useState("");
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -102,8 +102,10 @@ export function NoteFormatterTool() {
   const kind: NoteKind =
     lockedToPlan
       ? "plan"
-      : urlKind === "plan" || urlKind === "meeting"
-        ? urlKind
+      : urlKind === "plan"
+        ? "plan"
+        : urlKind === "meeting" || urlKind === "regular"
+          ? "meeting"
         : kindState;
 
   useEffect(() => {
@@ -219,7 +221,7 @@ export function NoteFormatterTool() {
               Implementation Plan
             </option>
             <option value="meeting" className="bg-white text-charcoal-900">
-              Meeting Notes
+              Regular Notes
             </option>
           </select>
           {lockedToPlan ? (
@@ -361,7 +363,7 @@ export function NoteFormatterTool() {
               className="flex w-full items-center justify-center gap-2 rounded-md bg-iris-500 px-3 py-2.5 text-sm font-semibold text-white hover:bg-iris-600 disabled:opacity-50"
             >
               {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-              {aiLoading ? "Formatting with local LLM…" : `Format ${isMeeting ? "meeting notes" : "plan"} with AI`}
+              {aiLoading ? "Formatting with local LLM…" : `Format ${isMeeting ? "regular note" : "implementation plan"} with AI`}
             </button>
             {llmStatus && !llmStatus.configured ? (
               <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">

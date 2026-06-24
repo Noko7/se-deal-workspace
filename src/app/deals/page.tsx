@@ -100,7 +100,7 @@ export default async function DealsPage({ searchParams }: DealsPageProps) {
                       href={
                         opp.notePolicy === "implementation-only"
                           ? "/note-formatter?noteType=plan&locked=1"
-                          : "/note-formatter?noteType=meeting"
+                          : "/note-formatter?noteType=regular"
                       }
                       className="rounded-md bg-white px-3 py-2 text-sm font-medium text-charcoal-800 hover:bg-charcoal-50"
                       style={{ border: "1px solid var(--color-charcoal-300)" }}

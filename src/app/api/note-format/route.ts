@@ -36,7 +36,8 @@ type FormatBody = {
 };
 
 function asKind(value: unknown): NoteKind {
-  return value === "meeting" ? "meeting" : "plan";
+  if (value === "meeting" || value === "regular") return "meeting";
+  return "plan";
 }
 
 function asBool(value: unknown, fallback: boolean): boolean {

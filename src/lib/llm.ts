@@ -271,7 +271,7 @@ function buildPrompt(notes: string, options: PromptOptions): ChatMessage[] {
   const system = options.systemPrompt?.trim() || getDefaultSystemPrompt(kind);
 
   const userParts = [
-    `Note type: ${kind === "meeting" ? "meeting summary" : "implementation plan"}`,
+    `Note type: ${kind === "meeting" ? "regular deal note" : "implementation plan"}`,
     `Title: ${options.title.trim() || "(derive a concise title)"}`,
     "",
     `Include ${kind === "meeting" ? "Action Items" : "Helper Tasks"} section: ${options.includeHelpers ? "yes" : "no"}`,

@@ -268,13 +268,13 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Summary",
     subtitle: `Install base overview · last Pulse ${r.lastPulse}`,
     talkTrack:
-      "There's a lot here, so call out the few that matter most: Active Clusters, VM Count, Open Cases, Uptime, NPS (if shown), and any high cluster utilization. If everything looks healthy and there are no open cases, say so positively and move on.",
+      "There's a lot on this slide. Call out the few that matter most: Active Clusters, VM Count, Open Cases, Uptime, NPS (if shown), and any high cluster utilization. If everything looks healthy and there are no open cases, say so positively and move on.",
     insight:
       openP1P2 > 0
-        ? { tone: "warn", text: `${openP1P2} open P1/P2 case(s). Review the history before the meeting.` }
+        ? { tone: "warn", text: `${openP1P2} open P1/P2 case(s) are active: worth closing out to keep production stable.` }
         : hottestStorage >= 75
-          ? { tone: "warn", text: `Storage peaks at ${hottestStorage}%, a good moment to discuss expanding a cluster by adding nodes.` }
-          : { tone: "good", text: "No open P1/P2 cases and utilization is healthy, so call this out positively." },
+          ? { tone: "warn", text: `Storage peaks at ${hottestStorage}% on the busiest cluster: adding nodes would restore headroom.` }
+          : { tone: "good", text: "No open P1/P2 cases and utilization is healthy: the environment is in a strong position." },
     defaultHidden: false,
     content: {
       type: "metrics",
@@ -338,7 +338,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     section: "Environment Growth",
     title: "Node Count History",
     subtitle: "Cumulative trend",
-    talkTrack: "Redundant with the bar chart, so the guide recommends hiding this one.",
+    talkTrack: "Redundant with the bar chart: the guide recommends hiding this one.",
     defaultHidden: true,
     content: {
       type: "lines",
@@ -357,9 +357,9 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     talkTrack:
       "Compression should be on for all workloads. Dedup mainly helps full-clone VDI. Erasure Coding suits FT1 (4+ nodes) / FT2 (6+ nodes) with high storage but low CPU/memory. For Async DR, ask if they replicate to another cluster or only keep local snapshots, and probe DR strategy (RTO/RPO). Metro = synchronous, near-zero RPO. Go beyond the slide and ask about tier-specific features.",
     insight: !fa.compression
-      ? { tone: "warn", text: "Compression is off, so recommend enabling it; it benefits all workloads." }
+      ? { tone: "warn", text: "Compression is off: enabling it would cut storage consumption across every workload at no performance cost." }
       : !fa.asyncDr
-        ? { tone: "warn", text: "No Async DR detected, so open a discovery conversation on their DR strategy." }
+        ? { tone: "warn", text: "No Async DR is configured: replicating to a second site would protect against a full-cluster outage." }
         : { tone: "good", text: "Core data-efficiency features are enabled." },
     defaultHidden: false,
     content: {
@@ -384,8 +384,8 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       title: "Resource Utilization",
       subtitle: `${m.metric} utilization (each point is a 24-hour average of 15-minute samples)`,
       talkTrack:
-        "Call out high utilization or clear pattern changes. Sustained 75-100% suggests an expand or refresh. A sudden jump or drop usually means a new project or migration, so probe it: databases/files/AI hint at NDB/NUS/NAI; a shift to public cloud hints at NC2.",
-      insight: peak >= 75 ? { tone: utilTone(peak), text: `${m.metric} peaks at ${peak}%. Flag capacity and discuss expansion or refresh.` } : undefined,
+        "Call out high utilization or clear pattern changes. Sustained 75-100% suggests an expand or refresh. A sudden jump or drop usually means a new project or migration. Probe what changed: databases/files/AI hint at NDB/NUS/NAI; a shift to public cloud hints at NC2.",
+      insight: peak >= 75 ? { tone: utilTone(peak), text: `${m.metric} peaks at ${peak}%: capacity is the constraint to watch as workloads grow.` } : undefined,
       defaultHidden: false,
       content: { type: "lines", unit: m.unit, series: m.series.map((s) => ({ label: s.cluster, points: s.points })) },
     });
@@ -398,7 +398,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Resource Utilization as on Pulse Date",
     subtitle: `Peak utilization · last Pulse ${r.lastPulse}`,
     talkTrack: "Snapshot of peak CPU / memory / storage at the last Pulse. Anything sustained above 75% is a capacity conversation.",
-    insight: hottestStorage >= 90 ? { tone: "bad", text: `N-2 storage exceeds 100% on the busiest cluster, so expansion is overdue.` } : undefined,
+    insight: hottestStorage >= 90 ? { tone: "bad", text: `N-2 storage exceeds 100% on the busiest cluster: capacity expansion is overdue.` } : undefined,
     defaultHidden: false,
     content: {
       type: "table",
@@ -427,7 +427,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     talkTrack:
       "Newer AOS unlocks features (e.g. data-at-rest encryption moved into NCI Starter/Pro in 7.3). Watch End of Maintenance (EOM) and End of Support (EOS) dates; if a cluster is approaching either, advise upgrading via LCM.",
     insight: aosRisk !== "good"
-      ? { tone: aosRisk, text: "One or more clusters are near AOS End of Maintenance/Support, so recommend an LCM upgrade." }
+      ? { tone: aosRisk, text: "One or more clusters are near AOS End of Maintenance/Support: an LCM upgrade keeps them fully supported." }
       : { tone: "good", text: "AOS versions are within their support window." },
     defaultHidden: false,
     content: {
@@ -447,7 +447,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     talkTrack:
       "If they run AHV, move quickly past this. If they run ESXi, pause and ask about migrating to AHV. Usually they stay on ESXi for a specific incompatible workload. Capture details and engage internal teams on a workaround.",
     insight: esxiClusters.length
-      ? { tone: "warn", text: `${esxiClusters.length} cluster(s) on ESXi. Explore AHV migration and identify any blocking workload.` }
+      ? { tone: "warn", text: `${esxiClusters.length} cluster(s) still run ESXi: migrating to AHV consolidates the stack and removes separate hypervisor licensing.` }
       : { tone: "good", text: "Fully on AHV." },
     defaultHidden: false,
     content: {
@@ -639,7 +639,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Support Overview",
     subtitle: `Open vs. closed cases since ${so.sinceDate}`,
     talkTrack: "Frame the support relationship: how many cases, how they were resolved. Good moment to ask about their support experience.",
-    insight: so.open > 0 ? { tone: "warn", text: `${so.open} open case(s), so make sure they're addressed.` } : { tone: "good", text: "No open cases, so affirm the support relationship." },
+    insight: so.open > 0 ? { tone: "warn", text: `${so.open} open support case(s) are currently in progress.` } : { tone: "good", text: "No open support cases: the environment is running clean." },
     defaultHidden: false,
     content: {
       type: "meters",
@@ -700,9 +700,9 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Blocks & SW Assets",
     subtitle: "Hardware support status",
     talkTrack:
-      "Confirms whether nodes are under hardware support (NX nodes only). This view shows status, not the contract expiry, so check Assets > Blocks in the portal for exact dates. A SAM usually covers renewals. If hardware is near the 4-5 year mark, open a refresh conversation.",
+      "Confirms whether nodes are under hardware support (NX nodes only). This view shows status, not the contract expiry: check Assets > Blocks in the portal for exact dates. A SAM usually covers renewals. If hardware is near the 4-5 year mark, open a refresh conversation.",
     insight: expiring.length
-      ? { tone: "warn", text: `${expiring.length} block(s) expired or approaching the 4-5 year mark, so open a hardware refresh conversation.` }
+      ? { tone: "warn", text: `${expiring.length} hardware block(s) are expired or within the 4-5 year refresh window.` }
       : { tone: "good", text: "Hardware is under active support." },
     defaultHidden: false,
     content: {
@@ -747,7 +747,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Nutanix Certifications",
     subtitle: "Customer team certification status",
     talkTrack: "Low certification numbers are an opening: offer enablement, free training, and certification paths to deepen the relationship.",
-    insight: { tone: "warn", text: "Most portal users are uncertified, so propose a free enablement / certification path." },
+    insight: { tone: "warn", text: "Most portal users are uncertified: free Nutanix enablement and certification paths can close the gap." },
     defaultHidden: false,
     content: {
       type: "meters",
@@ -763,7 +763,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       title: "Open Discoveries",
       subtitle: `${r.discoveriesSummary.critical} critical · ${r.discoveriesSummary.warning} warning · ${r.discoveriesSummary.active} active`,
       talkTrack: "Walk through proactive findings and the recommended remediation. Tie each to a concrete next step.",
-      insight: r.discoveriesSummary.critical ? { tone: "bad", text: `${r.discoveriesSummary.critical} critical discovery, so prioritize remediation.` } : undefined,
+      insight: r.discoveriesSummary.critical ? { tone: "bad", text: `${r.discoveriesSummary.critical} critical discovery flagged for remediation.` } : undefined,
       defaultHidden: false,
       content: {
         type: "table",
@@ -835,7 +835,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       title: "EoS / EoM Software",
       subtitle: "Versions reaching end of maintenance / support",
       talkTrack: "Pair the EoS/EoM list with an LCM upgrade recommendation and a target date.",
-      insight: { tone: "warn", text: "Recommend scheduling LCM upgrades ahead of these dates." },
+      insight: { tone: "warn", text: "These components reach end of support on the dates shown: an LCM upgrade keeps them current." },
       defaultHidden: false,
       content: {
         type: "table",

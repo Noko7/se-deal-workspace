@@ -2,7 +2,7 @@
 
 import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
 import { hardwareImageFor, platformSpecFor } from "@/lib/hardware-images";
-import { getProductIcon, PRODUCT_LABEL } from "@/lib/nutanix-icons";
+import { getProductIcon } from "@/lib/nutanix-icons";
 import { EDITION_TAGLINE, type EditionKey } from "@/lib/nci-editions";
 import { LICENSE_CATALOG } from "@/lib/license-catalog";
 import {
@@ -14,7 +14,6 @@ import {
   nodeCores,
   nodeRawStorageTB,
   proposalHelpers,
-  purchasedProducts,
   storageSummary,
   type ProposalDoc,
 } from "@/lib/proposal-doc";
@@ -83,7 +82,6 @@ const NUTANIX_HEX_SLATE = cssHex(NUTANIX.slate);
 export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string | null }) {
   const t = doc.scenario.totals;
   const rollup = hardwareRollup(doc.scenario);
-  const products = purchasedProducts(doc);
   const licLines = doc.licensing.lines;
   const base = basePlatformLine(doc);
   const baseLabel = basePlatformLabel(doc);
@@ -96,7 +94,7 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
       {/* Page 1 */}
       <Page pageNo={1} customer={doc.meta.customer}>
         <div className="mb-4">
-          <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>SOLUTION PROPOSAL</p>
+          <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>{doc.options?.externalStorage ? "STORAGE PROPOSAL" : "SOLUTION PROPOSAL"}</p>
           <h1 className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">{doc.meta.title}</h1>
           <p className="mt-0.5 text-[11px] text-charcoal-500">
             {[doc.meta.opportunityName, doc.meta.installCountry, doc.meta.dateLabel].filter(Boolean).join("  ·  ")}
@@ -140,18 +138,6 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
 
       {/* Page 2 */}
       <Page pageNo={2} customer={doc.meta.customer}>
-        {products.length ? (
-          <section className="mb-4">
-            <SectionTitle>Included Nutanix Software</SectionTitle>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              {products.map((p) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={p} src={getProductIcon(p, "Color", "text")} alt={PRODUCT_LABEL[p]} title={PRODUCT_LABEL[p]} className="h-6 w-auto object-contain" />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <section className="mb-4">
           <SectionTitle>Current State vs. Proposed State</SectionTitle>
           <div className="grid grid-cols-2 gap-4">
@@ -167,7 +153,7 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
         </section>
 
         <section className="mb-4">
-          <SectionTitle>About this process</SectionTitle>
+          <SectionTitle>About the Process</SectionTitle>
           <div className="flex flex-wrap gap-1.5">
             {doc.timeline.map((m, i) => (
               <span
@@ -217,6 +203,21 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
                 </tr>
               </tbody>
             </table>
+          ) : null}
+          {rollup.some((r) => hardwareImageFor(r.sku)) ? (
+            <div className="mb-3 flex flex-wrap items-end gap-4">
+              {rollup.map((r) => {
+                const img = hardwareImageFor(r.sku);
+                if (!img) return null;
+                return (
+                  <div key={r.sku} className="flex flex-col items-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img} alt={r.sku} className="h-12 w-auto max-w-[150px] object-contain" />
+                    <span className="mt-0.5 text-[9px] font-medium text-charcoal-500">{r.nodes}× {r.sku}</span>
+                  </div>
+                );
+              })}
+            </div>
           ) : null}
           <table className="w-full border-collapse text-[10px]">
             <thead>

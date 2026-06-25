@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlignLeft, Check, ChevronDown, Download, FileDown, FileJson, FileText, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Sparkles, Upload, X, Zap } from "lucide-react";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
-import { buildProposalDoc, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
+import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
 import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor } from "@/lib/hardware-images";
@@ -239,6 +239,57 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         {/* Editor — flows the full height of the page (no internal scroll cap). */}
         <div className="space-y-3 pr-1">
           <Section title="Proposal details" icon={<FileText className="h-4 w-4" />} defaultOpen>
+            {/* Deal type: switching to external storage reframes the customer-facing copy. */}
+            <div>
+              <p className="mb-1 text-[11px] font-semibold text-charcoal-600">Deal type</p>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  [false, "Full platform"],
+                  [true, "External storage"],
+                ] as const).map(([ext, label]) => {
+                  const selected = Boolean(doc.options?.externalStorage) === ext;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setDoc((d) => (d ? applyDealMode(d, ext) : d))}
+                      aria-pressed={selected}
+                      className={toggleClass(selected)}
+                    >
+                      <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${selected ? "border-iris-500 bg-iris-500 text-white" : "border-charcoal-300"}`}>
+                        {selected ? <Check className="h-3 w-3" /> : null}
+                      </span>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-[11px] text-charcoal-400">External storage reframes the narrative around Nutanix compute (AHV) running against an external enterprise array.</p>
+              {doc.options?.externalStorage ? (
+                <div className="mt-2">
+                  <p className="mb-1 text-[11px] font-semibold text-charcoal-600">External storage array</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {EXTERNAL_STORAGE_VENDORS.map((v) => {
+                      const selected = (doc.options?.externalStorageVendor ?? "Pure Storage") === v;
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setDoc((d) => (d ? applyDealMode(d, true, v) : d))}
+                          aria-pressed={selected}
+                          className={toggleClass(selected)}
+                        >
+                          <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${selected ? "border-iris-500 bg-iris-500 text-white" : "border-charcoal-300"}`}>
+                            {selected ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          {v}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <Field label="Title" value={doc.meta.title} onChange={(v) => patch((d) => ((d.meta.title = v), d))} />
             <Field
               label="Customer / account"
@@ -288,7 +339,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
               <input
                 type="checkbox"
                 checked={doc.options?.includeSoftwareSlides ?? true}
-                onChange={(e) => patch((d) => ((d.options ??= { includeSoftwareSlides: true }), (d.options.includeSoftwareSlides = e.target.checked), d))}
+                onChange={(e) => patch((d) => ((d.options ??= { includeSoftwareSlides: true, externalStorage: false, externalStorageVendor: "Pure Storage" }), (d.options.includeSoftwareSlides = e.target.checked), d))}
               />
               Include full NCI editions comparison + support slides in the .pptx
             </label>

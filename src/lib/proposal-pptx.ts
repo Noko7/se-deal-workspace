@@ -128,7 +128,7 @@ export async function exportProposalToPptx(
     placeImage(slide, brand.wordmarkWhite, { x: 1.0, y: 0.7, w: 3.4, h: 0.5 }, "left", "middle");
     // Customer logo top-right, contained at true aspect.
     placeImage(slide, logo, { x: PAGE_W - 1.0 - 3.0, y: 0.62, w: 3.0, h: 0.7 }, "right", "middle");
-    slide.addText("SOLUTION PROPOSAL", { x: 1.0, y: 2.5, w: 11, h: 0.5, fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
+    slide.addText(doc.options?.externalStorage ? "STORAGE PROPOSAL" : "SOLUTION PROPOSAL", { x: 1.0, y: 2.5, w: 11, h: 0.5, fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
     slide.addText(doc.meta.customer, { x: 1.0, y: 3.0, w: 11.3, h: 1.4, fontFace: NUTANIX_FONT.heading, fontSize: 46, bold: true, color: "FFFFFF" });
     slide.addText(`${doc.meta.opportunityName ? doc.meta.opportunityName + "  ·  " : ""}${doc.meta.dateLabel}`, { x: 1.0, y: 4.5, w: 11, h: 0.4, fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF" });
     const contactLines = doc.contacts
@@ -166,7 +166,10 @@ export async function exportProposalToPptx(
   // 3 — Solution Summary (hardware rollup)
   {
     const slide = newSlide();
-    addChrome(slide, "Nutanix Solution Summary", doc.meta.supportTerm, page);
+    const summarySubtitle = doc.options?.externalStorage
+      ? `${doc.meta.supportTerm}  ·  External storage: ${doc.options.externalStorageVendor}`
+      : doc.meta.supportTerm;
+    addChrome(slide, "Nutanix Solution Summary", summarySubtitle, page);
     const rollup = hardwareRollup(doc.scenario);
     const header = ["Hardware", "Nodes", "CPU", "Cores", "RAM (GB)", "Raw Storage (TB)"].map((h) => ({
       text: h,

@@ -33,6 +33,11 @@ export type HardwareRollupLine = {
 
 export type HardwareVendor = "Nutanix" | "Dell" | "Cisco" | "HPE" | "Lenovo" | "Pure" | "Fujitsu";
 
+// External storage arrays Nutanix compute can run against (NVMe/TCP). Pure is
+// the most common, with Dell PowerStore also supported.
+export type ExternalStorageVendor = "Pure Storage" | "Dell PowerStore";
+export const EXTERNAL_STORAGE_VENDORS: ExternalStorageVendor[] = ["Pure Storage", "Dell PowerStore"];
+
 export type ProposalDoc = {
   meta: {
     customer: string;
@@ -48,6 +53,10 @@ export type ProposalDoc = {
   };
   options: {
     includeSoftwareSlides: boolean; // full NCI editions comparison + support
+    // External-storage deal: positions the design as Nutanix compute (AHV/NCI)
+    // running against an external enterprise array, which reframes the copy.
+    externalStorage: boolean;
+    externalStorageVendor: ExternalStorageVendor;
   };
   contacts: Contact[];
   executiveSummary: string;
@@ -199,36 +208,73 @@ function detectEdition(scenario: ProposalScenario): EditionKey {
   return best;
 }
 
-/** Build a ready-to-edit proposal with defaults derived from the scenario. */
-export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
+// The customer-facing narrative blocks, derived from the scenario and the deal
+// mode. Kept separate so toggling the deal type can regenerate the copy.
+type ProposalNarrative = {
+  title: string;
+  executiveSummary: string;
+  challengesIntro: string;
+  challenges: ChallengeGroups;
+  benefitsIntro: string;
+  benefits: ChallengeGroups;
+  currentState: string[];
+  proposedState: string[];
+  quote: { text: string; author: string };
+};
+
+export function proposalNarrative(
+  scenario: ProposalScenario,
+  externalStorage: boolean,
+  storageVendor: ExternalStorageVendor = "Pure Storage",
+): ProposalNarrative {
   const t = scenario.totals;
+  const customer = scenario.meta.customer;
   const clusterLine = scenario.clusters.length === 1 ? "a single cluster" : `${t.clusters} clusters`;
+  const usable = tib(t.ssdTiB + t.hddTiB);
 
-  const execSummary =
-    `This proposal puts ${scenario.meta.customer} on a Nutanix cloud platform built from ${fmtInt(t.nodes)} ` +
-    `nodes across ${clusterLine}. That works out to ${fmtInt(t.cores)} CPU cores, ${fmtInt(t.ramGiB)} GB of memory, ` +
-    `and ${tib(t.ssdTiB + t.hddTiB)} of usable capacity to run on. We move what you already have onto Nutanix Cloud ` +
-    `Infrastructure (NCI) with AHV, so there is one system to manage instead of separate compute and storage, ` +
-    `the environment is easier to protect, and when you need more you add a node rather than starting another project.`;
+  if (externalStorage) {
+    return {
+      title: `Nutanix with External Storage Proposal for ${customer}`,
+      executiveSummary:
+        `This proposal runs ${customer} on Nutanix Cloud Infrastructure (NCI) with the AHV hypervisor for compute, while ` +
+        `primary storage is delivered by an external ${storageVendor} array over NVMe/TCP. Compute and storage scale ` +
+        `independently across ${fmtInt(t.nodes)} nodes and ${clusterLine}, so you keep your enterprise storage investment, ` +
+        `add Nutanix compute as you grow, and manage the environment from Prism with AHV included.`,
+      challengesIntro:
+        "A few things about the setup today make it harder than it should be to grow and run the environment.",
+      challenges: {
+        technical: ["Compute refresh is tied to the storage array (and vice versa)", "Hypervisor licensing keeps climbing", `Existing ${storageVendor} capacity is underutilized by the current stack`],
+        operational: ["Too much of the day goes to manual infrastructure work", "Compute and storage are managed in separate tools"],
+        financial: ["Hypervisor and maintenance costs keep creeping up", "Refresh cycles force you to buy compute and storage together"],
+      },
+      benefitsIntro:
+        `Here is how Nutanix takes each of those off your plate while keeping your ${storageVendor} array in the design.`,
+      benefits: {
+        technical: ["Run AHV on Nutanix compute against external storage over NVMe/TCP", "Scale compute and storage independently", "Keep advanced data services on the external array"],
+        operational: ["Manage compute and VMs from one place in Prism", "Add a compute node to grow, non-disruptively"],
+        financial: [`Reuse the existing ${storageVendor} investment`, "AHV included, no separate hypervisor tax", "Subscription pricing you can actually plan around"],
+      },
+      currentState: ["Compute and storage refresh locked together", "Hypervisor costs climbing", "Limited flexibility to scale one without the other"],
+      proposedState: [
+        `Nutanix compute across ${fmtInt(t.nodes)} nodes`,
+        `Primary storage on external ${storageVendor}`,
+        "Compute and storage scale independently",
+      ],
+      quote: {
+        text: "Nutanix let us modernize compute and keep the storage array we already trust. We scale each one on its own terms.",
+        author: "Customer reference",
+      },
+    };
+  }
 
-  const built: ProposalDoc = {
-    meta: {
-      customer: scenario.meta.customer,
-      title: `Nutanix Solution Proposal for ${scenario.meta.customer}`,
-      preparedBy: scenario.meta.se,
-      dateLabel: todayLabel(),
-      opportunityName: scenario.meta.opportunityName,
-      installCountry: scenario.meta.installCountry,
-      supportTerm: "3 Years, Production Support",
-      edition: detectEdition(scenario),
-      vendor: detectVendor(scenario),
-    },
-    options: { includeSoftwareSlides: true },
-    contacts: [
-      { name: scenario.meta.se, title: "Systems Engineer", email: scenario.meta.seEmail ?? "", phone: "" },
-      { name: "", title: "Account Executive", email: "", phone: "" },
-    ],
-    executiveSummary: execSummary,
+  return {
+    title: `Nutanix Solution Proposal for ${customer}`,
+    executiveSummary:
+      `This proposal puts ${customer} on a Nutanix cloud platform built from ${fmtInt(t.nodes)} ` +
+      `nodes across ${clusterLine}. That works out to ${fmtInt(t.cores)} CPU cores, ${fmtInt(t.ramGiB)} GB of memory, ` +
+      `and ${usable} of usable capacity to run on. We move what you already have onto Nutanix Cloud ` +
+      `Infrastructure (NCI) with AHV, so there is one system to manage instead of separate compute and storage, ` +
+      `the environment is easier to protect, and when you need more you add a node rather than starting another project.`,
     challengesIntro:
       "A few things about the setup today make it harder than it should be to grow, protect, and run the environment.",
     challenges: {
@@ -249,15 +295,70 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
       "Every VM protected and replicated",
       "Faster recovery with DR built in",
     ],
+    quote: {
+      text: "Nutanix gave us cloud simplicity on our own terms. We grow by adding a node, not by kicking off another project.",
+      author: "Customer reference",
+    },
+  };
+}
+
+/** Re-apply mode-specific copy to a doc (used when the deal-type toggle flips). */
+export function applyDealMode(
+  doc: ProposalDoc,
+  externalStorage: boolean,
+  storageVendor: ExternalStorageVendor = doc.options?.externalStorageVendor ?? "Pure Storage",
+): ProposalDoc {
+  const n = proposalNarrative(doc.scenario, externalStorage, storageVendor);
+  return {
+    ...doc,
+    meta: { ...doc.meta, title: n.title },
+    options: { ...doc.options, externalStorage, externalStorageVendor: storageVendor },
+    executiveSummary: n.executiveSummary,
+    challengesIntro: n.challengesIntro,
+    challenges: n.challenges,
+    benefitsIntro: n.benefitsIntro,
+    benefits: n.benefits,
+    currentState: n.currentState,
+    proposedState: n.proposedState,
+    quote: { ...n.quote },
+  };
+}
+
+/** Build a ready-to-edit proposal with defaults derived from the scenario. */
+export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
+  const t = scenario.totals;
+  const n = proposalNarrative(scenario, false);
+
+  const built: ProposalDoc = {
+    meta: {
+      customer: scenario.meta.customer,
+      title: n.title,
+      preparedBy: scenario.meta.se,
+      dateLabel: todayLabel(),
+      opportunityName: scenario.meta.opportunityName,
+      installCountry: scenario.meta.installCountry,
+      supportTerm: "3 Years, Production Support",
+      edition: detectEdition(scenario),
+      vendor: detectVendor(scenario),
+    },
+    options: { includeSoftwareSlides: true, externalStorage: false, externalStorageVendor: "Pure Storage" },
+    contacts: [
+      { name: scenario.meta.se, title: "Systems Engineer", email: scenario.meta.seEmail ?? "", phone: "" },
+      { name: "", title: "Account Executive", email: "", phone: "" },
+    ],
+    executiveSummary: n.executiveSummary,
+    challengesIntro: n.challengesIntro,
+    challenges: n.challenges,
+    benefitsIntro: n.benefitsIntro,
+    benefits: n.benefits,
+    currentState: n.currentState,
+    proposedState: n.proposedState,
     timeline: DEFAULT_TIMELINE.map((m) => ({ ...m })),
     licensing: {
       termYears: 3,
       lines: [newLicenseLine("CloudInfrastructure", { tier: detectEdition(scenario), qty: Math.round(t.cores) })],
     },
-    quote: {
-      text: "Nutanix gave us cloud simplicity on our own terms. We grow by adding a node, not by kicking off another project.",
-      author: "Customer reference",
-    },
+    quote: { ...n.quote },
     scenario,
   };
   return built;

@@ -283,12 +283,12 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-sm font-medium text-charcoal-800">Customer</span>
-              <div className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 transition focus-within:border-iris-400 focus-within:ring-2 focus-within:ring-iris-300 focus-within:ring-offset-1">
+              <div className="flex h-10 items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 transition focus-within:border-iris-400 focus-within:ring-2 focus-within:ring-iris-300 focus-within:ring-offset-1">
                 <Building2 className="h-4 w-4 shrink-0 text-charcoal-400" />
                 <select
                   value={selected}
                   onChange={(e) => setSelected(e.target.value)}
-                  className="w-full border-0 bg-transparent py-2 outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="w-full border-0 bg-transparent py-0 outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 >
                   {accounts.map((a) => (
                     <option key={a.id} value={a.accountName}>
@@ -303,7 +303,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
               <span className="text-sm font-medium text-charcoal-800">Customer logo (optional)</span>
               <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
               {logo ? (
-                <div className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 py-2">
+                <div className="flex h-10 items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3">
                   <ImagePlus className="h-4 w-4 shrink-0 text-iris-500" />
                   <span className="truncate text-sm text-charcoal-700">{logoName ?? "Logo added"}</span>
                   <button onClick={clearLogo} className="ml-auto shrink-0 text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
@@ -311,7 +311,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setLogoModalOpen(true)} className="flex w-full items-center gap-2 rounded-md border border-dashed border-charcoal-300 bg-white px-3 py-2 text-sm text-charcoal-600 hover:border-iris-400 hover:text-iris-600">
+                <button onClick={() => setLogoModalOpen(true)} className="flex h-10 w-full items-center gap-2 rounded-md border border-dashed border-charcoal-300 bg-white px-3 text-sm text-charcoal-600 hover:border-iris-400 hover:text-iris-600">
                   <ImagePlus className="h-4 w-4" /> Upload logo (placed throughout the deck)
                 </button>
               )}

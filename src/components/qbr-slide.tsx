@@ -121,7 +121,7 @@ function Content({ content }: { content: SlideContent }) {
       return (
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(content.members.length, 4)}, 1fr)`, gap: 22, height: "100%", alignItems: "center" }}>
           {content.members.map((m) => {
-            const initials = m.name.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "—";
+            const initials = m.name.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "NA";
             return (
               <div key={m.role} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 16, background: "#FBFAFF", padding: "28px 18px", textAlign: "center" }}>
                 <div style={{ width: 88, height: 88, borderRadius: "50%", margin: "0 auto 16px", background: `linear-gradient(135deg, ${cssHex(NUTANIX.purple)}, ${cssHex(NUTANIX.deepPurple)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 800 }}>{initials}</div>

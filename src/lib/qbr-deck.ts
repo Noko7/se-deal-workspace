@@ -91,7 +91,7 @@ function todayLabel(): string {
 // ("-"), and already-capitalized names ("Steven Roman") untouched.
 function formatName(name: string): string {
   const n = (name ?? "").trim();
-  if (!n || n === "-") return n || "—";
+  if (!n || n === "-") return n || "TBA";
   if (n === n.toUpperCase()) return n;
   if (n === n.toLowerCase()) return n.replace(/\b[a-z]/g, (c) => c.toUpperCase());
   return n;
@@ -210,7 +210,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
 
   const push = (s: QbrSlide) => slides.push(s);
 
-  // 1 — Title
+  // 1 - Title
   push({
     id: "title",
     section: "Cover",
@@ -222,7 +222,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     content: { type: "title" },
   });
 
-  // 2 — Agenda (combined)
+  // 2 - Agenda (combined)
   push({
     id: "agenda",
     section: "Cover",
@@ -237,12 +237,12 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
         "Resource utilization & capacity",
         "Software lifecycle & support",
         "Renewals, certifications & recommendations",
-        "Where else can Nutanix help — next steps",
+        "Where else can Nutanix help, and next steps",
       ],
     },
   });
 
-  // 3 — Your Nutanix Team
+  // 3 - Your Nutanix Team
   push({
     id: "team",
     section: "Relationship",
@@ -261,20 +261,20 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 4 — Summary
+  // 4 - Summary
   push({
     id: "summary",
     section: "Health Summary",
     title: "Summary",
     subtitle: `Install base overview · last Pulse ${r.lastPulse}`,
     talkTrack:
-      "There's a lot here — call out the few that matter most: Active Clusters, VM Count, Open Cases, Uptime, NPS (if shown), and any high cluster utilization. If everything looks healthy and there are no open cases, say so positively and move on.",
+      "There's a lot here, so call out the few that matter most: Active Clusters, VM Count, Open Cases, Uptime, NPS (if shown), and any high cluster utilization. If everything looks healthy and there are no open cases, say so positively and move on.",
     insight:
       openP1P2 > 0
-        ? { tone: "warn", text: `${openP1P2} open P1/P2 case(s) — review the history before the meeting.` }
+        ? { tone: "warn", text: `${openP1P2} open P1/P2 case(s). Review the history before the meeting.` }
         : hottestStorage >= 75
-          ? { tone: "warn", text: `Storage peaks at ${hottestStorage}% — good moment to discuss expanding a cluster by adding nodes.` }
-          : { tone: "good", text: "No open P1/P2 cases and utilization is healthy — call this out positively." },
+          ? { tone: "warn", text: `Storage peaks at ${hottestStorage}%, a good moment to discuss expanding a cluster by adding nodes.` }
+          : { tone: "good", text: "No open P1/P2 cases and utilization is healthy, so call this out positively." },
     defaultHidden: false,
     content: {
       type: "metrics",
@@ -311,7 +311,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
         {
           label: "Customer Experience",
           stats: [
-            { label: "NPS Score", value: r.summary.npsScore == null ? "—" : String(r.summary.npsScore), tone: "good" },
+            { label: "NPS Score", value: r.summary.npsScore == null ? "N/A" : String(r.summary.npsScore), tone: "good" },
             { label: "Open Escalations", value: "0", tone: "good" },
           ],
         },
@@ -319,7 +319,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 5 — Node Purchase History (bar)
+  // 5 - Node Purchase History (bar)
   const maxNodes = Math.max(...r.nodePurchaseHistory.map((h) => h.nodes), 1);
   push({
     id: "node-history-bar",
@@ -332,13 +332,13 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     content: { type: "bars", unit: " nodes", max: maxNodes, series: r.nodePurchaseHistory.map((h) => ({ label: String(h.year), value: h.nodes })) },
   });
 
-  // 5b — Node Count History (line) — guide: hide (redundant)
+  // 5b - Node Count History (line) - guide: hide (redundant)
   push({
     id: "node-history-line",
     section: "Environment Growth",
     title: "Node Count History",
     subtitle: "Cumulative trend",
-    talkTrack: "Redundant with the bar chart — the guide recommends hiding this one.",
+    talkTrack: "Redundant with the bar chart, so the guide recommends hiding this one.",
     defaultHidden: true,
     content: {
       type: "lines",
@@ -347,7 +347,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 6 — Feature Adoption
+  // 6 - Feature Adoption
   const fa = r.featureAdoption;
   push({
     id: "feature-adoption",
@@ -355,11 +355,11 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Feature Adoption",
     subtitle: "Data efficiency, DR & management features",
     talkTrack:
-      "Compression should be on for all workloads. Dedup mainly helps full-clone VDI. Erasure Coding suits FT1 (4+ nodes) / FT2 (6+ nodes) with high storage but low CPU/memory. Async DR — ask if they replicate to another cluster or only keep local snapshots, and probe DR strategy (RTO/RPO). Metro = synchronous, near-zero RPO. Go beyond the slide and ask about tier-specific features.",
+      "Compression should be on for all workloads. Dedup mainly helps full-clone VDI. Erasure Coding suits FT1 (4+ nodes) / FT2 (6+ nodes) with high storage but low CPU/memory. For Async DR, ask if they replicate to another cluster or only keep local snapshots, and probe DR strategy (RTO/RPO). Metro = synchronous, near-zero RPO. Go beyond the slide and ask about tier-specific features.",
     insight: !fa.compression
-      ? { tone: "warn", text: "Compression is off — recommend enabling it; it benefits all workloads." }
+      ? { tone: "warn", text: "Compression is off, so recommend enabling it; it benefits all workloads." }
       : !fa.asyncDr
-        ? { tone: "warn", text: "No Async DR detected — open a discovery conversation on their DR strategy." }
+        ? { tone: "warn", text: "No Async DR detected, so open a discovery conversation on their DR strategy." }
         : { tone: "good", text: "Core data-efficiency features are enabled." },
     defaultHidden: false,
     content: {
@@ -375,30 +375,30 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 7-9 — Resource Utilization (CPU / Memory / Storage)
+  // 7-9 - Resource Utilization (CPU / Memory / Storage)
   for (const m of r.resourceUtilization) {
     const peak = Math.max(...m.series.flatMap((s) => s.points));
     push({
       id: `resource-${m.metric.toLowerCase()}`,
       section: "Capacity & Utilization",
       title: "Resource Utilization",
-      subtitle: `${m.metric} — each point is a 24-hour average of 15-minute samples`,
+      subtitle: `${m.metric} utilization (each point is a 24-hour average of 15-minute samples)`,
       talkTrack:
-        "Call out high utilization or clear pattern changes. Sustained 75–100% → suggest expand/refresh. A sudden jump/drop usually means a new project or migration — probe it: databases/files/AI hint at NDB/NUS/NAI; a shift to public cloud hints at NC2.",
-      insight: peak >= 75 ? { tone: utilTone(peak), text: `${m.metric} peaks at ${peak}% — flag capacity; discuss expansion or refresh.` } : undefined,
+        "Call out high utilization or clear pattern changes. Sustained 75-100% suggests an expand or refresh. A sudden jump or drop usually means a new project or migration, so probe it: databases/files/AI hint at NDB/NUS/NAI; a shift to public cloud hints at NC2.",
+      insight: peak >= 75 ? { tone: utilTone(peak), text: `${m.metric} peaks at ${peak}%. Flag capacity and discuss expansion or refresh.` } : undefined,
       defaultHidden: false,
       content: { type: "lines", unit: m.unit, series: m.series.map((s) => ({ label: s.cluster, points: s.points })) },
     });
   }
 
-  // 10 — Resource Utilization as on Pulse Date
+  // 10 - Resource Utilization as on Pulse Date
   push({
     id: "resource-pulse",
     section: "Capacity & Utilization",
     title: "Resource Utilization as on Pulse Date",
     subtitle: `Peak utilization · last Pulse ${r.lastPulse}`,
     talkTrack: "Snapshot of peak CPU / memory / storage at the last Pulse. Anything sustained above 75% is a capacity conversation.",
-    insight: hottestStorage >= 90 ? { tone: "bad", text: `N-2 storage exceeds 100% on the busiest cluster — expansion is overdue.` } : undefined,
+    insight: hottestStorage >= 90 ? { tone: "bad", text: `N-2 storage exceeds 100% on the busiest cluster, so expansion is overdue.` } : undefined,
     defaultHidden: false,
     content: {
       type: "table",
@@ -412,7 +412,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 11 — AOS Version
+  // 11 - AOS Version
   const aosRisk = aosRows.reduce<HealthTone>((worst, s) => {
     const t = eolTone(s.aosEos);
     if (t === "bad") return "bad";
@@ -425,9 +425,9 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "AOS Version",
     subtitle: "CVM software version & support lifecycle",
     talkTrack:
-      "Newer AOS unlocks features (e.g. data-at-rest encryption moved into NCI Starter/Pro in 7.3). Watch End of Maintenance (EOM) and End of Support (EOS) dates — if a cluster is approaching either, advise upgrading via LCM.",
+      "Newer AOS unlocks features (e.g. data-at-rest encryption moved into NCI Starter/Pro in 7.3). Watch End of Maintenance (EOM) and End of Support (EOS) dates; if a cluster is approaching either, advise upgrading via LCM.",
     insight: aosRisk !== "good"
-      ? { tone: aosRisk, text: "One or more clusters are near AOS End of Maintenance/Support — recommend an LCM upgrade." }
+      ? { tone: aosRisk, text: "One or more clusters are near AOS End of Maintenance/Support, so recommend an LCM upgrade." }
       : { tone: "good", text: "AOS versions are within their support window." },
     defaultHidden: false,
     content: {
@@ -437,7 +437,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 12 — Hypervisor Version
+  // 12 - Hypervisor Version
   const esxiClusters = aosRows.filter((s) => s.hypervisor.startsWith("ESX"));
   push({
     id: "sw-hypervisor",
@@ -445,9 +445,9 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Hypervisor Version",
     subtitle: "Hypervisor type per cluster",
     talkTrack:
-      "If they run AHV, move quickly past this. If they run ESXi, pause and ask about migrating to AHV — usually they stay on ESXi for a specific incompatible workload. Capture details and engage internal teams on a workaround.",
+      "If they run AHV, move quickly past this. If they run ESXi, pause and ask about migrating to AHV. Usually they stay on ESXi for a specific incompatible workload. Capture details and engage internal teams on a workaround.",
     insight: esxiClusters.length
-      ? { tone: "warn", text: `${esxiClusters.length} cluster(s) on ESXi — explore AHV migration and identify any blocking workload.` }
+      ? { tone: "warn", text: `${esxiClusters.length} cluster(s) on ESXi. Explore AHV migration and identify any blocking workload.` }
       : { tone: "good", text: "Fully on AHV." },
     defaultHidden: false,
     content: {
@@ -469,13 +469,13 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       id: f.id,
       section: "Software Lifecycle",
       title: f.title,
-      talkTrack: "Guide recommends hiding this — usually not relevant to the customer conversation.",
+      talkTrack: "Guide recommends hiding this; usually not relevant to the customer conversation.",
       defaultHidden: true,
       content: { type: "table", columns: ["Cluster", f.col], rows: aosRows.map((s) => [s.cluster, f.v]) },
     });
   }
 
-  // 13 — Cluster Summary
+  // 13 - Cluster Summary
   push({
     id: "cluster-summary",
     section: "Inventory",
@@ -498,13 +498,13 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 14 — Prism Central Summary
+  // 14 - Prism Central Summary
   push({
     id: "pc-summary",
     section: "Inventory",
     title: "Prism Central Summary",
     talkTrack: "Like AOS, check the PC version against EOM/EOS dates (same support-portal page).",
-    insight: { tone: eolTone(r.prismCentral.pcEos), text: `PC ${r.prismCentral.pcVersion} — EOS ${r.prismCentral.pcEos}.` },
+    insight: { tone: eolTone(r.prismCentral.pcEos), text: `PC ${r.prismCentral.pcVersion} reaches EOS on ${r.prismCentral.pcEos}.` },
     defaultHidden: false,
     content: {
       type: "table",
@@ -521,7 +521,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 15 — PnP 2.0 Readiness
+  // 15 - PnP 2.0 Readiness
   const p = r.pnpReadiness;
   push({
     id: "pnp-readiness",
@@ -544,29 +544,29 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 16 — Core Platform License Summary
+  // 16 - Core Platform License Summary
   push({
     id: "license-summary",
     section: "Licensing & Adoption",
     title: "Core Platform License Summary",
     subtitle: `${r.productTier} · CORES`,
     talkTrack:
-      "We want all green — purchased licenses applied. Licensed cores should match deployed cores; a few unapplied after a refresh is normal. Reinforce that strong feature adoption reduces churn, and a low-pressure workshop is a great next step (confirm with the AE).",
+      "We want all green: purchased licenses applied. Licensed cores should match deployed cores; a few unapplied after a refresh is normal. Reinforce that strong feature adoption reduces churn, and a low-pressure workshop is a great next step (confirm with the AE).",
     insight: { tone: r.licenseActivationPct >= 99 ? "good" : "warn", text: `License activation at ${r.licenseActivationLabel}.` },
     defaultHidden: false,
     content: {
       type: "meters",
-      items: [{ label: `${r.productTier} — CORES`, value: r.licenseActivationPct, max: 100, display: r.licenseActivationLabel, tone: r.licenseActivationPct >= 99 ? "good" : "warn" }],
+      items: [{ label: `${r.productTier} CORES`, value: r.licenseActivationPct, max: 100, display: r.licenseActivationLabel, tone: r.licenseActivationPct >= 99 ? "good" : "warn" }],
     },
   });
 
-  // 17 — NCI Capability Adoption
+  // 17 - NCI Capability Adoption
   push({
     id: "capability-adoption",
     section: "Licensing & Adoption",
     title: "NCI Capability Adoption",
-    subtitle: "Core Platform — capability usage by portfolio version",
-    talkTrack: "Walk the capability matrix and highlight where usage is unknown — those are openings to drive adoption (workshops, enablement) of features they already own.",
+    subtitle: "Core Platform capability usage by portfolio version",
+    talkTrack: "Walk the capability matrix and highlight where usage is unknown. Those are openings to drive adoption (workshops, enablement) of features they already own.",
     defaultHidden: false,
     content: {
       type: "table",
@@ -575,17 +575,17 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 18 — Licenses (detailed)
+  // 18 - Licenses (detailed)
   const unapplied = r.licenses.filter((l) => l.status === "Unapplied");
   push({
     id: "licenses",
     section: "Licensing & Adoption",
     title: "Licenses",
-    subtitle: "PnP 2.0 — licensed cores should match deployed core count",
+    subtitle: "PnP 2.0: licensed cores should match deployed core count",
     talkTrack: "Review per-cluster license entitlement vs. usage. A small number unapplied after a refresh is normal; larger gaps are worth a conversation (confirm with the AE first).",
     insight: unapplied.length
-      ? { tone: "warn", text: `${unapplied.map((l) => l.tier).join(", ")} not applied — likely not in use (e.g. replication/DR).` }
-      : { tone: "good", text: "All licenses applied — activation looks healthy." },
+      ? { tone: "warn", text: `${unapplied.map((l) => l.tier).join(", ")} not applied, likely not in use (e.g. replication/DR).` }
+      : { tone: "good", text: "All licenses applied, activation looks healthy." },
     defaultHidden: false,
     content: {
       type: "table",
@@ -602,7 +602,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 19 — End-of-Sales: Legacy Software Portfolio
+  // 19 - End-of-Sales: Legacy Software Portfolio
   push({
     id: "eos-portfolio",
     section: "Licensing & Adoption",
@@ -620,18 +620,18 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 20 — Insights Overview
+  // 20 - Insights Overview
   push({
     id: "insights",
     section: "Licensing & Adoption",
     title: "Insights Overview",
     subtitle: "Get more value from Pulse & Insights",
-    talkTrack: "Reinforce the value of keeping Pulse enabled — proactive alerts and faster support resolution.",
+    talkTrack: "Reinforce the value of keeping Pulse enabled: proactive alerts and faster support resolution.",
     defaultHidden: false,
     content: { type: "bullets", columns: 3, groups: INSIGHTS },
   });
 
-  // 21 — Support Overview
+  // 21 - Support Overview
   const so = r.supportOverview;
   push({
     id: "support-overview",
@@ -639,7 +639,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Support Overview",
     subtitle: `Open vs. closed cases since ${so.sinceDate}`,
     talkTrack: "Frame the support relationship: how many cases, how they were resolved. Good moment to ask about their support experience.",
-    insight: so.open > 0 ? { tone: "warn", text: `${so.open} open case(s) — make sure they're addressed.` } : { tone: "good", text: "No open cases — affirm the support relationship." },
+    insight: so.open > 0 ? { tone: "warn", text: `${so.open} open case(s), so make sure they're addressed.` } : { tone: "good", text: "No open cases, so affirm the support relationship." },
     defaultHidden: false,
     content: {
       type: "meters",
@@ -653,7 +653,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 22 — Support Case History (detailed)
+  // 22 - Support Case History (detailed)
   push({
     id: "support-cases",
     section: "Support",
@@ -692,7 +692,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     });
   }
 
-  // 23 — Blocks & SW Assets
+  // 23 - Blocks & SW Assets
   const expiring = r.blocks.filter((b) => b.contractStatus !== "Under Support");
   push({
     id: "blocks-assets",
@@ -700,9 +700,9 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     title: "Blocks & SW Assets",
     subtitle: "Hardware support status",
     talkTrack:
-      "Confirms whether nodes are under hardware support (NX nodes only). This view shows status, not the contract expiry — check Assets → Blocks in the portal for exact dates. A SAM usually covers renewals. If hardware is near the 4–5 year mark, open a refresh conversation.",
+      "Confirms whether nodes are under hardware support (NX nodes only). This view shows status, not the contract expiry, so check Assets > Blocks in the portal for exact dates. A SAM usually covers renewals. If hardware is near the 4-5 year mark, open a refresh conversation.",
     insight: expiring.length
-      ? { tone: "warn", text: `${expiring.length} block(s) expired or approaching the 4–5 year mark — open a hardware refresh conversation.` }
+      ? { tone: "warn", text: `${expiring.length} block(s) expired or approaching the 4-5 year mark, so open a hardware refresh conversation.` }
       : { tone: "good", text: "Hardware is under active support." },
     defaultHidden: false,
     content: {
@@ -720,7 +720,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 24 — Upcoming License Renewals
+  // 24 - Upcoming License Renewals
   push({
     id: "renewals",
     section: "Renewals",
@@ -739,15 +739,15 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 25 — Nutanix Certifications
+  // 25 - Nutanix Certifications
   const totalUsers = r.certifications.reduce((a, c) => a + c.users, 0) || 1;
   push({
     id: "certifications",
     section: "Enablement",
     title: "Nutanix Certifications",
     subtitle: "Customer team certification status",
-    talkTrack: "Low certification numbers are an opening — offer enablement, free training, and certification paths to deepen the relationship.",
-    insight: { tone: "warn", text: "Most portal users are uncertified — propose a free enablement / certification path." },
+    talkTrack: "Low certification numbers are an opening: offer enablement, free training, and certification paths to deepen the relationship.",
+    insight: { tone: "warn", text: "Most portal users are uncertified, so propose a free enablement / certification path." },
     defaultHidden: false,
     content: {
       type: "meters",
@@ -755,7 +755,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     },
   });
 
-  // 26 — Open Discoveries
+  // 26 - Open Discoveries
   if (r.discoveries.length) {
     push({
       id: "discoveries",
@@ -763,7 +763,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       title: "Open Discoveries",
       subtitle: `${r.discoveriesSummary.critical} critical · ${r.discoveriesSummary.warning} warning · ${r.discoveriesSummary.active} active`,
       talkTrack: "Walk through proactive findings and the recommended remediation. Tie each to a concrete next step.",
-      insight: r.discoveriesSummary.critical ? { tone: "bad", text: `${r.discoveriesSummary.critical} critical discovery — prioritize remediation.` } : undefined,
+      insight: r.discoveriesSummary.critical ? { tone: "bad", text: `${r.discoveriesSummary.critical} critical discovery, so prioritize remediation.` } : undefined,
       defaultHidden: false,
       content: {
         type: "table",
@@ -779,7 +779,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     });
   }
 
-  // 27 — Recommendations
+  // 27 - Recommendations
   const rec = r.recommendations;
   const br = r.blocksReview;
   push({
@@ -796,7 +796,7 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
           label: "Blocks Review",
           stats: [
             { label: "Total Blocks", value: String(br.totalBlocks) },
-            { label: "Age 3–5 Years", value: String(br.age3to5), tone: br.age3to5 ? "warn" : "good" },
+            { label: "Age 3-5 Years", value: String(br.age3to5), tone: br.age3to5 ? "warn" : "good" },
             { label: "Age > 5 Years", value: String(br.ageOver5), tone: br.ageOver5 ? "warn" : "good" },
             { label: "EoM/EoS Now", value: String(br.eomNow), tone: br.eomNow ? "bad" : "good" },
           ],
@@ -819,15 +819,15 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
         {
           label: "Support Renewals",
           stats: [
-            { label: "0–6 Months", value: String(rec.supportRenewals0to6), tone: rec.supportRenewals0to6 ? "warn" : "good" },
-            { label: "6–12 Months", value: String(rec.supportRenewals6to12) },
+            { label: "0-6 Months", value: String(rec.supportRenewals0to6), tone: rec.supportRenewals0to6 ? "warn" : "good" },
+            { label: "6-12 Months", value: String(rec.supportRenewals6to12) },
           ],
         },
       ],
     },
   });
 
-  // 27b — EoS/EoM Software (from Recommendations)
+  // 27b - EoS/EoM Software (from Recommendations)
   if (r.eosSoftware.length) {
     push({
       id: "eos-software",
@@ -851,29 +851,29 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
     });
   }
 
-  // 28 — Where else can Nutanix help
+  // 28 - Where else can Nutanix help
   push({
     id: "where-else",
     section: "Next Steps",
     title: "Where Else Can Nutanix Help?",
     subtitle: "Expansion opportunities aligned to their roadmap",
-    talkTrack: "Tie expansion ideas to what you heard during the review — only suggest what's relevant. Confirm with the AE before proposing.",
+    talkTrack: "Tie expansion ideas to what you heard during the review, and only suggest what's relevant. Confirm with the AE before proposing.",
     defaultHidden: false,
     content: { type: "bullets", columns: 3, groups: WHERE_ELSE },
   });
 
-  // 29 — Internal Notes (SE prep; default hidden from customer export)
+  // 29 - Internal Notes (SE prep; default hidden from customer export)
   push({
     id: "internal-notes",
     section: "Next Steps",
     title: "Internal Notes",
-    subtitle: "SE prep — not for customer distribution",
+    subtitle: "SE prep, not for customer distribution",
     talkTrack: "Your private prep notes and action items. Keep this hidden in the customer-facing export.",
     defaultHidden: true,
     content: { type: "bullets", columns: 1, groups: [{ heading: "Action items", items: ["Confirm DR strategy and follow-up workshop", "Validate renewal timing with SAM", "Propose enablement/certification path"] }] },
   });
 
-  // 30 — Thank You
+  // 30 - Thank You
   push({
     id: "thank-you",
     section: "Cover",

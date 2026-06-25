@@ -101,8 +101,8 @@ export function buildUclaSampleReport(se: string): Cs360HealthReport {
       { serial: "20SW000146016", model: "SW-AOS-PRO-PRD-3YR", cluster: "Not Found", nodes: "-", location: "Los Angeles", shipDate: "2020-06-23", contractStatus: "EXPIRED", ssd: "-", cores: "-" },
     ],
     discoveries: [
-      { cluster: "NTXCluster01", policy: "D3-0356 (PC)", description: "VNC Console access fails for Super Admin role in Prism Central pc.7.3.1.2–7.3.1.6 and pc.7.5–7.5.0.5", severity: "Critical", recommendation: "Upgrade Prism Central" },
-      { cluster: "NTXCluster01", policy: "D3-0336", description: "Disaster Recovery is enabled — upgrading source/target to AOS 7.3.0.5 may disrupt DR workflows", severity: "Warning", recommendation: "Follow KB 19659" },
+      { cluster: "NTXCluster01", policy: "D3-0356 (PC)", description: "VNC Console access fails for Super Admin role in Prism Central pc.7.3.1.2-7.3.1.6 and pc.7.5-7.5.0.5", severity: "Critical", recommendation: "Upgrade Prism Central" },
+      { cluster: "NTXCluster01", policy: "D3-0336", description: "Disaster Recovery is enabled; upgrading source/target to AOS 7.3.0.5 may disrupt DR workflows", severity: "Warning", recommendation: "Follow KB 19659" },
       { cluster: "NTXCluster01", policy: "D8-0041", description: "Detected File server version has reached End of Maintenance (EOM)", severity: "Warning", recommendation: "Upgrade Files (KB)" },
       { cluster: "NTXCluster01, NTXCluster02", policy: "D8-0030", description: "Installed AOS version has reached End of Maintenance (EOM)", severity: "Warning", recommendation: "Upgrade AOS via LCM" },
       { cluster: "NTXCluster02", policy: "D3-0358", description: "Installed AOS version may be affected by increased root partition space usage", severity: "Warning", recommendation: "Follow KB 19810" },

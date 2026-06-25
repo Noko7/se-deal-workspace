@@ -15,6 +15,7 @@ type Slide = {
   addTable: (rows: unknown, o: unknown) => void;
   addChart: (type: unknown, data: unknown, o: unknown) => void;
   addImage: (o: unknown) => void;
+  addNotes: (notes: string) => void;
   background?: unknown;
 };
 
@@ -195,6 +196,9 @@ export async function exportDeckToPptx(
     if (s.content.type !== "title" && s.content.type !== "closing") {
       place(slide, pageNumberElement(i + 1));
     }
+
+    // native PowerPoint speaker notes
+    if (s.speakerNotes) slide.addNotes(s.speakerNotes);
   });
 
   await pptx.writeFile({ fileName: `QBR - ${meta.customer}.pptx` });

@@ -199,8 +199,9 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
   // footer
   els.push({ kind: "text", x: MARGIN, y: PAGE_H - 0.45, w: 8, h: 0.3, runs: [{ text: `Nutanix Confidential  \u00b7  ${meta.customer}` }], fontFace: NUTANIX_FONT.body, fontSize: 8, color: NUTANIX.slate, valign: "middle" });
 
+  const showInsight = Boolean(slide.insight) && !slide.insightHidden;
   const top = 1.85;
-  const bottom = slide.insight ? PAGE_H - 1.4 : PAGE_H - 0.7;
+  const bottom = showInsight ? PAGE_H - 1.4 : PAGE_H - 0.7;
   const h = bottom - top;
   const innerW = PAGE_W - MARGIN * 2;
 
@@ -419,7 +420,7 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
   }
 
   // ---- Insight callout ------------------------------------------------------
-  if (slide.insight) {
+  if (showInsight && slide.insight) {
     const fill = toneFill(slide.insight.tone);
     const color = toneColor(slide.insight.tone);
     const y = PAGE_H - 1.15;

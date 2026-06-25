@@ -1,6 +1,6 @@
 import { NUTANIX, NUTANIX_FONT } from "./nutanix-brand";
 import type { QbrDeckMeta, QbrSlide } from "./qbr-deck";
-import { compileSlide, pageNumberElement, type SlideElement, type TextElement } from "./qbr-layout";
+import { compileSlide, niceAxisMax, pageNumberElement, type SlideElement, type TextElement } from "./qbr-layout";
 
 // Client-side .pptx exporter built on pptxgenjs. It is a thin mapper over the
 // shared layout IR (compileSlide): every element becomes a NATIVE, editable
@@ -140,6 +140,7 @@ export async function exportDeckToPptx(
       case "chart": {
         if (el.chart === "bar" && el.barSeries) {
           const data = [{ name: "series", labels: el.barSeries.map((d) => d.label), values: el.barSeries.map((d) => d.value) }];
+          const axisMax = niceAxisMax(Math.max(...el.barSeries.map((d) => d.value), el.max ?? 0, 1));
           slide.addChart(CHART.bar, data, {
             x: el.x,
             y: el.y,
@@ -153,15 +154,28 @@ export async function exportDeckToPptx(
             dataLabelFontSize: 11,
             showLegend: false,
             showTitle: false,
+            // x-axis (categories)
             catAxisLabelColor: NUTANIX.gray,
-            valAxisHidden: true,
-            valGridLine: { style: "none" },
             catAxisLabelFontFace: NUTANIX_FONT.body,
+            catAxisLabelFontSize: 10,
+            catAxisLineColor: NUTANIX.slate,
+            // y-axis (values) with even ticks + light gridlines
+            showValAxisTitle: false,
+            valAxisHidden: false,
+            valAxisMinVal: 0,
+            valAxisMaxVal: axisMax,
+            valAxisMajorUnit: axisMax / 4,
+            valAxisLabelColor: NUTANIX.gray,
+            valAxisLabelFontFace: NUTANIX_FONT.body,
+            valAxisLabelFontSize: 10,
+            valAxisLineShow: false,
+            valGridLine: { color: NUTANIX.line, style: "solid", size: 1 },
             barGapWidthPct: 60,
           });
         } else if (el.chart === "line" && el.lineSeries) {
-          const labels = el.lineSeries[0]?.points.map((_, idx) => `T${idx + 1}`) ?? [];
+          const labels = el.xLabels ?? el.lineSeries[0]?.points.map((_, idx) => String(idx + 1)) ?? [];
           const data = el.lineSeries.map((ser) => ({ name: ser.label, labels, values: ser.points }));
+          const axisMax = niceAxisMax(Math.max(...el.lineSeries.flatMap((s) => s.points), 1));
           slide.addChart(CHART.line, data, {
             x: el.x,
             y: el.y,
@@ -174,10 +188,21 @@ export async function exportDeckToPptx(
             legendPos: "b",
             legendColor: NUTANIX.gray,
             showTitle: false,
+            // x-axis (categories)
             catAxisLabelColor: NUTANIX.gray,
-            valAxisLabelColor: NUTANIX.gray,
-            valGridLine: { color: NUTANIX.line, style: "solid", size: 1 },
             catAxisLabelFontFace: NUTANIX_FONT.body,
+            catAxisLabelFontSize: 10,
+            catAxisLineColor: NUTANIX.slate,
+            // y-axis (values) with even ticks + light gridlines
+            valAxisHidden: false,
+            valAxisMinVal: 0,
+            valAxisMaxVal: axisMax,
+            valAxisMajorUnit: axisMax / 4,
+            valAxisLabelColor: NUTANIX.gray,
+            valAxisLabelFontFace: NUTANIX_FONT.body,
+            valAxisLabelFontSize: 10,
+            valAxisLineShow: false,
+            valGridLine: { color: NUTANIX.line, style: "solid", size: 1 },
           });
         }
         return;

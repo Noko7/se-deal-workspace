@@ -5,6 +5,7 @@ import { NUTANIX, cssHex } from "@/lib/nutanix-brand";
 import type { QbrDeckMeta, QbrSlide } from "@/lib/qbr-deck";
 import {
   compileSlide,
+  niceAxisMax,
   pageNumberElement,
   ptToPx,
   PX_PER_IN,
@@ -160,49 +161,92 @@ function EditableList({
 
 // --- charts ------------------------------------------------------------------
 
+const FRACTIONS = [0, 0.25, 0.5, 0.75, 1]; // y-axis gridline positions (bottom -> top)
+
+/** Compact, axis-friendly tick number (e.g. 4_200_000 -> "4.2M"); only "%" units are appended. */
+function tickLabel(v: number, unit?: string): string {
+  const a = Math.abs(v);
+  let s: string;
+  if (a >= 1e9) s = (v / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
+  else if (a >= 1e6) s = (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+  else if (a >= 1e3) s = (v / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "K";
+  else s = String(Math.round(v * 10) / 10);
+  return unit === "%" ? `${s}%` : s;
+}
+
+const AXIS_COLOR = cssHex(NUTANIX.slate);
+const GRID_COLOR = cssHex(NUTANIX.line);
+const TICK_COLOR = cssHex(NUTANIX.gray);
+const Y_GUTTER = 50;
+
 function Bars({ el, editable, onPatch }: { el: ChartElement; editable: boolean; onPatch?: PatchFn }) {
   const series = el.barSeries ?? [];
-  const top = el.max ?? Math.max(...series.map((s) => s.value), 1);
   const unit = el.unit ?? "";
   const valueColor = cssHex(NUTANIX.ink);
+  const dataMax = Math.max(...series.map((s) => s.value), el.max ?? 0, 1);
+  const axisMax = niceAxisMax(dataMax);
+  const H = inToPx(el.h);
+  const padTop = 28; // headroom for the value labels above each bar
+  const padBottom = 30; // room for the x-axis category labels
+  const band = Math.max(20, H - padTop - padBottom);
+  const yAt = (f: number) => padTop + (1 - f) * band;
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: "100%", padding: "20px 8px 0" }}>
-      {series.map((s, i) => {
-        const pctH = (s.value / (top * 1.15)) * 100;
-        return (
-          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-            <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%", justifyContent: "center" }}>
-              <div style={{ width: "62%", height: `${pctH}%`, background: cssHex(NUTANIX.purple), borderRadius: "8px 8px 0 0", position: "relative" }}>
-                <span style={{ position: "absolute", top: -34, left: 0, right: 0, textAlign: "center", fontWeight: 700, fontSize: 22, color: valueColor }}>
-                  {editable && onPatch && s.valuePath ? (
-                    <EditableText
-                      value={String(s.value)}
-                      textAlign="center"
-                      fontStyle={{ fontWeight: 700, fontSize: 22, color: valueColor }}
-                      onCommit={(v) => {
-                        const n = Number(v.replace(/[^0-9.-]/g, ""));
-                        if (Number.isFinite(n)) onPatch(s.valuePath!, n);
-                      }}
-                    />
-                  ) : (
-                    <>
-                      {s.value}
-                      {unit}
-                    </>
-                  )}
-                </span>
+    <div style={{ display: "flex", height: H, width: "100%" }}>
+      {/* y-axis */}
+      <div style={{ position: "relative", width: Y_GUTTER, height: H, flexShrink: 0 }}>
+        {FRACTIONS.map((f) => (
+          <span key={f} style={{ position: "absolute", right: 8, top: yAt(f) - 9, fontSize: 14, lineHeight: "18px", color: TICK_COLOR }}>
+            {tickLabel(axisMax * f, unit)}
+          </span>
+        ))}
+      </div>
+      {/* plot */}
+      <div style={{ position: "relative", flex: 1, height: H }}>
+        {FRACTIONS.map((f) => (
+          <div key={f} style={{ position: "absolute", left: 0, right: 0, top: yAt(f), height: 1, background: f === 0 ? AXIS_COLOR : GRID_COLOR }} />
+        ))}
+        <div style={{ position: "absolute", left: 0, right: 0, top: padTop, height: band, display: "flex", alignItems: "flex-end", gap: 28, padding: "0 10px" }}>
+          {series.map((s, i) => {
+            const hPx = Math.max(0, (s.value / axisMax) * band);
+            return (
+              <div key={i} style={{ flex: 1, display: "flex", justifyContent: "center", height: "100%", alignItems: "flex-end" }}>
+                <div style={{ width: "62%", height: hPx, background: cssHex(NUTANIX.purple), borderRadius: "8px 8px 0 0", position: "relative" }}>
+                  <span style={{ position: "absolute", top: -26, left: 0, right: 0, textAlign: "center", fontWeight: 700, fontSize: 20, color: valueColor }}>
+                    {editable && onPatch && s.valuePath ? (
+                      <EditableText
+                        value={String(s.value)}
+                        textAlign="center"
+                        fontStyle={{ fontWeight: 700, fontSize: 20, color: valueColor }}
+                        onCommit={(v) => {
+                          const n = Number(v.replace(/[^0-9.-]/g, ""));
+                          if (Number.isFinite(n)) onPatch(s.valuePath!, n);
+                        }}
+                      />
+                    ) : (
+                      <>
+                        {s.value}
+                        {unit}
+                      </>
+                    )}
+                  </span>
+                </div>
               </div>
-            </div>
-            <span style={{ marginTop: 12, fontSize: 18, color: cssHex(NUTANIX.gray), width: "100%", textAlign: "center" }}>
+            );
+          })}
+        </div>
+        {/* x-axis labels */}
+        <div style={{ position: "absolute", left: 0, right: 0, top: padTop + band + 7, display: "flex", gap: 28, padding: "0 10px" }}>
+          {series.map((s, i) => (
+            <span key={i} style={{ flex: 1, textAlign: "center", fontSize: 16, color: TICK_COLOR }}>
               {editable && onPatch && s.labelPath ? (
-                <EditableText value={s.label} textAlign="center" fontStyle={{ fontSize: 18, color: cssHex(NUTANIX.gray) }} onCommit={(v) => onPatch(s.labelPath!, v)} />
+                <EditableText value={s.label} textAlign="center" fontStyle={{ fontSize: 16, color: TICK_COLOR }} onCommit={(v) => onPatch(s.labelPath!, v)} />
               ) : (
                 s.label
               )}
             </span>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -210,39 +254,65 @@ function Bars({ el, editable, onPatch }: { el: ChartElement; editable: boolean; 
 function Lines({ el, editable, onPatch }: { el: ChartElement; editable: boolean; onPatch?: PatchFn }) {
   const series = el.lineSeries ?? [];
   const colors = el.colors.map(cssHex);
+  const unit = el.unit ?? "";
   const all = series.flatMap((s) => s.points);
-  const max = Math.max(...all, 1);
+  const axisMax = niceAxisMax(Math.max(...all, 1));
+  const n = series[0]?.points.length ?? 1;
+  const xLabels = el.xLabels ?? Array.from({ length: n }, (_, i) => String(i + 1));
   const w = inToPx(el.w);
-  const chartH = inToPx(el.h) - (el.showLegend ? 40 : 0);
-  const pad = 36;
-  const xStep = (w - pad * 2) / Math.max(1, (series[0]?.points.length ?? 1) - 1);
-  const yOf = (v: number) => pad + (1 - v / (max * 1.1)) * (chartH - pad * 2);
+  const legendH = el.showLegend ? 36 : 0;
+  const chartH = inToPx(el.h) - legendH;
+  const padTop = 14;
+  const padBottom = 26; // x-axis labels
+  const padRight = 14;
+  const band = Math.max(20, chartH - padTop - padBottom);
+  const plotW = Math.max(20, w - Y_GUTTER - padRight);
+  const xStep = plotW / Math.max(1, n - 1);
+  const xOf = (i: number) => Y_GUTTER + i * xStep;
+  const yOf = (v: number) => padTop + (1 - v / axisMax) * band;
+  const yBase = padTop + band;
+  // Thin out crowded x labels to ~6 ticks max.
+  const labelStep = Math.max(1, Math.ceil(n / 6));
   return (
     <div style={{ width: "100%", height: "100%" }}>
       <svg width={w} height={chartH} style={{ overflow: "visible" }}>
-        {[0, 0.25, 0.5, 0.75, 1].map((g) => (
-          <line key={g} x1={pad} x2={w - pad} y1={pad + g * (chartH - pad * 2)} y2={pad + g * (chartH - pad * 2)} stroke={cssHex(NUTANIX.line)} strokeWidth={1} />
-        ))}
+        {/* y gridlines + tick labels */}
+        {FRACTIONS.map((f) => {
+          const y = padTop + (1 - f) * band;
+          return (
+            <g key={f}>
+              <line x1={Y_GUTTER} x2={w - padRight} y1={y} y2={y} stroke={f === 0 ? AXIS_COLOR : GRID_COLOR} strokeWidth={1} />
+              <text x={Y_GUTTER - 8} y={y + 5} textAnchor="end" fontSize={14} fill={TICK_COLOR}>
+                {tickLabel(axisMax * f, unit)}
+              </text>
+            </g>
+          );
+        })}
+        {/* y axis line */}
+        <line x1={Y_GUTTER} x2={Y_GUTTER} y1={padTop} y2={yBase} stroke={AXIS_COLOR} strokeWidth={1} />
+        {/* x tick labels */}
+        {xLabels.map((lbl, i) =>
+          i % labelStep === 0 || i === n - 1 ? (
+            <text key={i} x={xOf(i)} y={yBase + 18} textAnchor="middle" fontSize={14} fill={TICK_COLOR}>
+              {lbl}
+            </text>
+          ) : null,
+        )}
+        {/* series */}
         {series.map((s, si) => {
-          const pts = s.points.map((p, i) => `${pad + i * xStep},${yOf(p)}`).join(" ");
+          const pts = s.points.map((p, i) => `${xOf(i)},${yOf(p)}`).join(" ");
           return (
             <g key={si}>
               <polyline points={pts} fill="none" stroke={colors[si % colors.length]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
               {s.points.map((p, i) => (
-                <circle key={i} cx={pad + i * xStep} cy={yOf(p)} r={4} fill={colors[si % colors.length]} />
+                <circle key={i} cx={xOf(i)} cy={yOf(p)} r={4} fill={colors[si % colors.length]} />
               ))}
             </g>
           );
         })}
-        {el.unit ? (
-          <text x={pad} y={20} fontSize={14} fill={cssHex(NUTANIX.slate)}>
-            max {max}
-            {el.unit}
-          </text>
-        ) : null}
       </svg>
       {el.showLegend ? (
-        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 6 }}>
           {series.map((s, si) => (
             <span key={si} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 16, color: cssHex(NUTANIX.gray) }}>
               <span style={{ width: 14, height: 14, borderRadius: 3, background: colors[si % colors.length] }} />

@@ -116,6 +116,26 @@ export interface ChartElement {
   barSeries?: { label: string; value: number; labelPath?: string; valuePath?: string }[];
   // line
   lineSeries?: { label: string; points: number[]; labelPath?: string }[];
+  xLabels?: string[]; // category labels along the x-axis (line charts)
+}
+
+/** Round a raw maximum up to a clean axis bound (1/2/5 x 10^n) so y-axis ticks read evenly. */
+export function niceAxisMax(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / pow; // 1..10
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+/** Trailing `n` calendar months (e.g. ["Jul","Aug",...]) ending on the current month. */
+export function trailingMonthLabels(n: number): string[] {
+  const now = new Date();
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    out.push(new Date(now.getFullYear(), now.getMonth() - i, 1).toLocaleString("en-US", { month: "short" }));
+  }
+  return out;
 }
 
 export type SlideElement = TextElement | ShapeElement | ImageElement | TableElement | ChartElement;
@@ -362,6 +382,8 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
       break;
     }
     case "lines": {
+      const pointCount = c.series[0]?.points.length ?? 0;
+      const xLabels = pointCount > 0 && pointCount <= 12 ? trailingMonthLabels(pointCount) : Array.from({ length: pointCount }, (_, i) => String(i + 1));
       els.push({
         kind: "chart",
         chart: "line",
@@ -373,6 +395,7 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
         colors: CHART_COLORS,
         showLegend: c.series.length > 1,
         lineSeries: c.series.map((ser, i) => ({ label: ser.label, points: ser.points, labelPath: `content.series.${i}.label` })),
+        xLabels,
       });
       break;
     }

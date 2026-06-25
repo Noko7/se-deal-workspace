@@ -48,8 +48,15 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [pendingLogo, setPendingLogo] = useState<string | null>(null); // uploaded, awaiting bg-removal choice
+  const [pendingName, setPendingName] = useState<string | null>(null);
+  const [logoName, setLogoName] = useState<string | null>(null);
   const [bgRemoving, setBgRemoving] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
+
+  function clearLogo() {
+    setLogo(null);
+    setLogoName(null);
+  }
 
   const slideById = useMemo(() => {
     const map = new Map<string, QbrSlide>();
@@ -135,7 +142,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     const reader = new FileReader();
     // Stage the upload and ask about background removal before committing it.
     reader.onload = () => {
-      if (typeof reader.result === "string") setPendingLogo(reader.result);
+      if (typeof reader.result === "string") {
+        setPendingLogo(reader.result);
+        setPendingName(file.name);
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -147,9 +157,11 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
 
   async function confirmLogo(removeBg: boolean) {
     if (!pendingLogo) return;
+    setLogoName(pendingName);
     if (!removeBg) {
       setLogo(pendingLogo);
       setPendingLogo(null);
+      setPendingName(null);
       return;
     }
     setBgRemoving(true);
@@ -160,6 +172,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     } finally {
       setBgRemoving(false);
       setPendingLogo(null);
+      setPendingName(null);
     }
   }
 
@@ -238,7 +251,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
           <div className="mt-3 flex items-center gap-3 rounded-md border border-charcoal-200 bg-white px-3 py-2">
             <img src={logo} alt="logo" className="h-8 w-auto max-w-[120px] object-contain" />
             <span className="text-xs text-charcoal-500">Current logo</span>
-            <button onClick={() => setLogo(null)} className="ml-auto bg-transparent text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
+            <button onClick={clearLogo} className="ml-auto bg-transparent text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -267,19 +280,16 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
             CS360 connector
             <span className="rounded-full bg-iris-100 px-2 py-0.5 text-[11px] text-iris-700">Stubbed (live VPN pull coming soon)</span>
           </div>
-          <h3 className="mt-3 text-lg font-semibold text-charcoal-900">Build a QBR deck from a customer&apos;s health check</h3>
-          <p className="mt-1 max-w-2xl text-sm text-charcoal-600">
-            Pick a customer and we&apos;ll pull their auto-generated QBR report (Cluster → Cluster Summary → Actions → Download QBR
-            Report), then assemble a curated, on-brand deck following the Jan 2026 Health Check Guide, with SE talk-track on every
-            slide and the redundant slides pre-hidden.
-          </p>
-
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-sm font-medium text-charcoal-800">Customer</span>
-              <div className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3">
-                <Building2 className="h-4 w-4 text-charcoal-400" />
-                <select value={selected} onChange={(e) => setSelected(e.target.value)} className="w-full border-0 bg-transparent py-2 outline-none">
+              <div className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 transition focus-within:border-iris-400 focus-within:ring-2 focus-within:ring-iris-300 focus-within:ring-offset-1">
+                <Building2 className="h-4 w-4 shrink-0 text-charcoal-400" />
+                <select
+                  value={selected}
+                  onChange={(e) => setSelected(e.target.value)}
+                  className="w-full border-0 bg-transparent py-2 outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                >
                   {accounts.map((a) => (
                     <option key={a.id} value={a.accountName}>
                       {a.accountName}
@@ -293,9 +303,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
               <span className="text-sm font-medium text-charcoal-800">Customer logo (optional)</span>
               <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
               {logo ? (
-                <div className="flex items-center gap-3 rounded-md border border-charcoal-300 bg-white px-3 py-1.5">
-                  <img src={logo} alt="logo" className="h-8 w-auto max-w-[120px] object-contain" />
-                  <button onClick={() => setLogo(null)} className="ml-auto text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
+                <div className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 py-2">
+                  <ImagePlus className="h-4 w-4 shrink-0 text-iris-500" />
+                  <span className="truncate text-sm text-charcoal-700">{logoName ?? "Logo added"}</span>
+                  <button onClick={clearLogo} className="ml-auto shrink-0 text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
                     <X className="h-4 w-4" />
                   </button>
                 </div>

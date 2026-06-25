@@ -1,11 +1,11 @@
 // Client-side logo background remover.
 //
-// Strategy: sample the background color from the image corners, then flood-fill
-// inward from every edge pixel, clearing pixels whose color matches the
-// background within a tolerance. Because the fill only removes background that
-// is connected to the edges, enclosed foreground regions (e.g. the white space
-// inside letters or a logo mark) are preserved, so the foreground is never
-// punched through. A light edge feather removes any residual color halo.
+// Strategy: sample the background color from the image corners, then clear every
+// pixel whose color matches that background within a tolerance. This is a global
+// color key, so it removes the outer background AND the enclosed pockets inside
+// letters (the counters of O, D, P, A, etc.) and any other gaps. Genuine
+// foreground (a different color from the background) is never touched. A light
+// edge feather then softens the boundary so no background-colored halo remains.
 //
 // This is intentionally dependency-free and runs entirely in the browser. It is
 // tuned for the common case of a logo on a solid (usually white) background. If
@@ -69,36 +69,12 @@ export async function removeImageBackground(dataUrl: string): Promise<string> {
     return dr * dr + dg * dg + db * db;
   };
 
-  // Flood fill from the edges (4-connected) clearing connected background.
-  const visited = new Uint8Array(w * h);
-  const stack: number[] = [];
-  const consider = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= w || y >= h) return;
-    const p = y * w + x;
-    if (visited[p]) return;
-    visited[p] = 1;
+  // Global color key: clear every pixel matching the background color, wherever
+  // it is. This removes the outer background and the enclosed counters inside
+  // letters/shapes, while leaving any differently-colored foreground intact.
+  for (let p = 0; p < w * h; p++) {
     const i = p * 4;
-    if (dist2(i) <= tol2) {
-      d[i + 3] = 0;
-      stack.push(p);
-    }
-  };
-  for (let x = 0; x < w; x++) {
-    consider(x, 0);
-    consider(x, h - 1);
-  }
-  for (let y = 0; y < h; y++) {
-    consider(0, y);
-    consider(w - 1, y);
-  }
-  while (stack.length) {
-    const p = stack.pop() as number;
-    const x = p % w;
-    const y = (p - x) / w;
-    consider(x + 1, y);
-    consider(x - 1, y);
-    consider(x, y + 1);
-    consider(x, y - 1);
+    if (dist2(i) <= tol2) d[i + 3] = 0;
   }
 
   // Feather: any still-opaque pixel that touches transparency and is close to

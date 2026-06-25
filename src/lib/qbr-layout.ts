@@ -208,10 +208,9 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
       if (logo) els.push({ kind: "image", x: PAGE_W - 3.3, y: 0.55, w: 2.3, h: 0.7, dataUrl: logo });
       els.push({ kind: "text", x: 1.0, y: 2.35, w: 11, h: 0.5, runs: [{ text: "QUARTERLY BUSINESS REVIEW" }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
       els.push({ kind: "text", x: 1.0, y: 2.85, w: 11.6, h: 1.9, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.heading, fontSize: titleFont, bold: true, color: "FFFFFF", edit: { path: "meta.customer" } });
-      els.push({ kind: "text", x: 1.0, y: 4.85, w: 11, h: 0.4, runs: [{ text: meta.vertical }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.vertical" } });
-      els.push({ kind: "text", x: 1.0, y: 5.28, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });
-      els.push({ kind: "text", x: 1.0, y: 5.72, w: 1.0, h: 0.4, runs: [{ text: "Prepared by" }], fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2", valign: "middle" });
-      els.push({ kind: "text", x: 1.95, y: 5.72, w: 9, h: 0.4, runs: [{ text: meta.preparedBy }], fontFace: NUTANIX_FONT.body, fontSize: 12, bold: true, color: "D8CCFF", valign: "middle", edit: { path: "meta.preparedBy" } });
+      els.push({ kind: "text", x: 1.0, y: 4.9, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });
+      els.push({ kind: "text", x: 1.0, y: 5.55, w: 4.0, h: 0.32, runs: [{ text: "Prepared by" }], fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2" });
+      els.push({ kind: "text", x: 1.0, y: 5.86, w: 6.0, h: 0.4, runs: [{ text: meta.preparedBy }], fontFace: NUTANIX_FONT.body, fontSize: 13, bold: true, color: "D8CCFF", edit: { path: "meta.preparedBy" } });
       return { backgroundImage: THEME.titleBg, background: NUTANIX.deepPurple, elements: els };
     }
 

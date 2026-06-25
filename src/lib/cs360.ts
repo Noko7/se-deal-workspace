@@ -1,4 +1,4 @@
-// CS360 connector — STUB.
+// CS360 connector - STUB.
 //
 // In production this module will authenticate to CS360 (VPN required) and pull
 // the auto-generated QBR Report for a customer via:
@@ -294,7 +294,7 @@ export function fetchCs360HealthReport(
     nodes: i === 0 ? 3 + Math.floor(rng() * 3) : Math.floor(rng() * 4),
   }));
 
-  // Hypervisor mix — some accounts run ESXi (migration talk track)
+  // Hypervisor mix - some accounts run ESXi (migration talk track)
   const usesEsxi = rng() > 0.5;
   const aosChoices = [
     { v: "6.5.5.7", eom: "2025-09-30", eos: "2026-03-31" }, // near EOS
@@ -330,7 +330,7 @@ export function fetchCs360HealthReport(
     lastPulse,
   }));
 
-  // Licenses — sometimes a tier is unapplied (Advanced Replication) to exercise
+  // Licenses - sometimes a tier is unapplied (Advanced Replication) to exercise
   // the "downgraded / not using DR" talk track from the guide.
   const replicationUnapplied = rng() > 0.55;
   const licenses: LicenseRow[] = clusterNames.map((name, i) => {
@@ -462,7 +462,7 @@ export function fetchCs360HealthReport(
     discoveries.push({
       cluster: clusterNames[0],
       policy: "D3-0336",
-      description: "Disaster Recovery is enabled — confirm replication targets and RPO/RTO objectives",
+      description: "Disaster Recovery is enabled; confirm replication targets and RPO/RTO objectives",
       severity: "Info",
       recommendation: "Validate DR runbook with the customer",
     });

@@ -48,7 +48,7 @@ export async function exportDeckToPptx(
   pptx.layout = "LAYOUT_WIDE"; // 13.333 x 7.5 (16:9)
   pptx.author = "Nutanix SE Workspace";
   pptx.company = "Nutanix";
-  pptx.title = `QBR — ${meta.customer}`;
+  pptx.title = `QBR for ${meta.customer}`;
 
   const SHAPE = pptx.ShapeType;
   const CHART = pptx.ChartType;

@@ -116,12 +116,12 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
           <div className="flex items-center gap-2 text-xs font-medium text-iris-700">
             <Server className="h-4 w-4" />
             CS360 connector
-            <span className="rounded-full bg-iris-100 px-2 py-0.5 text-[11px] text-iris-700">Stubbed — live VPN pull coming soon</span>
+            <span className="rounded-full bg-iris-100 px-2 py-0.5 text-[11px] text-iris-700">Stubbed (live VPN pull coming soon)</span>
           </div>
           <h3 className="mt-3 text-lg font-semibold text-charcoal-900">Build a QBR deck from a customer&apos;s health check</h3>
           <p className="mt-1 max-w-2xl text-sm text-charcoal-600">
             Pick a customer and we&apos;ll pull their auto-generated QBR report (Cluster → Cluster Summary → Actions → Download QBR
-            Report), then assemble a curated, on-brand deck following the Jan 2026 Health Check Guide — with SE talk-track on every
+            Report), then assemble a curated, on-brand deck following the Jan 2026 Health Check Guide, with SE talk-track on every
             slide and the redundant slides pre-hidden.
           </p>
 
@@ -152,7 +152,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                 </div>
               ) : (
                 <button onClick={() => logoInput.current?.click()} className="flex w-full items-center gap-2 rounded-md border border-dashed border-charcoal-300 bg-white px-3 py-2 text-sm text-charcoal-600 hover:border-iris-400 hover:text-iris-600">
-                  <ImagePlus className="h-4 w-4" /> Upload logo — placed throughout the deck
+                  <ImagePlus className="h-4 w-4" /> Upload logo (placed throughout the deck)
                 </button>
               )}
             </div>
@@ -217,7 +217,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        {/* Slide rail — stretches to match the editor column height */}
+        {/* Slide rail - stretches to match the editor column height */}
         <div className="relative lg:min-h-0">
           <div className="max-h-[60vh] space-y-1 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2 lg:absolute lg:inset-0 lg:max-h-none">
           {orderedSlides.map((s, i) => {
@@ -367,7 +367,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
         </div>
       </div>
 
-      {/* Off-screen print surface — full-fidelity one slide per page for PDF. */}
+      {/* Off-screen print surface - full-fidelity one slide per page for PDF. */}
       <div className="qbr-print-root" aria-hidden>
         {visibleSlides.map((s) => (
           <div key={s.id} className="qbr-print-page">

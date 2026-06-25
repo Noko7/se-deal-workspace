@@ -19,6 +19,21 @@ type Slide = {
   background?: unknown;
 };
 
+// Fetch an image asset (served from /public) and convert to a base64 data URL so
+// pptxgenjs can embed it directly. Runs client-side during export.
+async function fetchAsDataUrl(url: string): Promise<string> {
+  const abs = typeof window !== "undefined" && url.startsWith("/") ? window.location.origin + url : url;
+  const res = await fetch(abs);
+  if (!res.ok) throw new Error(`asset ${url} -> ${res.status}`);
+  const blob = await res.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
 function textRuns(el: TextElement) {
   if (el.lines) {
     return el.lines.map((t) => ({
@@ -62,6 +77,9 @@ export async function exportDeckToPptx(
 
   const SHAPE = pptx.ShapeType;
   const CHART = pptx.ChartType;
+
+  // Resolved base64 data URLs for non-data image assets (brand art, logos).
+  const assetCache = new Map<string, string>();
 
   const shapeType = (kind: string) => {
     switch (kind) {
@@ -112,7 +130,9 @@ export async function exportDeckToPptx(
         return;
       }
       case "image": {
-        slide.addImage({ data: el.dataUrl, x: el.x, y: el.y, w: el.w, h: el.h, sizing: { type: "contain", w: el.w, h: el.h } });
+        const src = el.dataUrl.startsWith("data:") ? el.dataUrl : assetCache.get(el.dataUrl);
+        if (!src) return; // asset failed to load; skip rather than crash the export
+        slide.addImage({ data: src, x: el.x, y: el.y, w: el.w, h: el.h, sizing: { type: "contain", w: el.w, h: el.h } });
         return;
       }
       case "table": {
@@ -210,10 +230,34 @@ export async function exportDeckToPptx(
     }
   };
 
-  slides.forEach((s, i) => {
+  // Compile once, then prefetch every non-data image asset (brand backgrounds,
+  // Nutanix logo/mark) to a base64 data URL so they embed reliably in the .pptx.
+  const compiledAll = slides.map((s) => compileSlide(s, meta, logoDataUrl));
+  const assetPaths = new Set<string>();
+  for (const c of compiledAll) {
+    if (c.backgroundImage && !c.backgroundImage.startsWith("data:")) assetPaths.add(c.backgroundImage);
+    for (const el of c.elements) {
+      if (el.kind === "image" && !el.dataUrl.startsWith("data:")) assetPaths.add(el.dataUrl);
+    }
+  }
+  for (const p of assetPaths) {
+    try {
+      assetCache.set(p, await fetchAsDataUrl(p));
+    } catch {
+      // leave uncached; image elements/backgrounds resolve to nothing and are skipped
+    }
+  }
+
+  compiledAll.forEach((compiled, i) => {
+    const s = slides[i];
     const slide = pptx.addSlide() as unknown as Slide;
-    const compiled = compileSlide(s, meta, logoDataUrl);
-    if (compiled.background) slide.background = { color: compiled.background };
+    const bgData = compiled.backgroundImage
+      ? compiled.backgroundImage.startsWith("data:")
+        ? compiled.backgroundImage
+        : assetCache.get(compiled.backgroundImage)
+      : undefined;
+    if (bgData) slide.background = { data: bgData };
+    else if (compiled.background) slide.background = { color: compiled.background };
 
     compiled.elements.forEach((el) => place(slide, el));
 

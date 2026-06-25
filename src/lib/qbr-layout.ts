@@ -142,8 +142,19 @@ export type SlideElement = TextElement | ShapeElement | ImageElement | TableElem
 
 export interface CompiledSlide {
   background?: string; // bare hex (board background; undefined -> white)
+  backgroundImage?: string; // full-bleed background image (url or data uri); overrides `background`
   elements: SlideElement[];
 }
+
+// Official Nutanix brand designs, extracted from the brand template deck and
+// served as static assets. Used as full-bleed slide backgrounds for the cover
+// and closing so the deck matches the real Nutanix title/section designs.
+export const THEME = {
+  titleBg: "/qbr-theme/title-bg.png", // dark-purple geometric (brand Title Slide)
+  sectionBg: "/qbr-theme/section-bg.jpg", // black geometric (brand Section Header)
+  mark: "/qbr-theme/mark-dark.png", // small Nutanix "X" mark for content footers
+  logoWhite: "/nutanix-logo-white.png", // white Nutanix wordmark for dark backgrounds
+};
 
 // --- helpers -----------------------------------------------------------------
 
@@ -184,30 +195,31 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
   const els: SlideElement[] = [];
 
   // ---- Cover slides (title / closing) --------------------------------------
+  // Both use the official Nutanix brand backgrounds (full-bleed geometric art).
   if (c.type === "title" || c.type === "closing") {
-    // accent blocks (top-right)
-    els.push({ kind: "shape", shape: "rect", x: PAGE_W - 3.2, y: 0, w: 3.2, h: 0.28, fill: NUTANIX.purple });
-    els.push({ kind: "shape", shape: "rect", x: PAGE_W - 1.9, y: 0, w: 1.9, h: 0.55, fill: NUTANIX.cyan });
+    // White Nutanix wordmark, top-left, on the dark brand art.
+    els.push({ kind: "image", x: 1.0, y: 0.62, w: 2.1, h: 0.5, dataUrl: THEME.logoWhite });
 
     if (c.type === "title") {
       // Auto-shrink long customer names so they never clip on the second line.
       const nameLen = meta.customer.length;
       const titleFont = nameLen > 38 ? 34 : nameLen > 28 ? 40 : 48;
-      if (logo) els.push({ kind: "image", x: 1.0, y: 0.9, w: 2.4, h: 0.8, dataUrl: logo });
+      // Optional uploaded customer logo sits top-right opposite the Nutanix mark.
+      if (logo) els.push({ kind: "image", x: PAGE_W - 3.3, y: 0.55, w: 2.3, h: 0.7, dataUrl: logo });
       els.push({ kind: "text", x: 1.0, y: 2.35, w: 11, h: 0.5, runs: [{ text: "QUARTERLY BUSINESS REVIEW" }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
       els.push({ kind: "text", x: 1.0, y: 2.85, w: 11.6, h: 1.9, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.heading, fontSize: titleFont, bold: true, color: "FFFFFF", edit: { path: "meta.customer" } });
       els.push({ kind: "text", x: 1.0, y: 4.85, w: 11, h: 0.4, runs: [{ text: meta.vertical }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.vertical" } });
       els.push({ kind: "text", x: 1.0, y: 5.28, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });
       els.push({ kind: "text", x: 1.0, y: 5.72, w: 1.0, h: 0.4, runs: [{ text: "Prepared by" }], fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2", valign: "middle" });
       els.push({ kind: "text", x: 1.95, y: 5.72, w: 9, h: 0.4, runs: [{ text: meta.preparedBy }], fontFace: NUTANIX_FONT.body, fontSize: 12, bold: true, color: "D8CCFF", valign: "middle", edit: { path: "meta.preparedBy" } });
-      return { background: NUTANIX.deepPurple, elements: els };
+      return { backgroundImage: THEME.titleBg, background: NUTANIX.deepPurple, elements: els };
     }
 
     // closing
     els.push({ kind: "text", x: 0.5, y: 2.7, w: PAGE_W - 1.0, h: 1.6, runs: [{ text: c.message }], fontFace: NUTANIX_FONT.heading, fontSize: 44, bold: true, color: "FFFFFF", align: "center", valign: "middle", edit: { path: "content.message" } });
     els.push({ kind: "text", x: 0, y: 4.5, w: PAGE_W, h: 0.5, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, align: "center", edit: { path: "meta.customer" } });
     if (logo) els.push({ kind: "image", x: (PAGE_W - 2.0) / 2, y: 5.3, w: 2.0, h: 0.7, dataUrl: logo });
-    return { background: NUTANIX.deepPurple, elements: els };
+    return { backgroundImage: THEME.sectionBg, background: NUTANIX.ink, elements: els };
   }
 
   // ---- Chrome (shared by all content slides) -------------------------------
@@ -219,8 +231,10 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
   if (logo) els.push({ kind: "image", x: PAGE_W - MARGIN - 1.2, y: 0.5, w: 1.2, h: 0.5, dataUrl: logo });
   els.push({ kind: "shape", shape: "line", x: MARGIN, y: 1.6, w: PAGE_W - MARGIN * 2, h: 0, line: { color: NUTANIX.line, width: 1 } });
 
-  // footer
-  els.push({ kind: "text", x: MARGIN, y: PAGE_H - 0.45, w: 8, h: 0.3, runs: [{ text: `Nutanix Confidential  \u00b7  ${meta.customer}` }], fontFace: NUTANIX_FONT.body, fontSize: 8, color: NUTANIX.slate, valign: "middle" });
+  // footer (brand chrome: Nutanix mark, confidential line, full-width accent bar)
+  els.push({ kind: "image", x: 0.32, y: PAGE_H - 0.42, w: 0.2, h: 0.2, dataUrl: THEME.mark });
+  els.push({ kind: "text", x: MARGIN + 0.1, y: PAGE_H - 0.45, w: 8, h: 0.3, runs: [{ text: `Nutanix Confidential  \u00b7  ${meta.customer}` }], fontFace: NUTANIX_FONT.body, fontSize: 8, color: NUTANIX.slate, valign: "middle" });
+  els.push({ kind: "shape", shape: "rect", x: 0, y: PAGE_H - 0.1, w: PAGE_W, h: 0.1, fill: NUTANIX.purple });
 
   const showInsight = Boolean(slide.insight) && !slide.insightHidden;
   const top = 1.85;

@@ -25,13 +25,10 @@ export default async function QbrPage() {
   }
   accounts.sort((a, b) => a.accountName.localeCompare(b.accountName));
 
-  // Bake the real UCLA Anderson downloads (QBR Report + Customer Progress
-  // Report) in as the default sample so the tool demonstrates the real combined
-  // deck out of the box.
-  const accountsWithSample: AccountLite[] = [
-    { id: "ucla-sample", accountName: UCLA_SAMPLE_ACCOUNT },
-    ...accounts.filter((a) => a.accountName !== UCLA_SAMPLE_ACCOUNT),
-  ];
+  // Only show the real (fake-data) accounts. The UCLA Anderson sample is
+  // excluded from the selectable list; decks are generated from synthesized
+  // CS360 data for each account.
+  const selectableAccounts: AccountLite[] = accounts.filter((a) => a.accountName !== UCLA_SAMPLE_ACCOUNT);
 
   return (
     <div className="space-y-6">
@@ -40,7 +37,7 @@ export default async function QbrPage() {
         subtitle="Pull a customer's CS360 health report and assemble a curated, on-brand Quarterly Business Review deck, guided by the Jan 2026 Health Check Guide. Preview, curate, and export to PowerPoint."
         icon={<Presentation className="h-5 w-5" />}
       >
-        <QbrBuilder accounts={accountsWithSample} defaultSe={se} />
+        <QbrBuilder accounts={selectableAccounts} defaultSe={se} />
       </Card>
     </div>
   );

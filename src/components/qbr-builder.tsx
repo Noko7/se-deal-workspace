@@ -281,8 +281,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
             <span className="rounded-full bg-iris-100 px-2 py-0.5 text-[11px] text-iris-700">Stubbed (live VPN pull coming soon)</span>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="space-y-1.5">
-              <span className="text-sm font-medium text-charcoal-800">Customer</span>
+            <div className="space-y-1.5">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-charcoal-600">Customer</span>
               <div className="flex h-10 items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 transition focus-within:border-iris-400 focus-within:ring-2 focus-within:ring-iris-300 focus-within:ring-offset-1">
                 <Building2 className="h-4 w-4 shrink-0 text-charcoal-400" />
                 <select
@@ -297,10 +297,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                   ))}
                 </select>
               </div>
-            </label>
+            </div>
 
             <div className="space-y-1.5">
-              <span className="text-sm font-medium text-charcoal-800">Customer logo (optional)</span>
+              <span className="block text-xs font-semibold uppercase tracking-wide text-charcoal-600">Customer logo (optional)</span>
               <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
               {logo ? (
                 <div className="flex h-10 items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3">

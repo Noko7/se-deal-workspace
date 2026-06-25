@@ -32,8 +32,8 @@ export const NUTANIX_FONT = {
 export const HEALTH = {
   good: "3F5E0A", // green text
   goodFill: "EEF8D8",
-  warn: "9A3B27", // amber/orange text
-  warnFill: "FFE7E0",
+  warn: "B45309", // amber/orange text (clearly yellow-orange, distinct from bad's red)
+  warnFill: "FEF3C7", // soft yellow tint
   bad: "9F1239", // red text
   badFill: "FFE4E6",
   neutral: NUTANIX.gray,

@@ -204,8 +204,9 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
       // Auto-shrink long customer names so they never clip on the second line.
       const nameLen = meta.customer.length;
       const titleFont = nameLen > 38 ? 34 : nameLen > 28 ? 40 : 48;
-      // Optional uploaded customer logo sits top-right opposite the Nutanix mark.
-      if (logo) els.push({ kind: "image", x: PAGE_W - 3.3, y: 0.55, w: 2.3, h: 0.7, dataUrl: logo });
+      // Optional uploaded customer logo sits inside the top-right corner shape
+      // (right of the bright diagonal edge), opposite the Nutanix mark.
+      if (logo) els.push({ kind: "image", x: 11.0, y: 0.42, w: 2.0, h: 0.95, dataUrl: logo });
       els.push({ kind: "text", x: 1.0, y: 2.35, w: 11, h: 0.5, runs: [{ text: "QUARTERLY BUSINESS REVIEW" }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
       els.push({ kind: "text", x: 1.0, y: 2.85, w: 11.6, h: 1.9, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.heading, fontSize: titleFont, bold: true, color: "FFFFFF", edit: { path: "meta.customer" } });
       els.push({ kind: "text", x: 1.0, y: 4.9, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });

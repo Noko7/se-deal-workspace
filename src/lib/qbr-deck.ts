@@ -38,6 +38,11 @@ export interface QbrSlide {
   subtitle?: string;
   talkTrack: string;
   insight?: { tone: HealthTone; text: string };
+  // When true the insight callout is kept on the model but not rendered on the
+  // slide / export, so SEs can hide it without losing the text.
+  insightHidden?: boolean;
+  // Customer-facing narration exported as the PowerPoint slide notes.
+  speakerNotes?: string;
   defaultHidden: boolean;
   content: SlideContent;
 }
@@ -199,6 +204,19 @@ const WHERE_ELSE = [
   { heading: "Protect", items: ["DR / replication strategy", "Microsegmentation (Flow)", "Ransomware resilience"] },
   { heading: "Extend", items: ["Unified storage (NUS)", "Cloud bursting (NC2)", "Enterprise AI (NAI / GPT-in-a-Box)"] },
 ];
+
+// Generate a starting set of speaker notes for a slide, derived from the
+// guide-driven title/subtitle/insight. These export as the PowerPoint slide
+// notes; the SE edits them as needed.
+function deriveSpeakerNotes(slide: QbrSlide): string {
+  const c = slide.content;
+  if (c.type === "title") return "Open the QBR, set the agenda, and align on the outcomes we want from today's review.";
+  if (c.type === "closing") return "Recap the agreed next steps and owners, confirm timing, and thank the team for their time.";
+  const bits: string[] = [`Walk the customer through ${slide.title}.`];
+  if (slide.subtitle) bits.push(slide.subtitle.endsWith(".") ? slide.subtitle : `${slide.subtitle}.`);
+  if (slide.insight && !slide.insightHidden) bits.push(slide.insight.text);
+  return bits.join(" ");
+}
 
 /** Build the full, curated combined QBR deck from a CS360 health report. */
 export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
@@ -891,6 +909,6 @@ export function buildQbrDeck(report: Cs360HealthReport): QbrDeck {
       dateLabel: todayLabel(),
       lastPulse: r.lastPulse,
     },
-    slides: paginateSlides(slides),
+    slides: paginateSlides(slides).map((s) => ({ ...s, speakerNotes: s.speakerNotes ?? deriveSpeakerNotes(s) })),
   };
 }

@@ -5,10 +5,12 @@ import {
   ArrowDown,
   ArrowUp,
   Building2,
+  ChevronDown,
   Download,
   Eye,
   EyeOff,
   FileDown,
+  FileText,
   ImagePlus,
   Lightbulb,
   Loader2,
@@ -38,6 +40,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
   const [logo, setLogo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
 
   const slideById = useMemo(() => {
@@ -306,6 +310,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
         <div className="space-y-4">
           {activeSlide ? (
             <>
+              <p className="flex items-center gap-1.5 text-xs text-charcoal-500">
+                <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it. Changes flow straight into the exported PowerPoint.
+              </p>
+
               <div className="relative">
                 <QbrSlideFrame
                   slide={activeSlide}
@@ -319,87 +327,92 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                   <div className="absolute right-3 top-3 rounded-full bg-charcoal-900/80 px-3 py-1 text-xs font-medium text-white">Hidden from export</div>
                 ) : null}
               </div>
-              <p className="flex items-center gap-1.5 text-xs text-charcoal-500">
-                <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it. Changes flow straight into the exported PowerPoint.
-              </p>
 
+              {/* SE coaching - collapsible purple bar (Health Check Guide) */}
               {activeSlide.talkTrack ? (
-                <div className="overflow-hidden rounded-xl border border-iris-200 bg-white shadow-sm">
-                  <div className="flex items-center gap-2 bg-gradient-to-r from-iris-500 to-iris-700 px-4 py-2.5 text-white">
+                <div className="overflow-hidden rounded-xl border border-iris-200 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setCoachOpen((o) => !o)}
+                    className="flex w-full items-center gap-2 bg-gradient-to-r from-iris-500 to-iris-700 px-4 py-2.5 text-left text-white"
+                  >
                     <Lightbulb className="h-4 w-4" />
                     <span className="text-sm font-semibold">SE coaching</span>
                     <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium">Health Check Guide</span>
-                  </div>
-                  <p className="px-4 py-3 text-sm leading-relaxed text-charcoal-700">{activeSlide.talkTrack}</p>
+                    <ChevronDown className={`ml-auto h-4 w-4 transition-transform ${coachOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {coachOpen ? (
+                    <div className="bg-white p-3">
+                      <textarea value={activeSlide.talkTrack} rows={3} onChange={(e) => patchSlide(activeSlide.id, { talkTrack: e.target.value })} className="w-full" />
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
-              <div className="overflow-hidden rounded-xl border border-charcoal-200 bg-white shadow-sm">
-                <div className="flex items-center gap-2 border-b border-charcoal-100 bg-gradient-to-r from-iris-50 to-white px-4 py-3">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-iris-100 text-iris-600">
-                    <Pencil className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-charcoal-900">Edit slide</p>
-                    <p className="truncate text-xs text-charcoal-500">{activeSlide.section}</p>
-                  </div>
-                </div>
-                <div className="grid gap-4 p-4">
-                  <label className="space-y-1.5">
-                    <span className="block text-xs font-semibold uppercase tracking-wide text-iris-700">Slide title</span>
-                    <input value={activeSlide.title} onChange={(e) => patchSlide(activeSlide.id, { title: e.target.value })} className="w-full" />
-                  </label>
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Subtitle</span>
-                    <input
-                      value={activeSlide.subtitle ?? ""}
-                      placeholder="Optional subtitle shown under the title"
-                      onChange={(e) => patchSlide(activeSlide.id, { subtitle: e.target.value })}
-                      className="w-full"
-                    />
-                  </label>
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">SE Insight callout</span>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <select
-                        value={activeSlide.insight?.tone ?? "neutral"}
-                        onChange={(e) =>
-                          patchSlide(activeSlide.id, {
-                            insight: { tone: e.target.value as HealthTone, text: activeSlide.insight?.text ?? "" },
-                          })
-                        }
-                        className="w-full shrink-0 sm:w-32"
-                      >
-                        {TONES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        value={activeSlide.insight?.text ?? ""}
-                        placeholder="Optional callout shown on the slide"
-                        onChange={(e) =>
-                          patchSlide(activeSlide.id, {
-                            insight: e.target.value
-                              ? { tone: activeSlide.insight?.tone ?? "neutral", text: e.target.value }
-                              : undefined,
-                          })
-                        }
-                        className="flex-1"
-                      />
-                    </div>
-                  </div>
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Coaching / talk-track notes</span>
+              {/* SE Insight - single-line field with tone + hide toggle */}
+              <div className="flex items-center gap-2 rounded-xl border border-charcoal-200 bg-white p-2.5 shadow-sm">
+                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-iris-700">SE Insight</span>
+                <select
+                  value={activeSlide.insight?.tone ?? "neutral"}
+                  onChange={(e) =>
+                    patchSlide(activeSlide.id, {
+                      insight: { tone: e.target.value as HealthTone, text: activeSlide.insight?.text ?? "" },
+                    })
+                  }
+                  className="w-28 shrink-0"
+                >
+                  {TONES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={activeSlide.insight?.text ?? ""}
+                  placeholder="Callout shown on the slide"
+                  onChange={(e) =>
+                    patchSlide(activeSlide.id, {
+                      insight: e.target.value ? { tone: activeSlide.insight?.tone ?? "neutral", text: e.target.value } : undefined,
+                    })
+                  }
+                  className={`flex-1 ${activeSlide.insightHidden ? "opacity-50" : ""}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => patchSlide(activeSlide.id, { insightHidden: !activeSlide.insightHidden })}
+                  disabled={!activeSlide.insight}
+                  title={activeSlide.insightHidden ? "Show insight on slide" : "Hide insight from slide"}
+                  className={`shrink-0 rounded-md bg-transparent p-1.5 ${
+                    activeSlide.insightHidden ? "text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" : "text-iris-500 hover:bg-iris-50 hover:text-iris-700"
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  {activeSlide.insightHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+
+              {/* Speaker notes - collapsible single-line bar (exported as PPT notes) */}
+              <div className="overflow-hidden rounded-xl border border-charcoal-200 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setNotesOpen((o) => !o)}
+                  className="flex w-full items-center gap-2 bg-white px-4 py-2.5 text-left text-charcoal-700"
+                >
+                  <FileText className="h-4 w-4 text-iris-600" />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-iris-700">Speaker notes</span>
+                  {!notesOpen ? <span className="min-w-0 flex-1 truncate text-xs text-charcoal-400">{activeSlide.speakerNotes}</span> : <span className="flex-1" />}
+                  <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-charcoal-400 transition-transform ${notesOpen ? "rotate-180" : ""}`} />
+                </button>
+                {notesOpen ? (
+                  <div className="border-t border-charcoal-100 bg-white p-3">
                     <textarea
-                      value={activeSlide.talkTrack}
+                      value={activeSlide.speakerNotes ?? ""}
                       rows={3}
-                      onChange={(e) => patchSlide(activeSlide.id, { talkTrack: e.target.value })}
+                      placeholder="Speaker notes exported into the PowerPoint notes pane"
+                      onChange={(e) => patchSlide(activeSlide.id, { speakerNotes: e.target.value })}
                       className="w-full"
                     />
-                  </label>
-                </div>
+                  </div>
+                ) : null}
               </div>
             </>
           ) : null}

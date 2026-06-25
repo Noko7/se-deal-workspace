@@ -534,6 +534,10 @@ export function QbrSlideBoard({
         fontFamily: "Montserrat, ui-sans-serif, system-ui, sans-serif",
       }}
     >
+      {compiled.backgroundImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={compiled.backgroundImage} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : null}
       {elements.map((el, i) => (
         <Element key={i} el={el} editable={editable} onPatch={onPatch} />
       ))}

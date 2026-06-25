@@ -29,7 +29,7 @@ export default async function RootLayout({
         {/* Loaded globally from the root layout head; eslint page-font rule is a false positive here. */}
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,600&display=swap"
           rel="stylesheet"
         />
       </head>

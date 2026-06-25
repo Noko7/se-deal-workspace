@@ -1,102 +1,205 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { NUTANIX, HEALTH, cssHex, type HealthTone } from "@/lib/nutanix-brand";
-import type { Cell, QbrDeckMeta, QbrSlide, SlideContent } from "@/lib/qbr-deck";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NUTANIX, cssHex } from "@/lib/nutanix-brand";
+import type { QbrDeckMeta, QbrSlide } from "@/lib/qbr-deck";
+import {
+  compileSlide,
+  pageNumberElement,
+  ptToPx,
+  PX_PER_IN,
+  type ChartElement,
+  type SlideElement,
+  type TableElement,
+  type TextElement,
+} from "@/lib/qbr-layout";
 
-// Renders one QBR slide on a fixed 1280×720 (16:9) board in the official Nutanix
-// brand style. Scaled to fit its container by the parent <QbrSlideFrame>. The
-// same component powers the on-screen preview and the print/PDF view.
+// Renders one QBR slide on a fixed 1280x720 (16:9) board by walking the shared
+// layout IR (compileSlide). Every element is absolutely positioned at the exact
+// inch coordinates the .pptx exporter uses, so the preview is true WYSIWYG. When
+// `editable` is set, text elements become click-to-edit and commit back into the
+// deck model via `onPatch(path, value)`.
 
 const BOARD_W = 1280;
 const BOARD_H = 720;
 
-function toneColors(tone?: HealthTone): { color: string; bg: string } {
-  switch (tone) {
-    case "good":
-      return { color: cssHex(HEALTH.good), bg: cssHex(HEALTH.goodFill) };
-    case "warn":
-      return { color: cssHex(HEALTH.warn), bg: cssHex(HEALTH.warnFill) };
-    case "bad":
-      return { color: cssHex(HEALTH.bad), bg: cssHex(HEALTH.badFill) };
-    default:
-      return { color: cssHex(NUTANIX.ink), bg: "#ffffff" };
-  }
+type PatchFn = (path: string, value: string | string[] | number) => void;
+
+const inToPx = (v: number) => v * PX_PER_IN;
+
+function alignToFlex(a?: "left" | "center" | "right"): string {
+  return a === "center" ? "center" : a === "right" ? "flex-end" : "flex-start";
+}
+function valignToFlex(v?: "top" | "middle" | "bottom"): string {
+  return v === "middle" ? "center" : v === "bottom" ? "flex-end" : "flex-start";
 }
 
-const cellText = (c: Cell) => (typeof c === "string" ? c : c.text);
-const cellTone = (c: Cell): HealthTone | undefined => (typeof c === "string" ? undefined : c.tone);
+// --- editable text -----------------------------------------------------------
 
-function LineChart({ series, unit }: { series: { label: string; points: number[] }[]; unit: string }) {
-  const colors = [NUTANIX.purple, NUTANIX.cyan, NUTANIX.green, NUTANIX.coral, NUTANIX.teal].map(cssHex);
-  const all = series.flatMap((s) => s.points);
-  const max = Math.max(...all, 1);
-  const w = 1184;
-  const h = series.length > 1 ? 360 : 400;
-  const pad = 36;
-  const xStep = (w - pad * 2) / Math.max(1, (series[0]?.points.length ?? 1) - 1);
-  const yOf = (v: number) => pad + (1 - v / (max * 1.1)) * (h - pad * 2);
+function EditableText({
+  value,
+  multiline,
+  textAlign,
+  fontStyle,
+  onCommit,
+}: {
+  value: string;
+  multiline?: boolean;
+  textAlign: "left" | "center" | "right";
+  fontStyle: React.CSSProperties;
+  onCommit: (v: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Uncontrolled: seed/refresh textContent imperatively so typing never causes a
+  // React reconcile that would jump the caret. useLayoutEffect avoids a mount flash.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && document.activeElement !== el && el.textContent !== value) el.textContent = value;
+  }, [value]);
+
   return (
-    <svg width={w} height={h} style={{ overflow: "visible" }}>
-      {[0, 0.25, 0.5, 0.75, 1].map((g) => (
-        <line key={g} x1={pad} x2={w - pad} y1={pad + g * (h - pad * 2)} y2={pad + g * (h - pad * 2)} stroke={cssHex(NUTANIX.line)} strokeWidth={1} />
-      ))}
-      {series.map((s, si) => {
-        const pts = s.points.map((p, i) => `${pad + i * xStep},${yOf(p)}`).join(" ");
-        return (
-          <g key={s.label}>
-            <polyline points={pts} fill="none" stroke={colors[si % colors.length]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
-            {s.points.map((p, i) => (
-              <circle key={i} cx={pad + i * xStep} cy={yOf(p)} r={4} fill={colors[si % colors.length]} />
-            ))}
-          </g>
-        );
-      })}
-      {series.length > 1
-        ? series.map((s, si) => (
-            <g key={`lg-${s.label}`} transform={`translate(${pad + si * 220}, ${h + 16})`}>
-              <rect width={14} height={14} rx={3} fill={colors[si % colors.length]} />
-              <text x={20} y={12} fontSize={16} fill={cssHex(NUTANIX.gray)}>
-                {s.label}
-              </text>
-            </g>
-          ))
-        : null}
-      {unit ? (
-        <text x={pad} y={20} fontSize={14} fill={cssHex(NUTANIX.slate)}>
-          max {max}
-          {unit}
-        </text>
-      ) : null}
-    </svg>
+    <div
+      ref={ref}
+      className="qbr-editable"
+      contentEditable
+      suppressContentEditableWarning
+      title="Click to edit"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          if (ref.current) ref.current.textContent = value;
+          ref.current?.blur();
+        } else if (e.key === "Enter" && !multiline) {
+          e.preventDefault();
+          ref.current?.blur();
+        }
+      }}
+      onBlur={() => {
+        const t = ref.current?.textContent ?? "";
+        if (t !== value) onCommit(t);
+      }}
+      style={{ ...fontStyle, width: "100%", textAlign, outline: "none", cursor: "text", whiteSpace: multiline ? "pre-wrap" : "normal" }}
+    />
   );
 }
 
-function Bars({ series, unit, max }: { series: { label: string; value: number; tone?: HealthTone }[]; unit: string; max?: number }) {
-  const top = max ?? Math.max(...series.map((s) => s.value), 1);
+function EditableList({
+  items,
+  bulletColor,
+  fontStyle,
+  editable,
+  onCommit,
+}: {
+  items: string[];
+  bulletColor: string;
+  fontStyle: React.CSSProperties;
+  editable: boolean;
+  onCommit: (lines: string[]) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (editing && ref.current) {
+      ref.current.innerText = items.join("\n");
+      ref.current.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(ref.current);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    // Only re-seed the editor when entering edit mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  if (editable && editing) {
+    return (
+      <div
+        ref={ref}
+        className="qbr-editable"
+        contentEditable
+        suppressContentEditableWarning
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+        onBlur={() => {
+          const lines = (ref.current?.innerText ?? "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          setEditing(false);
+          onCommit(lines);
+        }}
+        style={{ ...fontStyle, width: "100%", outline: "none", cursor: "text", whiteSpace: "pre-wrap", lineHeight: 1.4 }}
+      />
+    );
+  }
+
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: 400, padding: "20px 8px 0" }}>
-      {series.map((s) => {
+    <div
+      className={editable ? "qbr-editable" : undefined}
+      title={editable ? "Click to edit" : undefined}
+      onClick={() => editable && setEditing(true)}
+      style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", cursor: editable ? "text" : "default" }}
+    >
+      {items.map((it, i) => (
+        <div key={i} style={{ display: "flex", gap: 9, lineHeight: 1.4, ...fontStyle }}>
+          <span style={{ marginTop: ptToPx(6), width: 7, height: 7, borderRadius: "50%", background: cssHex(bulletColor), flexShrink: 0 }} />
+          <span>{it}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- charts ------------------------------------------------------------------
+
+function Bars({ el, editable, onPatch }: { el: ChartElement; editable: boolean; onPatch?: PatchFn }) {
+  const series = el.barSeries ?? [];
+  const top = el.max ?? Math.max(...series.map((s) => s.value), 1);
+  const unit = el.unit ?? "";
+  const valueColor = cssHex(NUTANIX.ink);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: "100%", padding: "20px 8px 0" }}>
+      {series.map((s, i) => {
         const pctH = (s.value / (top * 1.15)) * 100;
         return (
-          <div key={s.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
             <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%", justifyContent: "center" }}>
-              <div
-                style={{
-                  width: "62%",
-                  height: `${pctH}%`,
-                  background: `linear-gradient(180deg, ${cssHex(NUTANIX.purple)}, ${cssHex(NUTANIX.deepPurple)})`,
-                  borderRadius: "8px 8px 0 0",
-                  position: "relative",
-                }}
-              >
-                <span style={{ position: "absolute", top: -34, left: 0, right: 0, textAlign: "center", fontWeight: 700, fontSize: 22, color: cssHex(NUTANIX.ink) }}>
-                  {s.value}
-                  {unit}
+              <div style={{ width: "62%", height: `${pctH}%`, background: cssHex(NUTANIX.purple), borderRadius: "8px 8px 0 0", position: "relative" }}>
+                <span style={{ position: "absolute", top: -34, left: 0, right: 0, textAlign: "center", fontWeight: 700, fontSize: 22, color: valueColor }}>
+                  {editable && onPatch && s.valuePath ? (
+                    <EditableText
+                      value={String(s.value)}
+                      textAlign="center"
+                      fontStyle={{ fontWeight: 700, fontSize: 22, color: valueColor }}
+                      onCommit={(v) => {
+                        const n = Number(v.replace(/[^0-9.-]/g, ""));
+                        if (Number.isFinite(n)) onPatch(s.valuePath!, n);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      {s.value}
+                      {unit}
+                    </>
+                  )}
                 </span>
               </div>
             </div>
-            <span style={{ marginTop: 12, fontSize: 18, color: cssHex(NUTANIX.gray) }}>{s.label}</span>
+            <span style={{ marginTop: 12, fontSize: 18, color: cssHex(NUTANIX.gray), width: "100%", textAlign: "center" }}>
+              {editable && onPatch && s.labelPath ? (
+                <EditableText value={s.label} textAlign="center" fontStyle={{ fontSize: 18, color: cssHex(NUTANIX.gray) }} onCommit={(v) => onPatch(s.labelPath!, v)} />
+              ) : (
+                s.label
+              )}
+            </span>
           </div>
         );
       })}
@@ -104,242 +207,287 @@ function Bars({ series, unit, max }: { series: { label: string; value: number; t
   );
 }
 
-function Content({ content }: { content: SlideContent }) {
-  switch (content.type) {
-    case "agenda":
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18, justifyContent: "center", height: "100%" }}>
-          {content.items.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 20 }}>
-              <span style={{ width: 48, height: 48, borderRadius: 10, background: cssHex(NUTANIX.cloud), color: cssHex(NUTANIX.purple), display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 22 }}>{i + 1}</span>
-              <span style={{ fontSize: 24, color: cssHex(NUTANIX.ink) }}>{item}</span>
-            </div>
-          ))}
-        </div>
-      );
-    case "team":
-      return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(content.members.length, 4)}, 1fr)`, gap: 22, height: "100%", alignItems: "center" }}>
-          {content.members.map((m) => {
-            const initials = m.name.replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "NA";
-            return (
-              <div key={m.role} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 16, background: "#FBFAFF", padding: "28px 18px", textAlign: "center" }}>
-                <div style={{ width: 88, height: 88, borderRadius: "50%", margin: "0 auto 16px", background: `linear-gradient(135deg, ${cssHex(NUTANIX.purple)}, ${cssHex(NUTANIX.deepPurple)})`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 800 }}>{initials}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: cssHex(NUTANIX.ink) }}>{m.name}</div>
-                <div style={{ fontSize: 15, color: cssHex(NUTANIX.purple), marginTop: 4 }}>{m.role}</div>
-              </div>
-            );
-          })}
-        </div>
-      );
-    case "bullets": {
-      const cols = content.columns ?? content.groups.length;
-      return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 28, height: "100%", alignContent: "center" }}>
-          {content.groups.map((g, gi) => {
-            const tc = toneColors(g.tone);
-            return (
-              <div key={gi} style={{ display: "flex", flexDirection: "column" }}>
-                {g.heading ? <div style={{ fontSize: 19, fontWeight: 800, color: cssHex(NUTANIX.purple), marginBottom: 14 }}>{g.heading}</div> : null}
-                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 11 }}>
-                  {g.items.map((it, ii) => (
-                    <li key={ii} style={{ display: "flex", gap: 11, fontSize: 17, color: cssHex(NUTANIX.ink), lineHeight: 1.4 }}>
-                      <span style={{ marginTop: 8, width: 8, height: 8, borderRadius: "50%", background: g.tone ? tc.color : cssHex(NUTANIX.purple), flexShrink: 0 }} />
-                      <span>{it}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    case "meters": {
-      const globalMax = Math.max(...content.items.map((x) => x.max ?? x.value), 1);
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18, justifyContent: "center", height: "100%" }}>
-          {content.items.map((it, ii) => {
-            const tc = toneColors(it.tone);
-            const max = it.max ?? globalMax;
-            const w = Math.max(2, (it.value / (max || 1)) * 100);
-            const barColor = it.tone ? tc.color : cssHex(NUTANIX.purple);
-            return (
-              <div key={ii} style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                <div style={{ width: 240, fontSize: 17, color: cssHex(NUTANIX.ink), textAlign: "right", flexShrink: 0 }}>{it.label}</div>
-                <div style={{ flex: 1, height: 24, background: "#EEEEF6", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ width: `${w}%`, height: "100%", background: barColor, borderRadius: 999 }} />
-                </div>
-                <div style={{ width: 150, fontSize: 18, fontWeight: 800, color: barColor, flexShrink: 0 }}>{it.display ?? `${it.value}${content.unit ?? ""}`}</div>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    case "metrics": {
-      const cols = content.groups.length > 2 ? 2 : content.groups.length;
-      return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 18, height: "100%" }}>
-          {content.groups.map((g) => (
-            <div key={g.label} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 14, background: "#FBFAFF", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-              <div style={{ height: 6, background: cssHex(NUTANIX.purple), flexShrink: 0 }} />
-              <div style={{ padding: "12px 20px 14px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1, color: cssHex(NUTANIX.purple), textTransform: "uppercase", marginBottom: 4, flexShrink: 0 }}>{g.label}</div>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-around", minHeight: 0 }}>
-                  {g.stats.map((st) => (
-                    <div key={st.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-                      <span style={{ fontSize: 15, color: cssHex(NUTANIX.gray), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{st.label}</span>
-                      <span style={{ fontSize: 20, fontWeight: 800, color: toneColors(st.tone).color, flexShrink: 0 }}>{st.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    case "kpis":
-      return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(content.kpis.length, 4)}, 1fr)`, gap: 20 }}>
-          {content.kpis.map((k) => (
-            <div key={k.label} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 14, background: "#FBFAFF", padding: 20, textAlign: "center" }}>
-              <div style={{ fontSize: 46, fontWeight: 800, color: toneColors(k.tone).color }}>{k.value}</div>
-              <div style={{ fontSize: 16, color: cssHex(NUTANIX.gray) }}>{k.label}</div>
-            </div>
-          ))}
-        </div>
-      );
-    case "features":
-      return (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, height: "100%" }}>
-          {content.features.map((f) => {
-            const badge = toneColors(f.on ? "good" : "neutral");
-            return (
-              <div key={f.label} style={{ border: `1px solid ${cssHex(NUTANIX.mist)}`, borderRadius: 14, background: "#FBFAFF", padding: 20, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 22, fontWeight: 800, color: cssHex(NUTANIX.ink) }}>{f.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, padding: "4px 12px", borderRadius: 999, background: badge.bg, color: f.on ? cssHex(HEALTH.good) : cssHex(NUTANIX.gray) }}>{f.on ? "ON" : "OFF"}</span>
-                </div>
-                <span style={{ marginTop: 10, fontSize: 15, color: cssHex(NUTANIX.gray) }}>{f.note}</span>
-              </div>
-            );
-          })}
-        </div>
-      );
-    case "bars":
-      return <Bars series={content.series} unit={content.unit} max={content.max} />;
-    case "lines":
-      return (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}>
-          <LineChart series={content.series} unit={content.unit} />
-        </div>
-      );
-    case "table":
-      return (
-        <div style={{ height: "100%" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 }}>
-            <thead>
-              <tr>
-                {content.columns.map((c) => (
-                  <th key={c} style={{ background: cssHex(NUTANIX.purple), color: "#fff", textAlign: "left", padding: "10px 12px", fontWeight: 700 }}>
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {content.rows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => {
-                    const tone = cellTone(cell);
-                    const tc = toneColors(tone);
-                    return (
-                      <td
-                        key={ci}
-                        style={{
-                          padding: "9px 12px",
-                          borderBottom: `1px solid ${cssHex(NUTANIX.line)}`,
-                          background: tone ? tc.bg : ri % 2 ? "#F7F6FD" : "#fff",
-                          color: tone ? tc.color : cssHex(NUTANIX.ink),
-                          fontWeight: tone ? 700 : 400,
-                        }}
-                      >
-                        {cellText(cell)}
-                      </td>
-                    );
-                  })}
-                </tr>
+function Lines({ el, editable, onPatch }: { el: ChartElement; editable: boolean; onPatch?: PatchFn }) {
+  const series = el.lineSeries ?? [];
+  const colors = el.colors.map(cssHex);
+  const all = series.flatMap((s) => s.points);
+  const max = Math.max(...all, 1);
+  const w = inToPx(el.w);
+  const chartH = inToPx(el.h) - (el.showLegend ? 40 : 0);
+  const pad = 36;
+  const xStep = (w - pad * 2) / Math.max(1, (series[0]?.points.length ?? 1) - 1);
+  const yOf = (v: number) => pad + (1 - v / (max * 1.1)) * (chartH - pad * 2);
+  return (
+    <div style={{ width: "100%", height: "100%" }}>
+      <svg width={w} height={chartH} style={{ overflow: "visible" }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+          <line key={g} x1={pad} x2={w - pad} y1={pad + g * (chartH - pad * 2)} y2={pad + g * (chartH - pad * 2)} stroke={cssHex(NUTANIX.line)} strokeWidth={1} />
+        ))}
+        {series.map((s, si) => {
+          const pts = s.points.map((p, i) => `${pad + i * xStep},${yOf(p)}`).join(" ");
+          return (
+            <g key={si}>
+              <polyline points={pts} fill="none" stroke={colors[si % colors.length]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
+              {s.points.map((p, i) => (
+                <circle key={i} cx={pad + i * xStep} cy={yOf(p)} r={4} fill={colors[si % colors.length]} />
               ))}
-            </tbody>
-          </table>
-          {content.note ? <div style={{ marginTop: 10, fontSize: 13, fontStyle: "italic", color: cssHex(NUTANIX.slate) }}>{content.note}</div> : null}
+            </g>
+          );
+        })}
+        {el.unit ? (
+          <text x={pad} y={20} fontSize={14} fill={cssHex(NUTANIX.slate)}>
+            max {max}
+            {el.unit}
+          </text>
+        ) : null}
+      </svg>
+      {el.showLegend ? (
+        <div style={{ display: "flex", gap: 24, justifyContent: "center", marginTop: 8 }}>
+          {series.map((s, si) => (
+            <span key={si} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 16, color: cssHex(NUTANIX.gray) }}>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: colors[si % colors.length] }} />
+              {editable && onPatch && s.labelPath ? (
+                <EditableText value={s.label} textAlign="left" fontStyle={{ fontSize: 16, color: cssHex(NUTANIX.gray) }} onCommit={(v) => onPatch(s.labelPath!, v)} />
+              ) : (
+                s.label
+              )}
+            </span>
+          ))}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+// --- element renderers -------------------------------------------------------
+
+function TextBox({ el, editable, onPatch }: { el: TextElement; editable: boolean; onPatch?: PatchFn }) {
+  const fontStyle: React.CSSProperties = {
+    fontFamily: `${el.fontFace}, ui-sans-serif, system-ui, sans-serif`,
+    fontSize: ptToPx(el.fontSize),
+    fontWeight: el.bold ? 800 : 400,
+    fontStyle: el.italic ? "italic" : "normal",
+    color: cssHex(el.color),
+    letterSpacing: el.charSpacing ? ptToPx(el.charSpacing) : undefined,
+    lineHeight: 1.2,
+  };
+  const box: React.CSSProperties = {
+    position: "absolute",
+    left: inToPx(el.x),
+    top: inToPx(el.y),
+    width: inToPx(el.w),
+    height: inToPx(el.h),
+    display: "flex",
+    flexDirection: "column",
+    alignItems: alignToFlex(el.align),
+    justifyContent: valignToFlex(el.valign),
+    overflow: "hidden",
+  };
+
+  // bulleted list
+  if (el.lines) {
+    return (
+      <div style={box}>
+        <EditableList
+          items={el.lines}
+          bulletColor={el.bulletColor ?? NUTANIX.purple}
+          fontStyle={fontStyle}
+          editable={Boolean(editable && el.edit && onPatch)}
+          onCommit={(lines) => el.edit && onPatch?.(el.edit.path, lines)}
+        />
+      </div>
+    );
+  }
+
+  const text = (el.runs ?? []).map((r) => r.text).join("");
+  const align = el.align ?? "left";
+
+  if (editable && el.edit && onPatch) {
+    return (
+      <div style={box}>
+        <EditableText
+          value={text}
+          multiline={el.edit.multiline}
+          textAlign={align}
+          fontStyle={fontStyle}
+          onCommit={(v) => {
+            if (!el.edit) return;
+            if (el.edit.kind === "number") {
+              const n = Number(v.replace(/[^0-9.-]/g, ""));
+              if (Number.isFinite(n)) onPatch(el.edit.path, n);
+            } else {
+              onPatch(el.edit.path, v);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  // static (multi-run aware)
+  return (
+    <div style={box}>
+      <div style={{ ...fontStyle, width: "100%", textAlign: align }}>
+        {(el.runs ?? []).map((r, i) => (
+          <span key={i} style={{ fontWeight: r.bold ? 800 : el.bold ? 800 : 400, fontStyle: r.italic ? "italic" : undefined, color: r.color ? cssHex(r.color) : undefined }}>
+            {r.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TableBox({ el, editable, onPatch }: { el: TableElement; editable: boolean; onPatch?: PatchFn }) {
+  const box: React.CSSProperties = {
+    position: "absolute",
+    left: inToPx(el.x),
+    top: inToPx(el.y),
+    width: inToPx(el.w),
+    height: inToPx(el.h),
+    overflow: "hidden",
+  };
+  return (
+    <div style={box}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "Montserrat, ui-sans-serif, system-ui, sans-serif", tableLayout: "fixed" }}>
+        <thead>
+          <tr>
+            {el.header.map((cell, ci) => (
+              <th key={ci} style={{ background: cell.fill ? cssHex(cell.fill) : undefined, color: cell.color ? cssHex(cell.color) : "#fff", textAlign: cell.align ?? "left", padding: "10px 12px", fontWeight: 700, fontSize: ptToPx(11) }}>
+                {editable && cell.edit && onPatch ? (
+                  <EditableText value={cell.text} textAlign={cell.align ?? "left"} fontStyle={{ color: cell.color ? cssHex(cell.color) : "#fff", fontWeight: 700, fontSize: ptToPx(11) }} onCommit={(v) => onPatch(cell.edit!.path, v)} />
+                ) : (
+                  cell.text
+                )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {el.rows.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td
+                  key={ci}
+                  style={{
+                    padding: "9px 12px",
+                    borderBottom: `1px solid ${cssHex(el.borderColor)}`,
+                    background: cell.fill ? cssHex(cell.fill) : undefined,
+                    color: cell.color ? cssHex(cell.color) : cssHex(NUTANIX.ink),
+                    fontWeight: cell.bold ? 700 : 400,
+                    fontSize: ptToPx(10),
+                  }}
+                >
+                  {editable && cell.edit && onPatch ? (
+                    <EditableText value={cell.text} textAlign={cell.align ?? "left"} fontStyle={{ color: cell.color ? cssHex(cell.color) : cssHex(NUTANIX.ink), fontWeight: cell.bold ? 700 : 400, fontSize: ptToPx(10) }} onCommit={(v) => onPatch(cell.edit!.path, v)} />
+                  ) : (
+                    cell.text
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Element({ el, editable, onPatch }: { el: SlideElement; editable: boolean; onPatch?: PatchFn }) {
+  switch (el.kind) {
+    case "shape": {
+      const base: React.CSSProperties = {
+        position: "absolute",
+        left: inToPx(el.x),
+        top: inToPx(el.y),
+        width: inToPx(el.w),
+        height: inToPx(el.h),
+      };
+      if (el.shape === "line") {
+        return <div style={{ ...base, height: 0, borderTop: `${el.line?.width ?? 1}px solid ${cssHex(el.line?.color ?? NUTANIX.line)}` }} />;
+      }
+      return (
+        <div
+          style={{
+            ...base,
+            background: el.fill ? cssHex(el.fill) : "transparent",
+            border: el.line ? `${el.line.width}px solid ${cssHex(el.line.color)}` : undefined,
+            borderRadius: el.shape === "ellipse" ? "50%" : el.rectRadius ? inToPx(el.rectRadius) : undefined,
+          }}
+        />
       );
+    }
+    case "image":
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src={el.dataUrl} alt="" style={{ position: "absolute", left: inToPx(el.x), top: inToPx(el.y), width: inToPx(el.w), height: inToPx(el.h), objectFit: "contain" }} />;
+    case "chart": {
+      const box: React.CSSProperties = { position: "absolute", left: inToPx(el.x), top: inToPx(el.y), width: inToPx(el.w), height: inToPx(el.h) };
+      return <div style={box}>{el.chart === "bar" ? <Bars el={el} editable={editable} onPatch={onPatch} /> : <Lines el={el} editable={editable} onPatch={onPatch} />}</div>;
+    }
+    case "table":
+      return <TableBox el={el} editable={editable} onPatch={onPatch} />;
+    case "text":
+      return <TextBox el={el} editable={editable} onPatch={onPatch} />;
     default:
       return null;
   }
 }
 
-export function QbrSlideBoard({ slide, meta, logo }: { slide: QbrSlide; meta: QbrDeckMeta; logo: string | null }) {
+export function QbrSlideBoard({
+  slide,
+  meta,
+  logo,
+  page,
+  editable = false,
+  onPatch,
+}: {
+  slide: QbrSlide;
+  meta: QbrDeckMeta;
+  logo: string | null;
+  page?: number;
+  editable?: boolean;
+  onPatch?: PatchFn;
+}) {
+  const compiled = compileSlide(slide, meta, logo);
   const isCover = slide.content.type === "title" || slide.content.type === "closing";
+  const elements = [...compiled.elements];
+  if (!isCover && page) elements.push(pageNumberElement(page));
 
-  if (isCover) {
-    const isTitle = slide.content.type === "title";
-    return (
-      <div style={{ width: BOARD_W, height: BOARD_H, background: cssHex(NUTANIX.deepPurple), position: "relative", overflow: "hidden", fontFamily: "Montserrat, ui-sans-serif, system-ui, sans-serif" }}>
-        <div style={{ position: "absolute", top: 0, right: 0, width: 320, height: 28, background: cssHex(NUTANIX.purple) }} />
-        <div style={{ position: "absolute", top: 0, right: 0, width: 190, height: 55, background: cssHex(NUTANIX.cyan) }} />
-        {isTitle ? (
-          <div style={{ position: "absolute", inset: "0 0 0 96px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            {logo ? <img src={logo} alt="" style={{ height: 72, width: "auto", objectFit: "contain", alignSelf: "flex-start", marginBottom: 28 }} /> : null}
-            <div style={{ color: cssHex(NUTANIX.cyan), fontSize: 22, letterSpacing: 4, fontWeight: 600 }}>QUARTERLY BUSINESS REVIEW</div>
-            <div style={{ color: "#fff", fontSize: 72, fontWeight: 800, lineHeight: 1.05, marginTop: 12, maxWidth: 980 }}>{meta.customer}</div>
-            <div style={{ color: "#D8CCFF", fontSize: 22, marginTop: 22 }}>{meta.vertical} · {meta.dateLabel}</div>
-            <div style={{ color: "#B9A7F2", fontSize: 18, marginTop: 6 }}>Prepared by {meta.preparedBy}</div>
-          </div>
-        ) : (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ color: "#fff", fontSize: 64, fontWeight: 800 }}>{slide.content.type === "closing" ? slide.content.message : ""}</div>
-            <div style={{ color: cssHex(NUTANIX.cyan), fontSize: 24, marginTop: 16 }}>{meta.customer}</div>
-            {logo ? <img src={logo} alt="" style={{ height: 56, width: "auto", objectFit: "contain", marginTop: 32, filter: "brightness(0) invert(1)" }} /> : null}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const insight = slide.insight;
   return (
-    <div style={{ width: BOARD_W, height: BOARD_H, background: "#fff", position: "relative", overflow: "hidden", fontFamily: "Montserrat, ui-sans-serif, system-ui, sans-serif" }}>
-      <div style={{ position: "absolute", left: 48, top: 46, width: 11, height: 56, background: cssHex(NUTANIX.purple), borderRadius: 3 }} />
-      <div style={{ position: "absolute", left: 76, top: 40, right: 260 }}>
-        <div style={{ fontSize: 40, fontWeight: 800, color: cssHex(NUTANIX.ink), lineHeight: 1.1 }}>{slide.title}</div>
-        {slide.subtitle ? <div style={{ fontSize: 17, color: cssHex(NUTANIX.slate), marginTop: 6 }}>{slide.subtitle}</div> : null}
-      </div>
-      {logo ? <img src={logo} alt="" style={{ position: "absolute", right: 48, top: 46, height: 48, width: "auto", maxWidth: 200, objectFit: "contain" }} /> : null}
-      <div style={{ position: "absolute", left: 48, right: 48, top: 130, height: 1, background: cssHex(NUTANIX.line) }} />
-      <div style={{ position: "absolute", left: 48, right: 48, top: 152, bottom: insight ? 150 : 84 }}>
-        <Content content={slide.content} />
-      </div>
-      {insight ? (
-        (() => {
-          const tc = toneColors(insight.tone);
-          return (
-            <div style={{ position: "absolute", left: 48, right: 48, bottom: 70, background: tc.bg, borderRadius: 12, padding: "14px 20px", display: "flex", gap: 12, alignItems: "center" }}>
-              <span style={{ fontSize: 15, fontWeight: 800, color: tc.color, whiteSpace: "nowrap" }}>SE Insight</span>
-              <span style={{ fontSize: 16, color: cssHex(NUTANIX.ink) }}>{insight.text}</span>
-            </div>
-          );
-        })()
-      ) : null}
-      <div style={{ position: "absolute", left: 48, bottom: 28, fontSize: 12, color: cssHex(NUTANIX.slate) }}>Nutanix Confidential · {meta.customer}</div>
+    <div
+      style={{
+        width: BOARD_W,
+        height: BOARD_H,
+        background: compiled.background ? cssHex(compiled.background) : "#fff",
+        position: "relative",
+        overflow: "hidden",
+        fontFamily: "Montserrat, ui-sans-serif, system-ui, sans-serif",
+      }}
+    >
+      {elements.map((el, i) => (
+        <Element key={i} el={el} editable={editable} onPatch={onPatch} />
+      ))}
     </div>
   );
 }
 
-export function QbrSlideFrame({ slide, meta, logo, className }: { slide: QbrSlide; meta: QbrDeckMeta; logo: string | null; className?: string }) {
+export function QbrSlideFrame({
+  slide,
+  meta,
+  logo,
+  page,
+  editable = false,
+  onPatch,
+  className,
+}: {
+  slide: QbrSlide;
+  meta: QbrDeckMeta;
+  logo: string | null;
+  page?: number;
+  editable?: boolean;
+  onPatch?: PatchFn;
+  className?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
 
@@ -360,7 +508,7 @@ export function QbrSlideFrame({ slide, meta, logo, className }: { slide: QbrSlid
       style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", overflow: "hidden", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.12)", border: `1px solid ${cssHex(NUTANIX.line)}` }}
     >
       <div style={{ position: "absolute", top: 0, left: 0, width: BOARD_W, height: BOARD_H, transformOrigin: "top left", transform: `scale(${scale})` }}>
-        <QbrSlideBoard slide={slide} meta={meta} logo={logo} />
+        <QbrSlideBoard slide={slide} meta={meta} logo={logo} page={page} editable={editable} onPatch={onPatch} />
       </div>
     </div>
   );

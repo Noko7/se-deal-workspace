@@ -207,6 +207,27 @@ body {
   width: 1280px;
 }
 
+/* Inline-editable text on the QBR slide preview. Subtle affordance so SEs know
+   a run is clickable, with a clearer ring while editing. */
+.qbr-editable {
+  border-radius: 3px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+.qbr-editable:hover {
+  background: rgba(120, 85, 250, 0.1);
+  box-shadow: 0 0 0 2px rgba(120, 85, 250, 0.18);
+}
+.qbr-editable:focus {
+  background: rgba(120, 85, 250, 0.14);
+  box-shadow: 0 0 0 2px rgba(120, 85, 250, 0.55);
+}
+/* The print/PDF surface must never show edit affordances. */
+.qbr-print-root .qbr-editable:hover,
+.qbr-print-root .qbr-editable:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
 /* Proposal Builder — off-screen print surface for the 2-page Solution Brief,
    rendered at Letter-portrait (816×1056 @96dpi). */
 .proposal-print-root {

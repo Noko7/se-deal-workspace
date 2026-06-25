@@ -90,6 +90,35 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     setDeck((d) => (d ? { ...d, slides: d.slides.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : d));
   }
 
+  // Immutable deep-set used by inline editing. Preserves a table Cell's tone
+  // when only its text changes (Cell = string | { text, tone }).
+  function applyLeaf(existing: unknown, value: unknown): unknown {
+    if (typeof value === "string" && existing && typeof existing === "object" && "text" in (existing as Record<string, unknown>)) {
+      return { ...(existing as Record<string, unknown>), text: value };
+    }
+    return value;
+  }
+  function setIn(obj: unknown, segments: string[], value: unknown): unknown {
+    const [head, ...rest] = segments;
+    if (Array.isArray(obj)) {
+      const idx = Number(head);
+      const copy = obj.slice();
+      copy[idx] = rest.length ? setIn(copy[idx], rest, value) : applyLeaf(copy[idx], value);
+      return copy;
+    }
+    const copy = { ...(obj as Record<string, unknown>) };
+    copy[head] = rest.length ? setIn(copy[head], rest, value) : applyLeaf(copy[head], value);
+    return copy;
+  }
+  function patchByPath(slideId: string, path: string, value: string | string[] | number) {
+    const segs = path.split(".");
+    if (segs[0] === "meta") {
+      setDeck((d) => (d ? { ...d, meta: setIn(d.meta, segs.slice(1), value) as typeof d.meta } : d));
+      return;
+    }
+    setDeck((d) => (d ? { ...d, slides: d.slides.map((s) => (s.id === slideId ? (setIn(s, segs, value) as QbrSlide) : s)) } : d));
+  }
+
   function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -278,11 +307,21 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
           {activeSlide ? (
             <>
               <div className="relative">
-                <QbrSlideFrame slide={activeSlide} meta={deck.meta} logo={logo} />
+                <QbrSlideFrame
+                  slide={activeSlide}
+                  meta={deck.meta}
+                  logo={logo}
+                  page={orderedSlides.findIndex((s) => s.id === activeSlide.id) + 1}
+                  editable
+                  onPatch={(path, value) => patchByPath(activeSlide.id, path, value)}
+                />
                 {hidden[activeSlide.id] ? (
                   <div className="absolute right-3 top-3 rounded-full bg-charcoal-900/80 px-3 py-1 text-xs font-medium text-white">Hidden from export</div>
                 ) : null}
               </div>
+              <p className="flex items-center gap-1.5 text-xs text-charcoal-500">
+                <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it. Changes flow straight into the exported PowerPoint.
+              </p>
 
               {activeSlide.talkTrack ? (
                 <div className="overflow-hidden rounded-xl border border-iris-200 bg-white shadow-sm">
@@ -369,9 +408,9 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
 
       {/* Off-screen print surface - full-fidelity one slide per page for PDF. */}
       <div className="qbr-print-root" aria-hidden>
-        {visibleSlides.map((s) => (
+        {visibleSlides.map((s, i) => (
           <div key={s.id} className="qbr-print-page">
-            <QbrSlideBoard slide={s} meta={deck.meta} logo={logo} />
+            <QbrSlideBoard slide={s} meta={deck.meta} logo={logo} page={i + 1} />
           </div>
         ))}
       </div>

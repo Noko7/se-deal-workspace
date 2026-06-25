@@ -17,6 +17,7 @@ import {
   Pencil,
   RefreshCw,
   Server,
+  UploadCloud,
   X,
 } from "lucide-react";
 import { fetchCs360HealthReport } from "@/lib/cs360";
@@ -42,6 +43,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
   const [exporting, setExporting] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [logoModalOpen, setLogoModalOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
 
   const slideById = useMemo(() => {
@@ -123,13 +126,67 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     setDeck((d) => (d ? { ...d, slides: d.slides.map((s) => (s.id === slideId ? (setIn(s, segs, value) as QbrSlide) : s)) } : d));
   }
 
-  function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  function readLogoFile(file?: File | null) {
+    if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
     reader.onload = () => setLogo(typeof reader.result === "string" ? reader.result : null);
     reader.readAsDataURL(file);
   }
+  function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    readLogoFile(e.target.files?.[0]);
+    setLogoModalOpen(false);
+    e.target.value = "";
+  }
+
+  const logoModal = logoModalOpen ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal-900/50 p-4" onClick={() => setLogoModalOpen(false)}>
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-charcoal-900">Add customer logo</h4>
+          <button onClick={() => setLogoModalOpen(false)} className="bg-transparent text-charcoal-400 hover:text-charcoal-700" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            readLogoFile(e.dataTransfer.files?.[0]);
+            setLogoModalOpen(false);
+          }}
+          onPaste={(e) => {
+            const f = e.clipboardData.files?.[0];
+            if (f) {
+              readLogoFile(f);
+              setLogoModalOpen(false);
+            }
+          }}
+          onClick={() => logoInput.current?.click()}
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-10 text-center transition ${
+            dragging ? "border-iris-500 bg-iris-50" : "border-charcoal-300 bg-charcoal-50 hover:border-iris-400 hover:bg-iris-50/60"
+          }`}
+        >
+          <UploadCloud className="h-8 w-8 text-iris-500" />
+          <p className="text-sm font-medium text-charcoal-800">Drag &amp; drop a logo here</p>
+          <p className="text-xs text-charcoal-500">or click to browse your files. PNG, JPG, or SVG.</p>
+        </div>
+        {logo ? (
+          <div className="mt-3 flex items-center gap-3 rounded-md border border-charcoal-200 bg-white px-3 py-2">
+            <img src={logo} alt="logo" className="h-8 w-auto max-w-[120px] object-contain" />
+            <span className="text-xs text-charcoal-500">Current logo</span>
+            <button onClick={() => setLogo(null)} className="ml-auto bg-transparent text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
 
   async function exportPptx() {
     if (!deck) return;
@@ -184,12 +241,13 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                   </button>
                 </div>
               ) : (
-                <button onClick={() => logoInput.current?.click()} className="flex w-full items-center gap-2 rounded-md border border-dashed border-charcoal-300 bg-white px-3 py-2 text-sm text-charcoal-600 hover:border-iris-400 hover:text-iris-600">
+                <button onClick={() => setLogoModalOpen(true)} className="flex w-full items-center gap-2 rounded-md border border-dashed border-charcoal-300 bg-white px-3 py-2 text-sm text-charcoal-600 hover:border-iris-400 hover:text-iris-600">
                   <ImagePlus className="h-4 w-4" /> Upload logo (placed throughout the deck)
                 </button>
               )}
             </div>
           </div>
+          {logoModal}
 
           <div className="mt-5">
             <Button onClick={pull} disabled={loading || !selected}>
@@ -224,9 +282,12 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
             </p>
           </div>
         </div>
+        <span className="flex items-center gap-1.5 text-xs text-charcoal-500">
+          <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it.
+        </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
-          <Button tone="secondary" onClick={() => logoInput.current?.click()}>
+          <Button tone="secondary" onClick={() => setLogoModalOpen(true)}>
             <span className="flex items-center gap-1.5">
               <ImagePlus className="h-4 w-4" /> {logo ? "Change logo" : "Add logo"}
             </span>
@@ -251,7 +312,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         {/* Slide rail - stretches to match the editor column height */}
-        <div className="relative lg:min-h-0">
+        <div className="relative min-w-0 lg:min-h-0">
           <div className="max-h-[60vh] space-y-1 overflow-y-auto rounded-lg border border-charcoal-200 bg-charcoal-50 p-2 lg:absolute lg:inset-0 lg:max-h-none">
           {orderedSlides.map((s, i) => {
             const isHidden = hidden[s.id];
@@ -307,13 +368,9 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
         </div>
 
         {/* Preview + editor */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {activeSlide ? (
             <>
-              <p className="flex items-center gap-1.5 text-xs text-charcoal-500">
-                <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it. Changes flow straight into the exported PowerPoint.
-              </p>
-
               <div className="relative">
                 <QbrSlideFrame
                   slide={activeSlide}
@@ -427,6 +484,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
           </div>
         ))}
       </div>
+      {logoModal}
     </div>
   );
 }

@@ -332,47 +332,60 @@ export function formatNotes(input: string, options: FormatOptions): FormattedNot
 // the UI can pre-fill the editable System Prompt field; the user can replace it
 // entirely. The server falls back to this when no prompt is supplied.
 export const DEFAULT_SYSTEM_PROMPT = [
-  "You are a senior systems engineer assistant that turns messy notes into a clean, actionable implementation plan.",
-  "Return PLAIN TEXT ONLY. Do not output Markdown, headings with #, bullets with -, checkboxes, or code fences.",
-  "Use this implementation-plan structure with labels and blank lines:",
-  "<Plan title>",
+  "You are a senior prompt engineer and principal systems engineer assistant.",
+  "Your task is to transform raw, messy engineer notes into a concise implementation plan for execution.",
+  "Return PLAIN TEXT ONLY. Never return markdown, code fences, bullet symbols, or decorative formatting.",
+  "Write short, information-dense output. Keep it clean and simple, but do not omit important technical details.",
+  "Prioritize outcome, sequencing, owners, dependencies, risk, and validation criteria.",
+  "If details are ambiguous, preserve uncertainty explicitly in Open Questions instead of inventing facts.",
+  "Use this exact structure with blank lines between sections:",
+  "Title:",
+  "<clear implementation title>",
   "",
   "Scope:",
-  "<what this plan covers>",
+  "<1-3 lines of what is being delivered>",
   "",
   "Implementation Steps:",
   "1) <step>",
   "2) <step>",
   "",
   "Validation:",
-  "<how to verify success>",
+  "<how success will be verified>",
+  "",
+  "Risks/Dependencies:",
+  "<key blockers, assumptions, external dependencies>",
   "",
   "Open Questions:",
-  "<numbered list using 1), 2), 3) only when questions exist>",
-  "Be concise; preserve the author's intent; do not invent facts, names, or numbers that aren't implied by the notes.",
+  "1) <question only if unresolved items exist>",
+  "Compress repetition, remove filler, normalize terminology, and keep signal high.",
 ].join("\n");
 
 // System prompt for the regular note mode used by most deal workspace note
 // capture. Keep this broad and not implementation-plan specific.
 export const DEFAULT_MEETING_SYSTEM_PROMPT = [
-  "You are an assistant that turns a systems engineer's raw notes into a clean, structured regular note for the deal workspace.",
-  "Return PLAIN TEXT ONLY. Do not output Markdown, bullets, checkboxes, or code fences.",
-  "Format to match this style with clear labels:",
-  "<Date and time if present>",
-  "<Note title>",
+  "You are a senior prompt engineer and customer-facing systems engineer assistant.",
+  "Your task is to transform messy call notes into concise, high-signal regular deal notes.",
+  "Return PLAIN TEXT ONLY. No markdown, no bullet symbols, no checkboxes, no decorative formatting.",
+  "Summarize for speed of handoff: what happened, why it matters, what happens next, and what is still unknown.",
+  "Use this exact structure with blank lines between sections:",
+  "Date/Time:",
+  "<if present; otherwise leave as Not provided>",
+  "",
+  "Title:",
+  "<short meeting/call title>",
   "",
   "Context:",
-  "<account, meeting, or situation context>",
+  "<account situation, trigger, and business/technical frame>",
   "",
   "Summary:",
-  "<short paragraph(s) in plain text>",
+  "<brief, plain-language summary with core decisions and constraints>",
   "",
   "Action Items:",
-  "<use 1), 2), 3) only when there are concrete actions>",
+  "1) <item with owner and timing when available>",
   "",
   "Open Questions:",
-  "<use 1), 2), 3) only when there are unresolved questions>",
-  "Be concise; preserve the author's intent; do not invent attendees, owners, dates, or facts that are not in the notes.",
+  "1) <question only if unresolved items exist>",
+  "Be concise, remove noise, preserve critical technical and business details, and never invent facts.",
 ].join("\n");
 
 // Returns the bundled default system prompt for a given note kind.
@@ -380,31 +393,97 @@ export function defaultSystemPromptFor(kind: NoteKind): string {
   return kind === "meeting" ? DEFAULT_MEETING_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT;
 }
 
-export const SAMPLE_MEETING_NOTES = `Date: 2026-06-02
-Attendees: Jane Doe (SE), Mark Chen (AE), priya.patel@acmebank.com, the customer's CISO
+export const SAMPLE_MEETING_NOTES = `random dump from zoom + side chat + my scratchpad:
+6/24 maybe 2pm?? no actually 2:30 ET started late
+acct = HGTC / maybe prod + dev expansion (confirm)
+people: fatima, mark, chris, gary + customer sankar/john/anne/justin/steven/vincent/sai + maybe infra mgr joined 20 min late
 
-Notes:
-- walked through the current single-cluster setup, no DR today
-- customer is concerned about RPO for the core banking app
-- agreed a second cluster at the DR site is the right approach
-- they want async replication, 15 min RPO target
-- follow up: send over the sizing worksheet by Friday
-- schedule a technical deep-dive with their storage team
-- need to confirm whether licensing covers the second site
-- what hypervisor are they standardizing on?
-- do any tier-0 apps need synchronous replication?`;
+agenda was supposed to be move + xray but we also got dragged into vmware renewal + "why now"
+they said current vmware true-up pain + renewal timeline 90 days-ish
+customer said "if migration risk is low we can move faster" (important)
 
-export const SAMPLE_NOTES = `Customer wants HA across two sites for their core banking app
-context: current setup is single cluster, no DR
+tech details from call (messy):
+- 2 clusters currently, mixed gen nodes, one cluster hot (~75-80% mem at month end)
+- no formal DR test in last 14 months
+- target apps = student systems + finance + some sql
+- they want "non disruptive" migration window mostly nights/weekends
+- asked about RPO/RTO, they said RPO maybe 15m for critical, RTO unclear, "few hours maybe"
+- concern: networking team understaffed in july
+- concern: backup vendor plugin compatibility
+- asked if leap is required now or phase 2
+- asked if can do pilot with 15-20 VMs first
+- confusion from them on what data collector outputs are needed
 
-set up a second Nutanix cluster at the DR site
-configure Protection Domains for the banking VMs
-enable async replication with a 15 min RPO
-write a runbook for failover and failback
+my follow-ups scattered:
+send collector + rvtools checklist
+send draft migration wave plan
+book deep dive w storage + network teams
+need AE to confirm commercial timeline + discount guardrails
+need SAM on support SKUs (they asked 24x7 vs business hours)
+capture risk register + rollback approach
 
-verify network latency between sites is under 5ms
-confirm licensing covers the second cluster
-ask the customer for their RTO target
+open loops:
+who is final technical approver?
+which sql workloads are tier-0?
+do they require synchronous replication for any app?
+is there a hard blackout window around semester start?
+do they need nc2 now or later?
 
-what hypervisor are they standardizing on?
-do they need synchronous replication for any tier-0 apps?`;
+extra noise from my notes:
+"john said maybe budget is there but procurement slow"
+"anne asked about reference architecture deck"
+"steven asked if we can benchmark before/after"
+"remember to ask security about encryption at rest requirement"
+"ask for current runbook doc if it exists"
+"don't forget to follow up thursday"`;
+
+export const SAMPLE_NOTES = `implementation scratchpad, not organized:
+goal-ish: build a realistic implementation plan for HGTC moving off vmware pressure + improving resiliency without blowing up ops team
+
+inputs from multiple threads:
+email 1 says start pilot in july
+email 2 says procurement maybe august
+meeting notes say they want low-risk migration and care about rollback story
+
+technical constraints (mixed quality):
+- current env not homogeneous hardware
+- one cluster running hot on memory at month-end
+- unknown real dependency map between app tiers
+- network team bandwidth low
+- no fresh DR rehearsal
+- possible backup integration unknown
+- change window mostly nights/weekends
+
+what we probably need:
+1) discovery + data hygiene pass
+2) classify workloads by criticality + dependency
+3) define migration waves + acceptance criteria
+4) define DR baseline and target state
+5) define validation gates + rollback criteria each wave
+
+to-do fragments from slack:
+\"need owner for every action, no owner=no action\"
+\"keep first wave boring and reversible\"
+\"don't schedule cutover near registration period\"
+\"collect perf baseline before moving anything\"
+\"security asked about encryption defaults\"
+
+deliverables we should generate:
+- migration wave plan
+- target architecture summary
+- risk/dependency register
+- test + rollback runbook
+- stakeholder comms cadence
+
+random unresolved bits:
+is leap required in phase 1?
+are sql systems included in wave 1 or deferred?
+what exact success metrics will customer sign off on?
+who signs final go/no-go for production cutover?
+what's the approved outage tolerance by app tier?
+
+more noise:
+customer asks for \"simple plan not giant doc\"
+AE wants timeline confidence for forecast call
+SAM needs licensing/support posture clarified
+we need something executable, concise, and defensible`;

@@ -1,0 +1,581 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlignLeft, Check, ChevronDown, Download, FileDown, FileJson, FileText, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Sparkles, Upload, X, Zap } from "lucide-react";
+import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
+import { buildProposalDoc, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
+import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
+import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
+import { hardwareImageFor } from "@/lib/hardware-images";
+import { getProductIcon } from "@/lib/nutanix-icons";
+import { type EditionKey } from "@/lib/nci-editions";
+import { BASE_PLATFORMS, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
+import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
+import { Button } from "@/components/ui";
+
+const linesToArray = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+const arrayToLines = (a: string[]) => a.join("\n");
+
+// Shared style for selectable toggle chips. Selected reads as a tinted, outlined
+// chip (not a solid purple block) so a row of them stays clean and legible.
+function toggleClass(selected: boolean): string {
+  return [
+    "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition",
+    selected
+      ? "border-iris-400 bg-iris-50 text-iris-700 ring-1 ring-iris-200"
+      : "border-charcoal-200 bg-white text-charcoal-600 hover:border-iris-300 hover:bg-iris-50/40",
+  ].join(" ");
+}
+
+function measureDataUrl(data: string): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = data;
+  });
+}
+
+// Fetch an image and return it as a data URL together with its intrinsic pixel
+// size, so the .pptx exporter can place it without distorting the aspect ratio.
+async function loadImageAsset(url: string): Promise<ImgAsset | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const data = await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+    if (!data) return null;
+    const dims = await measureDataUrl(data);
+    if (!dims) return null;
+    return { data, w: dims.w, h: dims.h };
+  } catch {
+    return null;
+  }
+}
+
+export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
+  const [doc, setDoc] = useState<ProposalDoc | null>(null);
+  // What the preview/print surface renders. Kept slightly behind `doc` so typing
+  // in the editor stays snappy; synced automatically (debounced) or on demand.
+  const [previewDoc, setPreviewDoc] = useState<ProposalDoc | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [logo, setLogo] = useState<string | null>(null);
+  const [tab, setTab] = useState<"twopager" | "bom">("twopager");
+  const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const logoInput = useRef<HTMLInputElement>(null);
+
+  const previewStale = doc !== previewDoc;
+
+  // Debounced auto-sync of the preview after edits.
+  useEffect(() => {
+    if (!doc || !autoRefresh) return;
+    const id = window.setTimeout(() => setPreviewDoc(doc), 150);
+    return () => window.clearTimeout(id);
+  }, [doc, autoRefresh]);
+
+  function loadScenario(scenario: ProposalScenario) {
+    const built = buildProposalDoc(scenario);
+    if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") built.meta.preparedBy = defaultSe;
+    setDoc(built);
+    setPreviewDoc(built);
+    setError(null);
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      loadScenario(parseSizerScenario(json));
+    } catch (err) {
+      setDoc(null);
+      setError(err instanceof Error ? err.message : "Could not read that file. Upload a Nutanix Sizer scenario JSON export.");
+    }
+  }
+
+  function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setLogo(typeof reader.result === "string" ? reader.result : null);
+    reader.readAsDataURL(file);
+  }
+
+  function patch(updater: (d: ProposalDoc) => ProposalDoc) {
+    setDoc((d) => (d ? updater(structuredCloneSafe(d)) : d));
+  }
+
+  function exportPdf() {
+    setExporting("pdf");
+    setTab("twopager");
+    setPreviewDoc(doc); // make sure the print surface reflects the latest edits
+    // allow the print surface to mount, then print
+    window.setTimeout(() => {
+      window.print();
+      setExporting(null);
+    }, 200);
+  }
+
+  async function exportPptx() {
+    if (!doc) return;
+    setExporting("pptx");
+    try {
+      const skus = new Set<string>();
+      doc.scenario.clusters.forEach((c) => c.models.forEach((m) => skus.add(m.sku)));
+      const images: Record<string, ImgAsset> = {};
+      const brand: ProposalBrandImages = { productIcons: {} };
+      await Promise.all([
+        ...[...skus].map(async (sku) => {
+          const path = hardwareImageFor(sku);
+          if (!path) return;
+          const asset = await loadImageAsset(path);
+          if (asset) images[sku] = asset;
+        }),
+        ...purchasedProducts(doc).map(async (p) => {
+          const asset = await loadImageAsset(getProductIcon(p, "Color", "text"));
+          if (asset) brand.productIcons![p] = asset;
+        }),
+        loadImageAsset("/brand/deck-cover.png").then((a) => { if (a) brand.coverBg = a; }),
+        loadImageAsset("/brand/nutanix-wordmark-white.png").then((a) => { if (a) brand.wordmarkWhite = a; }),
+        loadImageAsset("/brand/nutanix-mark-black.png").then((a) => { if (a) brand.markBlack = a; }),
+      ]);
+      // The uploaded customer logo is already a data URL; measure it for aspect-safe placement.
+      let logoAsset: ImgAsset | null = null;
+      if (logo) {
+        const dims = await measureDataUrl(logo);
+        if (dims) logoAsset = { data: logo, w: dims.w, h: dims.h };
+      }
+      await exportProposalToPptx(doc, logoAsset, images, brand);
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  // --- Upload step -----------------------------------------------------------
+  if (!doc) {
+    return (
+      <div className="space-y-4">
+        <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-iris-300 bg-gradient-to-br from-iris-50 to-white px-6 py-12 text-center transition hover:border-iris-400"
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-iris-100 text-iris-600">
+            <Upload className="h-6 w-6" />
+          </span>
+          <span className="text-base font-semibold text-charcoal-900">Upload a Nutanix Sizer scenario (JSON)</span>
+          <span className="max-w-md text-sm text-charcoal-500">
+            In sizer.nutanix.com open your scenario → Actions → Export → JSON, then drop the file here. We&apos;ll build an on-brand
+            2-page Solution Brief and a polished BOM deck from it.
+          </span>
+        </button>
+        {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+        <div className="flex items-center justify-center gap-2 text-sm text-charcoal-500">
+          <span>No export handy?</span>
+          <button onClick={() => loadScenario(buildSampleScenario(defaultSe))} className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 font-medium text-iris-600 ring-1 ring-iris-200 hover:bg-iris-50">
+            <Sparkles className="h-4 w-4" /> Load {SAMPLE_PROPOSAL_LABEL}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Builder ---------------------------------------------------------------
+  return (
+    <div className="space-y-4">
+      <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+      <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-charcoal-200 bg-white p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-iris-50 text-iris-600">
+            <FileJson className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-charcoal-900">{doc.meta.customer}</p>
+            <p className="text-xs text-charcoal-500">
+              {doc.scenario.totals.clusters} clusters · {doc.scenario.totals.nodes} nodes · {doc.scenario.totals.cores} cores
+            </p>
+          </div>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {logo ? (
+            <span className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-2 py-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={logo} alt="logo" className="h-6 w-auto max-w-[90px] object-contain" />
+              <button onClick={() => setLogo(null)} className="text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ) : (
+            <Button tone="secondary" onClick={() => logoInput.current?.click()}>
+              <span className="flex items-center gap-1.5"><ImagePlus className="h-4 w-4" /> Customer logo</span>
+            </Button>
+          )}
+          <Button tone="secondary" onClick={() => fileInput.current?.click()}>
+            <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" /> Change file</span>
+          </Button>
+          <Button tone="secondary" onClick={exportPdf} disabled={exporting !== null}>
+            <span className="flex items-center gap-1.5">{exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} 2-Pager PDF</span>
+          </Button>
+          <Button onClick={exportPptx} disabled={exporting !== null}>
+            <span className="flex items-center gap-1.5">{exporting === "pptx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} BOM .pptx</span>
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[380px_1fr]">
+        {/* Editor — flows the full height of the page (no internal scroll cap). */}
+        <div className="space-y-3 pr-1">
+          <Section title="Proposal details" icon={<FileText className="h-4 w-4" />} defaultOpen>
+            <Field label="Title" value={doc.meta.title} onChange={(v) => patch((d) => ((d.meta.title = v), d))} />
+            <Field
+              label="Customer / account"
+              value={doc.meta.customer}
+              onChange={(v) =>
+                patch((d) => {
+                  // Keep the headline title in sync with the account name until the
+                  // SE manually edits the title to something custom.
+                  if (d.meta.title === `Nutanix Solution Proposal for ${d.meta.customer}`) {
+                    d.meta.title = `Nutanix Solution Proposal for ${v}`;
+                  }
+                  d.meta.customer = v;
+                  return d;
+                })
+              }
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Prepared by" value={doc.meta.preparedBy} onChange={(v) => patch((d) => ((d.meta.preparedBy = v), d))} />
+              <Field label="Date" value={doc.meta.dateLabel} onChange={(v) => patch((d) => ((d.meta.dateLabel = v), d))} />
+            </div>
+            <Field label="Opportunity" value={doc.meta.opportunityName ?? ""} onChange={(v) => patch((d) => ((d.meta.opportunityName = v || null), d))} />
+          </Section>
+
+          <Section title="Narrative" icon={<AlignLeft className="h-4 w-4" />} defaultOpen>
+            <TextArea label="Executive summary" rows={5} value={doc.executiveSummary} onChange={(v) => patch((d) => ((d.executiveSummary = v), d))} />
+            <TextArea label="Quote" rows={2} value={doc.quote.text} onChange={(v) => patch((d) => ((d.quote.text = v), d))} />
+            <Field label="Quote author" value={doc.quote.author} onChange={(v) => patch((d) => ((d.quote.author = v), d))} />
+          </Section>
+
+          <Section title="Challenges & outcomes" icon={<ListChecks className="h-4 w-4" />}>
+            <GroupEditor title="Current challenges" intro={doc.challengesIntro} groups={doc.challenges}
+              onIntro={(v) => patch((d) => ((d.challengesIntro = v), d))}
+              onGroups={(g) => patch((d) => ((d.challenges = g), d))} />
+            <GroupEditor title="Proposed benefits" intro={doc.benefitsIntro} groups={doc.benefits}
+              onIntro={(v) => patch((d) => ((d.benefitsIntro = v), d))}
+              onGroups={(g) => patch((d) => ((d.benefits = g), d))} />
+            <div className="grid grid-cols-2 gap-3">
+              <TextArea label="Current state" rows={4} value={arrayToLines(doc.currentState)} onChange={(v) => patch((d) => ((d.currentState = linesToArray(v)), d))} />
+              <TextArea label="Proposed state" rows={4} value={arrayToLines(doc.proposedState)} onChange={(v) => patch((d) => ((d.proposedState = linesToArray(v)), d))} />
+            </div>
+          </Section>
+
+          <Section title="Software scope" icon={<Receipt className="h-4 w-4" />} defaultOpen>
+            <LicensingEditor doc={doc} patch={patch} />
+            <Field label="Support term" value={doc.meta.supportTerm} onChange={(v) => patch((d) => ((d.meta.supportTerm = v), d))} />
+            <label className="flex items-center gap-2 text-xs font-medium text-charcoal-700">
+              <input
+                type="checkbox"
+                checked={doc.options?.includeSoftwareSlides ?? true}
+                onChange={(e) => patch((d) => ((d.options ??= { includeSoftwareSlides: true }), (d.options.includeSoftwareSlides = e.target.checked), d))}
+              />
+              Include full NCI editions comparison + support slides in the .pptx
+            </label>
+          </Section>
+        </div>
+
+        {/* Preview */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex rounded-lg border border-charcoal-200 bg-charcoal-50 p-1 text-sm">
+              <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "text-charcoal-500 hover:text-charcoal-800"}`}>
+                <FileText className="h-4 w-4" /> 2-Pager (PDF)
+              </button>
+              <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "text-charcoal-500 hover:text-charcoal-800"}`}>
+                <Layers className="h-4 w-4" /> BOM Deck
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAutoRefresh((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${autoRefresh ? "border-iris-200 bg-iris-50 text-iris-700" : "border-charcoal-200 bg-white text-charcoal-500"}`}
+                title="Auto-update the preview as you type"
+              >
+                <Zap className={`h-3.5 w-3.5 ${autoRefresh ? "fill-iris-400 text-iris-500" : ""}`} /> Live
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewDoc(doc)}
+                disabled={!previewStale}
+                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${previewStale ? "border-iris-600 bg-iris-600 text-white hover:bg-iris-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}
+                title="Update the preview now"
+              >
+                {previewStale ? <RefreshCw className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                {previewStale ? "Refresh preview" : "Up to date"}
+              </button>
+            </div>
+          </div>
+
+          {tab === "twopager" ? (
+            <div className="overflow-auto rounded-xl border border-charcoal-200 bg-charcoal-100 p-4">
+              <div className="mx-auto flex flex-col items-center gap-4" style={{ width: 816, transformOrigin: "top center" }}>
+                <PreviewScaler>
+                  <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
+                </PreviewScaler>
+              </div>
+            </div>
+          ) : (
+            <ProposalBomPreview doc={previewDoc ?? doc} />
+          )}
+        </div>
+      </div>
+
+      {/* Off-screen print surface for the 2-page PDF. */}
+      <div className="proposal-print-root" aria-hidden>
+        <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
+      </div>
+    </div>
+  );
+}
+
+// Scales the fixed 816px pages down to fit the preview column while keeping the
+// document crisp. Pure CSS so it never affects the print output.
+function PreviewScaler({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="origin-top" style={{ transform: "scale(0.72)", marginBottom: -560 }}>
+      <div className="flex flex-col items-center gap-5 shadow-lg [&>.proposal-page]:shadow-xl">{children}</div>
+    </div>
+  );
+}
+
+function Section({ title, icon, defaultOpen, children }: { title: string; icon: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  return (
+    <div className="rounded-lg border border-charcoal-200 bg-white">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition hover:bg-charcoal-50">
+        <span className="flex items-center gap-2 text-sm font-semibold text-charcoal-800">
+          <span className="text-iris-500">{icon}</span>
+          {title}
+        </span>
+        <ChevronDown className={`h-4 w-4 text-charcoal-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div className="space-y-3 border-t border-charcoal-100 px-3 py-3">{children}</div> : null}
+    </div>
+  );
+}
+
+function structuredCloneSafe<T>(obj: T): T {
+  if (typeof structuredClone === "function") return structuredClone(obj);
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium text-charcoal-700">{label}</span>
+      <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full" />
+    </label>
+  );
+}
+
+// Textarea that grows to fit its content (no inner scrollbar, no fixed height).
+function AutoTextarea({ value, onChange, minRows = 2, placeholder, className = "" }: { value: string; onChange: (v: string) => void; minRows?: number; placeholder?: string; className?: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      rows={minRows}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className={`w-full resize-none overflow-hidden ${className}`}
+    />
+  );
+}
+
+function TextArea({ label, value, rows, onChange }: { label: string; value: string; rows: number; onChange: (v: string) => void }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium text-charcoal-700">{label}</span>
+      <AutoTextarea value={value} minRows={rows} onChange={onChange} />
+    </label>
+  );
+}
+
+function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: ProposalDoc) => ProposalDoc) => void }) {
+  const lines = doc.licensing.lines;
+  const baseLine = lines.find((l) => isBasePlatform(l.product)) ?? null;
+  const addonLines = lines.filter((l) => !isBasePlatform(l.product));
+
+  const updateLine = (id: string, mut: (l: LicenseLine) => void) =>
+    patch((d) => {
+      const l = d.licensing.lines.find((x) => x.id === id);
+      if (l) {
+        mut(l);
+        if (l.product === "CloudInfrastructure") d.meta.edition = l.tier as EditionKey;
+      }
+      return d;
+    });
+  const removeLine = (id: string) =>
+    patch((d) => ((d.licensing.lines = d.licensing.lines.filter((x) => x.id !== id || isBasePlatform(x.product))), d));
+  const setTerm = (n: number) =>
+    patch((d) => ((d.licensing.termYears = Math.max(1, Math.round(n) || 1)), d));
+
+  // Swap the base platform (NCI <-> EUC) in place, keeping the licensed quantity.
+  const setBasePlatform = (product: LicenseProductKey) =>
+    patch((d) => {
+      const cat = LICENSE_CATALOG[product];
+      const preferredTier = cat.tiers.includes("Pro") ? "Pro" : cat.tiers[cat.tiers.length - 1];
+      const base = d.licensing.lines.find((l) => isBasePlatform(l.product));
+      if (base) {
+        const keepTier = cat.tiers.includes(base.tier) ? base.tier : preferredTier;
+        base.product = product;
+        base.unit = cat.unit;
+        base.tier = keepTier;
+      } else {
+        d.licensing.lines = [newLicenseLine(product, { tier: preferredTier }), ...d.licensing.lines];
+      }
+      if (product === "CloudInfrastructure") {
+        const t = d.licensing.lines.find((l) => l.product === "CloudInfrastructure")?.tier;
+        d.meta.edition = (t as EditionKey) ?? "Pro";
+      }
+      return d;
+    });
+
+  // Add-on chips toggle a product line on/off.
+  const toggleAddon = (product: LicenseProductKey) =>
+    patch((d) => {
+      const exists = d.licensing.lines.some((l) => l.product === product);
+      d.licensing.lines = exists
+        ? d.licensing.lines.filter((l) => l.product !== product)
+        : [...d.licensing.lines, newLicenseLine(product)];
+      return d;
+    });
+
+  return (
+    <div className="rounded-lg border border-charcoal-200 bg-charcoal-50/60 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-bold uppercase tracking-wide text-iris-700">Included software</p>
+        <label className="flex items-center gap-1.5 text-xs font-medium text-charcoal-600">
+          Term
+          <input type="number" min={1} value={doc.licensing.termYears} onChange={(e) => setTerm(Number(e.target.value))} className="w-14 text-center" />
+          yrs
+        </label>
+      </div>
+
+      {/* Base platform: NCI or EUC (mutually exclusive). */}
+      <p className="mb-1 text-[11px] font-semibold text-charcoal-600">Base platform <span className="font-normal text-charcoal-400">(choose one)</span></p>
+      <div className="mb-2 grid grid-cols-2 gap-2">
+        {BASE_PLATFORMS.map((p) => {
+          const selected = baseLine?.product === p;
+          return (
+            <button key={p} type="button" onClick={() => setBasePlatform(p)} aria-pressed={selected} className={toggleClass(selected)}>
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${selected ? "border-iris-500 bg-iris-500 text-white" : "border-charcoal-300"}`}>
+                {selected ? <Check className="h-3 w-3" /> : null}
+              </span>
+              {LICENSE_CATALOG[p].label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="space-y-2">
+        {(baseLine ? [baseLine, ...addonLines] : addonLines).map((l) => {
+          const cat = LICENSE_CATALOG[l.product];
+          const base = isBasePlatform(l.product);
+          return (
+            <div key={l.id} className={`rounded-md border p-2 ${base ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-charcoal-800">{cat.label}{base ? " (base)" : ""}</span>
+                <span className="ml-auto truncate text-[11px] text-charcoal-500">{cat.category}</span>
+                {!base ? (
+                  <button onClick={() => removeLine(l.id)} className="text-charcoal-400 hover:text-rose-600" aria-label="Remove line">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                <label className="space-y-0.5">
+                  <span className="text-[10px] text-charcoal-500">Tier / edition</span>
+                  <select value={l.tier} onChange={(e) => updateLine(l.id, (x) => { x.tier = e.target.value; })} className="w-full text-xs">
+                    {cat.tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-0.5">
+                  <span className="text-[10px] text-charcoal-500">Quantity ({l.unit})</span>
+                  <input type="number" min={0} value={l.qty} onChange={(e) => updateLine(l.id, (x) => { x.qty = Number(e.target.value) || 0; })} className="w-full text-xs" />
+                </label>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mb-1 mt-3 text-[11px] font-semibold text-charcoal-600">Add-on software <span className="font-normal text-charcoal-400">(tap to include)</span></p>
+      <div className="flex flex-wrap gap-1.5">
+        {LICENSE_PRODUCT_ORDER.map((p) => {
+          const added = addonLines.some((l) => l.product === p);
+          return (
+            <button key={p} type="button" onClick={() => toggleAddon(p)} aria-pressed={added} className={toggleClass(added)}>
+              {added ? <Check className="h-3 w-3 text-iris-500" /> : <span className="text-charcoal-400">+</span>}
+              {LICENSE_CATALOG[p].label}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-2 text-[11px] text-charcoal-500">Scope only. Commercial pricing is handled in a separate quote.</p>
+    </div>
+  );
+}
+
+function GroupEditor({
+  title,
+  intro,
+  groups,
+  onIntro,
+  onGroups,
+}: {
+  title: string;
+  intro: string;
+  groups: ChallengeGroups;
+  onIntro: (v: string) => void;
+  onGroups: (g: ChallengeGroups) => void;
+}) {
+  const set = (key: keyof ChallengeGroups, v: string) => onGroups({ ...groups, [key]: v.split("\n").map((l) => l.trim()).filter(Boolean) });
+  return (
+    <div className="rounded-lg border border-charcoal-200 bg-charcoal-50/60 p-3">
+      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-iris-700">{title}</p>
+      <div className="mb-2">
+        <AutoTextarea value={intro} minRows={2} onChange={onIntro} placeholder="Intro line" />
+      </div>
+      <div className="space-y-2">
+        {(["technical", "operational", "financial"] as const).map((k) => (
+          <label key={k} className="block space-y-1">
+            <span className="text-[11px] font-medium capitalize text-charcoal-600">{k} (one per line)</span>
+            <AutoTextarea value={groups[k].join("\n")} minRows={2} onChange={(v) => set(k, v)} />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -7,6 +7,7 @@ import {
   Briefcase,
   Calculator,
   CalendarDays,
+  FileText,
   LogOut,
   Mail,
   MapPinned,
@@ -36,6 +37,7 @@ const navigation = [
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
   { href: "/simple-sizer", label: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: Calculator },
   { href: "/qbr", label: "QBR Deck Builder", description: "Pull CS360 health checks into an on-brand QBR deck", icon: Presentation },
+  { href: "/proposal", label: "Proposal Builder", description: "Turn a Sizer scenario into a branded proposal + BOM", icon: FileText },
 ];
 
 // Routes that render without the app chrome (their own full-screen layout).
@@ -88,9 +90,6 @@ export function AppShell({
             >
               <Menu className="h-6 w-6" />
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/nutanix-logo-white.png" alt="Nutanix" className="hidden h-4 w-auto shrink-0 sm:block md:h-5" />
-            <span className="hidden h-6 w-px bg-white/20 sm:block" aria-hidden />
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold md:text-lg">SE Deal Workspace</h1>
               <p className="truncate text-xs text-white/60">{activeNav?.label ?? "Overview"}</p>
@@ -100,6 +99,9 @@ export function AppShell({
             <EnvironmentSwitcher initialEnv={initialEnv} />
             <ThemeToggle initialTheme={initialTheme} />
             {user ? <UserMenu user={user} /> : null}
+            <span className="hidden h-6 w-px bg-white/20 sm:block" aria-hidden />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/nutanix-logo-white.png" alt="Nutanix" className="hidden h-4 w-auto shrink-0 sm:block md:h-5" />
           </div>
         </div>
       </header>

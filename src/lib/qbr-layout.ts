@@ -170,20 +170,23 @@ export function compileSlide(slide: QbrSlide, meta: QbrDeckMeta, logo: string | 
     els.push({ kind: "shape", shape: "rect", x: PAGE_W - 1.9, y: 0, w: 1.9, h: 0.55, fill: NUTANIX.cyan });
 
     if (c.type === "title") {
+      // Auto-shrink long customer names so they never clip on the second line.
+      const nameLen = meta.customer.length;
+      const titleFont = nameLen > 38 ? 34 : nameLen > 28 ? 40 : 48;
       if (logo) els.push({ kind: "image", x: 1.0, y: 0.9, w: 2.4, h: 0.8, dataUrl: logo });
-      els.push({ kind: "text", x: 1.0, y: 2.5, w: 11, h: 0.5, runs: [{ text: "QUARTERLY BUSINESS REVIEW" }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
-      els.push({ kind: "text", x: 1.0, y: 3.0, w: 11.3, h: 1.4, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.heading, fontSize: 48, bold: true, color: "FFFFFF", edit: { path: "meta.customer" } });
-      els.push({ kind: "text", x: 1.0, y: 4.5, w: 11, h: 0.4, runs: [{ text: meta.vertical }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.vertical" } });
-      els.push({ kind: "text", x: 1.0, y: 4.95, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });
-      els.push({ kind: "text", x: 1.0, y: 5.45, w: 1.0, h: 0.4, runs: [{ text: "Prepared by" }], fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2", valign: "middle" });
-      els.push({ kind: "text", x: 1.95, y: 5.45, w: 9, h: 0.4, runs: [{ text: meta.preparedBy }], fontFace: NUTANIX_FONT.body, fontSize: 12, bold: true, color: "D8CCFF", valign: "middle", edit: { path: "meta.preparedBy" } });
+      els.push({ kind: "text", x: 1.0, y: 2.35, w: 11, h: 0.5, runs: [{ text: "QUARTERLY BUSINESS REVIEW" }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, charSpacing: 3 });
+      els.push({ kind: "text", x: 1.0, y: 2.85, w: 11.6, h: 1.9, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.heading, fontSize: titleFont, bold: true, color: "FFFFFF", edit: { path: "meta.customer" } });
+      els.push({ kind: "text", x: 1.0, y: 4.85, w: 11, h: 0.4, runs: [{ text: meta.vertical }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.vertical" } });
+      els.push({ kind: "text", x: 1.0, y: 5.28, w: 11, h: 0.4, runs: [{ text: meta.dateLabel }], fontFace: NUTANIX_FONT.body, fontSize: 14, color: "D8CCFF", edit: { path: "meta.dateLabel" } });
+      els.push({ kind: "text", x: 1.0, y: 5.72, w: 1.0, h: 0.4, runs: [{ text: "Prepared by" }], fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2", valign: "middle" });
+      els.push({ kind: "text", x: 1.95, y: 5.72, w: 9, h: 0.4, runs: [{ text: meta.preparedBy }], fontFace: NUTANIX_FONT.body, fontSize: 12, bold: true, color: "D8CCFF", valign: "middle", edit: { path: "meta.preparedBy" } });
       return { background: NUTANIX.deepPurple, elements: els };
     }
 
     // closing
-    els.push({ kind: "text", x: 0, y: 3.0, w: PAGE_W, h: 1.2, runs: [{ text: c.message }], fontFace: NUTANIX_FONT.heading, fontSize: 44, bold: true, color: "FFFFFF", align: "center", edit: { path: "content.message" } });
-    els.push({ kind: "text", x: 0, y: 4.3, w: PAGE_W, h: 0.5, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, align: "center", edit: { path: "meta.customer" } });
-    if (logo) els.push({ kind: "image", x: (PAGE_W - 2.0) / 2, y: 5.1, w: 2.0, h: 0.7, dataUrl: logo });
+    els.push({ kind: "text", x: 0.5, y: 2.7, w: PAGE_W - 1.0, h: 1.6, runs: [{ text: c.message }], fontFace: NUTANIX_FONT.heading, fontSize: 44, bold: true, color: "FFFFFF", align: "center", valign: "middle", edit: { path: "content.message" } });
+    els.push({ kind: "text", x: 0, y: 4.5, w: PAGE_W, h: 0.5, runs: [{ text: meta.customer }], fontFace: NUTANIX_FONT.body, fontSize: 16, color: NUTANIX.cyan, align: "center", edit: { path: "meta.customer" } });
+    if (logo) els.push({ kind: "image", x: (PAGE_W - 2.0) / 2, y: 5.3, w: 2.0, h: 0.7, dataUrl: logo });
     return { background: NUTANIX.deepPurple, elements: els };
   }
 

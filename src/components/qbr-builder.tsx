@@ -282,10 +282,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
             </p>
           </div>
         </div>
-        <span className="flex items-center gap-1.5 text-xs text-charcoal-500">
+        <span className="flex flex-1 items-center justify-center gap-1.5 text-xs text-charcoal-500">
           <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the slide to edit it.
         </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
           <Button tone="secondary" onClick={() => setLogoModalOpen(true)}>
             <span className="flex items-center gap-1.5">
@@ -406,8 +406,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                 </div>
               ) : null}
 
-              {/* SE Insight - single-line field with tone + hide toggle */}
-              <div className="flex items-center gap-2 rounded-xl border border-charcoal-200 bg-white p-2.5 shadow-sm">
+              {/* SE Insight - single-line field, same height as the bars above/below */}
+              <div className="flex items-center gap-2 rounded-xl border border-charcoal-200 bg-white px-4 py-1.5 shadow-sm">
                 <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-iris-700">SE Insight</span>
                 <select
                   value={activeSlide.insight?.tone ?? "neutral"}
@@ -416,7 +416,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                       insight: { tone: e.target.value as HealthTone, text: activeSlide.insight?.text ?? "" },
                     })
                   }
-                  className="w-28 shrink-0"
+                  className="h-7 w-24 shrink-0 py-0 text-xs"
                 >
                   {TONES.map((t) => (
                     <option key={t} value={t}>
@@ -432,14 +432,14 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
                       insight: e.target.value ? { tone: activeSlide.insight?.tone ?? "neutral", text: e.target.value } : undefined,
                     })
                   }
-                  className={`flex-1 ${activeSlide.insightHidden ? "opacity-50" : ""}`}
+                  className={`h-7 flex-1 py-0 text-xs ${activeSlide.insightHidden ? "opacity-50" : ""}`}
                 />
                 <button
                   type="button"
                   onClick={() => patchSlide(activeSlide.id, { insightHidden: !activeSlide.insightHidden })}
                   disabled={!activeSlide.insight}
                   title={activeSlide.insightHidden ? "Show insight on slide" : "Hide insight from slide"}
-                  className={`shrink-0 rounded-md bg-transparent p-1.5 ${
+                  className={`shrink-0 rounded-md bg-transparent p-1 ${
                     activeSlide.insightHidden ? "text-charcoal-400 hover:bg-charcoal-100 hover:text-charcoal-700" : "text-iris-500 hover:bg-iris-50 hover:text-iris-700"
                   } disabled:cursor-not-allowed disabled:opacity-40`}
                 >

@@ -332,10 +332,13 @@ function Lines({ el, editable, onPatch }: { el: ChartElement; editable: boolean;
 // --- element renderers -------------------------------------------------------
 
 function TextBox({ el, editable, onPatch }: { el: TextElement; editable: boolean; onPatch?: PatchFn }) {
+  // The brand "Montserrat ExtraLight" major font maps to the loaded Montserrat
+  // family at weight 200 in CSS (we load a single "Montserrat" web family).
+  const isDisplay = el.fontFace.includes("ExtraLight");
   const fontStyle: React.CSSProperties = {
-    fontFamily: `${el.fontFace}, ui-sans-serif, system-ui, sans-serif`,
+    fontFamily: isDisplay ? "Montserrat, ui-sans-serif, system-ui, sans-serif" : `${el.fontFace}, ui-sans-serif, system-ui, sans-serif`,
     fontSize: ptToPx(el.fontSize),
-    fontWeight: el.bold ? 800 : 400,
+    fontWeight: isDisplay ? 200 : el.bold ? 800 : 400,
     fontStyle: el.italic ? "italic" : "normal",
     color: cssHex(el.color),
     letterSpacing: el.charSpacing ? ptToPx(el.charSpacing) : undefined,

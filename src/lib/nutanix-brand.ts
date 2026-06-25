@@ -24,8 +24,9 @@ export const NUTANIX = {
 } as const;
 
 export const NUTANIX_FONT = {
-  heading: "Montserrat", // majorFont (template uses Montserrat ExtraLight for display)
-  body: "Montserrat", // minorFont
+  display: "Montserrat ExtraLight", // majorFont in the brand theme - used for big titles
+  heading: "Montserrat", // semibold/bold headings (stat numbers, card titles, table headers)
+  body: "Montserrat", // minorFont - body copy
 } as const;
 
 // Status colors for health-check signals (utilization, license, EOL, etc.).

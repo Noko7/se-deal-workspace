@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CalendarPlus,
@@ -35,6 +35,46 @@ const KIND_META: Record<NoteKind, { label: string; sample: string }> = {
   plan: { label: "Implementation Plan", sample: SAMPLE_NOTES },
   meeting: { label: "Regular Notes", sample: SAMPLE_MEETING_NOTES },
 };
+
+// A textarea that grows to fit its content so nothing is ever clipped or
+// crammed into a tiny scroll box. Cozy by default (minRows), fully dynamic after.
+function AutoTextarea({
+  value,
+  onChange,
+  onKeyDown,
+  minRows = 3,
+  className = "",
+  id,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  minRows?: number;
+  className?: string;
+  id?: string;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      id={id}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={onKeyDown}
+      rows={minRows}
+      className={`w-full resize-none overflow-hidden leading-relaxed ${className}`}
+    />
+  );
+}
 
 function StatusBadge({ status }: { status: LlmStatus | null }) {
   if (status === null) {
@@ -290,12 +330,12 @@ export function NoteFormatterTool() {
                 </div>
               </div>
               {showSystemPrompt ? (
-                <textarea
+                <AutoTextarea
                   id="systemPrompt"
                   value={systemPrompt}
-                  onChange={(event) => setSystemPrompt(event.target.value)}
-                  rows={5}
-                  className="w-full resize-y font-mono text-[11px] leading-relaxed"
+                  onChange={setSystemPrompt}
+                  minRows={6}
+                  className="font-mono text-[11px]"
                   placeholder="Instructions sent to the model as the system message…"
                 />
               ) : (
@@ -307,23 +347,23 @@ export function NoteFormatterTool() {
 
             <div className="space-y-1.5">
               <label htmlFor="noteInput">Raw Notes</label>
-              <textarea
+              <AutoTextarea
                 id="noteInput"
                 value={notes}
-                onChange={(event) => setNotes(event.target.value)}
+                onChange={setNotes}
                 onKeyDown={(event) => {
                   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                     event.preventDefault();
                     runAiFormat();
                   }
                 }}
-                rows={10}
+                minRows={10}
                 placeholder={
                   isMeeting
                     ? "Date: …\nAttendees: …\nNotes:\n- …"
                     : "Dump your meeting notes, scratchpad, or action items here…"
                 }
-                className="w-full resize-y font-mono text-xs leading-relaxed"
+                className="font-mono text-xs"
               />
               <div className="flex items-center justify-between text-[11px] text-charcoal-400">
                 <span>
@@ -342,15 +382,14 @@ export function NoteFormatterTool() {
 
             <div className="space-y-1.5">
               <label htmlFor="noteInstructions">Extra Instructions</label>
-              <textarea
+              <AutoTextarea
                 id="noteInstructions"
                 value={instructions}
-                onChange={(event) => setInstructions(event.target.value)}
-                rows={3}
+                onChange={setInstructions}
+                minRows={3}
                 placeholder={
                   isMeeting ? "e.g. highlight risks and owner names" : "e.g. keep it under 8 steps, call out security risks"
                 }
-                className="w-full resize-y"
               />
             </div>
           </div>

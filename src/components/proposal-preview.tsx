@@ -167,7 +167,7 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
         </section>
 
         <section className="mb-4">
-          <SectionTitle>Buy-Now Justification</SectionTitle>
+          <SectionTitle>About this process</SectionTitle>
           <div className="flex flex-wrap gap-1.5">
             {doc.timeline.map((m, i) => (
               <span

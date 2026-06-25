@@ -22,19 +22,104 @@ export type CatalogEntry = {
   category: string; // product name shown in the "Category" field
   unit: string; // licensing/metering unit
   tiers: string[]; // available tiers/editions
+  // Short, customer-readable descriptor per tier (e.g. NCI Pro: "Rich data
+  // services, resilience and management features"). Keyed by tier name.
+  blurbs: Record<string, string>;
 };
 
 export const LICENSE_CATALOG: Record<LicenseProductKey, CatalogEntry> = {
-  CloudInfrastructure: { label: "NCI", category: "Cloud Infrastructure (per core)", unit: "cores", tiers: ["Starter", "Pro", "Ultimate"] },
-  EUC: { label: "EUC", category: "End User Computing (per core)", unit: "cores", tiers: ["Pro", "Ultimate"] },
-  CloudManager: { label: "NCM", category: "Cloud Manager (per core)", unit: "cores", tiers: ["Starter", "Pro", "Ultimate"] },
-  NUS: { label: "NUS", category: "Unified Storage (per TiB)", unit: "TiB", tiers: ["Pro", "Ultimate"] },
-  Database: { label: "NDB", category: "Database (per core)", unit: "cores", tiers: ["Standard"] },
-  NAI: { label: "NAI", category: "Enterprise AI (per GPU)", unit: "GPUs", tiers: ["Standard"] },
-  Prism: { label: "Prism", category: "Prism (per node)", unit: "nodes", tiers: ["Pro", "Ultimate"] },
-  NC2: { label: "NC2", category: "Cloud Clusters (per core)", unit: "cores", tiers: ["Standard"] },
-  NKP: { label: "NKP", category: "Kubernetes Platform (per core)", unit: "cores", tiers: ["Starter", "Pro", "Ultimate"] },
+  CloudInfrastructure: {
+    label: "NCI",
+    category: "Cloud Infrastructure (per core)",
+    unit: "cores",
+    tiers: ["Starter", "Pro", "Ultimate"],
+    blurbs: {
+      Starter: "Core set of software functionality",
+      Pro: "Rich data services, resilience and management features",
+      Ultimate: "The full suite of Nutanix software capabilities for complex infrastructure",
+    },
+  },
+  EUC: {
+    label: "EUC",
+    category: "End User Computing (per core)",
+    unit: "cores",
+    tiers: ["Pro", "Ultimate"],
+    blurbs: {
+      Pro: "Full-stack platform for virtual desktops and apps",
+      Ultimate: "End user computing with advanced management and security",
+    },
+  },
+  CloudManager: {
+    label: "NCM",
+    category: "Cloud Manager (per core)",
+    unit: "cores",
+    tiers: ["Starter", "Pro", "Ultimate"],
+    blurbs: {
+      Starter: "Intelligent operations and insights",
+      Pro: "Operations plus self-service automation and orchestration",
+      Ultimate: "Full automation, cost governance and security compliance",
+    },
+  },
+  NUS: {
+    label: "NUS",
+    category: "Unified Storage (per TiB)",
+    unit: "TiB",
+    tiers: ["Pro", "Ultimate"],
+    blurbs: {
+      Pro: "Unified files, objects and block storage",
+      Ultimate: "Unified storage with advanced data services and security",
+    },
+  },
+  Database: {
+    label: "NDB",
+    category: "Database (per core)",
+    unit: "cores",
+    tiers: ["Standard"],
+    blurbs: { Standard: "Database lifecycle automation and copy data management" },
+  },
+  NAI: {
+    label: "NAI",
+    category: "Enterprise AI (per GPU)",
+    unit: "GPUs",
+    tiers: ["Standard"],
+    blurbs: { Standard: "Generative AI model serving and inferencing on-prem" },
+  },
+  Prism: {
+    label: "Prism",
+    category: "Prism (per node)",
+    unit: "nodes",
+    tiers: ["Pro", "Ultimate"],
+    blurbs: {
+      Pro: "Multicluster operations and analytics",
+      Ultimate: "Operations with advanced automation and reporting",
+    },
+  },
+  NC2: {
+    label: "NC2",
+    category: "Cloud Clusters (per core)",
+    unit: "cores",
+    tiers: ["Standard"],
+    blurbs: { Standard: "Run Nutanix natively in AWS and Azure" },
+  },
+  NKP: {
+    label: "NKP",
+    category: "Kubernetes Platform (per core)",
+    unit: "cores",
+    tiers: ["Starter", "Pro", "Ultimate"],
+    blurbs: {
+      Starter: "Managed Kubernetes essentials",
+      Pro: "Production Kubernetes with lifecycle management",
+      Ultimate: "Enterprise Kubernetes with full platform services",
+    },
+  },
 };
+
+// Customer-readable descriptor for a product + tier, e.g. "Rich data services,
+// resilience and management features" for NCI Pro.
+export function licenseBlurb(product: LicenseProductKey, tier: string): string {
+  const cat = LICENSE_CATALOG[product];
+  return cat.blurbs[tier] ?? Object.values(cat.blurbs)[0] ?? "";
+}
 
 // Base platform licenses: every design has exactly one. EUC can replace NCI for
 // end-user-computing / VDI deployments.

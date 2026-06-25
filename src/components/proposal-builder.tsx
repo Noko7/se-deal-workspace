@@ -9,7 +9,7 @@ import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@
 import { hardwareImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
-import { BASE_PLATFORMS, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
+import { BASE_PLATFORMS, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
 import { Button } from "@/components/ui";
 
@@ -502,9 +502,17 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
         {(baseLine ? [baseLine, ...addonLines] : addonLines).map((l) => {
           const cat = LICENSE_CATALOG[l.product];
           const base = isBasePlatform(l.product);
+          const isEuc = l.product === "EUC";
           return (
             <div key={l.id} className={`rounded-md border p-2 ${base ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {/* Little product icon for the license, except EUC (no icon in the brand pack -> text badge). */}
+                {isEuc ? (
+                  <span className="flex h-5 shrink-0 items-center rounded bg-iris-600 px-1.5 text-[10px] font-extrabold text-white">EUC</span>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={getProductIcon(l.product as Parameters<typeof getProductIcon>[0], "Color", "abbreviated")} alt={cat.label} className="h-5 w-5 shrink-0 object-contain" />
+                )}
                 <span className="text-xs font-semibold text-charcoal-800">{cat.label}{base ? " (base)" : ""}</span>
                 <span className="ml-auto truncate text-[11px] text-charcoal-500">{cat.category}</span>
                 {!base ? (
@@ -513,6 +521,10 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
                   </button>
                 ) : null}
               </div>
+              {/* Tier descriptor, e.g. "NCI Pro: Rich data services, resilience and management features". */}
+              <p className="mt-1 text-[11px] leading-snug text-charcoal-500">
+                <span className="font-semibold text-iris-700">{cat.label} {l.tier}:</span> {licenseBlurb(l.product, l.tier)}
+              </p>
               <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                 <label className="space-y-0.5">
                   <span className="text-[10px] text-charcoal-500">Tier / edition</span>

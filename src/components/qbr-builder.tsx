@@ -17,6 +17,7 @@ import {
   Pencil,
   RefreshCw,
   Server,
+  Sparkles,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { fetchCs360HealthReport } from "@/lib/cs360";
 import { buildUclaSampleReport, UCLA_SAMPLE_ACCOUNT } from "@/lib/qbr-sample-ucla";
 import { buildQbrDeck, type QbrDeck, type QbrSlide } from "@/lib/qbr-deck";
 import type { HealthTone } from "@/lib/nutanix-brand";
+import { removeImageBackground } from "@/lib/remove-bg";
 import { exportDeckToPptx } from "@/lib/qbr-pptx";
 import { QbrSlideBoard, QbrSlideFrame } from "@/components/qbr-slide";
 import { Button } from "@/components/ui";
@@ -45,6 +47,8 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
   const [notesOpen, setNotesOpen] = useState(false);
   const [logoModalOpen, setLogoModalOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [pendingLogo, setPendingLogo] = useState<string | null>(null); // uploaded, awaiting bg-removal choice
+  const [bgRemoving, setBgRemoving] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
 
   const slideById = useMemo(() => {
@@ -129,7 +133,10 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
   function readLogoFile(file?: File | null) {
     if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = () => setLogo(typeof reader.result === "string" ? reader.result : null);
+    // Stage the upload and ask about background removal before committing it.
+    reader.onload = () => {
+      if (typeof reader.result === "string") setPendingLogo(reader.result);
+    };
     reader.readAsDataURL(file);
   }
   function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -137,6 +144,58 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
     setLogoModalOpen(false);
     e.target.value = "";
   }
+
+  async function confirmLogo(removeBg: boolean) {
+    if (!pendingLogo) return;
+    if (!removeBg) {
+      setLogo(pendingLogo);
+      setPendingLogo(null);
+      return;
+    }
+    setBgRemoving(true);
+    try {
+      setLogo(await removeImageBackground(pendingLogo));
+    } catch {
+      setLogo(pendingLogo); // fall back to the original on any failure
+    } finally {
+      setBgRemoving(false);
+      setPendingLogo(null);
+    }
+  }
+
+  // Checkerboard so transparency is obvious in the preview.
+  const CHECKER =
+    "repeating-conic-gradient(#e9e9ef 0% 25%, #ffffff 0% 50%) 50% / 16px 16px";
+
+  const bgPromptModal = pendingLogo ? (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-charcoal-900/50 p-4" onClick={() => !bgRemoving && setPendingLogo(null)}>
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-charcoal-900">Remove the logo background?</h4>
+          <button onClick={() => !bgRemoving && setPendingLogo(null)} className="bg-transparent text-charcoal-400 hover:text-charcoal-700" aria-label="Close" disabled={bgRemoving}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-charcoal-500">
+          Most logos download on a solid white background. Removing it lets the logo sit cleanly on the slides. Your foreground stays untouched.
+        </p>
+        <div className="mb-4 flex items-center justify-center rounded-lg border border-charcoal-200 p-4" style={{ background: CHECKER }}>
+          <img src={pendingLogo} alt="logo preview" className="h-20 w-auto max-w-[220px] object-contain" />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button tone="secondary" onClick={() => confirmLogo(false)} disabled={bgRemoving}>
+            Keep original
+          </Button>
+          <Button onClick={() => confirmLogo(true)} disabled={bgRemoving}>
+            <span className="flex items-center gap-1.5">
+              {bgRemoving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {bgRemoving ? "Removing..." : "Remove background"}
+            </span>
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const logoModal = logoModalOpen ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal-900/50 p-4" onClick={() => setLogoModalOpen(false)}>
@@ -248,6 +307,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
             </div>
           </div>
           {logoModal}
+          {bgPromptModal}
 
           <div className="mt-5">
             <Button onClick={pull} disabled={loading || !selected}>
@@ -485,6 +545,7 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
         ))}
       </div>
       {logoModal}
+      {bgPromptModal}
     </div>
   );
 }

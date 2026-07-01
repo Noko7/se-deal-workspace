@@ -1,4 +1,4 @@
-import { PrismaClient, IntegrationStatus, AssetType, PreviewStatus, QBRItemStatus, Prisma } from "@prisma/client";
+import { PrismaClient, IntegrationStatus, AssetType, PreviewStatus, QBRItemStatus, Prisma, ContactDisposition } from "@prisma/client";
 import { addDays } from "date-fns";
 
 const prisma = new PrismaClient();
@@ -48,6 +48,9 @@ async function main() {
   await prisma.qBRChecklistItem.deleteMany();
   await prisma.qBRArtifact.deleteMany();
   await prisma.dealEmail.deleteMany();
+  await prisma.salesforceTask.deleteMany();
+  await prisma.meetingTranscript.deleteMany();
+  await prisma.contact.deleteMany();
   await prisma.meetingAsset.deleteMany();
   await prisma.meeting.deleteMany();
   await prisma.integrationConnection.deleteMany();
@@ -139,8 +142,28 @@ async function main() {
       nextAction: "Finalize discovery summary before QBR",
       latestSignal: "Storage utilization sustained above 80%.",
       amount: 420000,
+      acvAmount: 140000,
+      servicesAcv: 28000,
       technicalCloseStatus: "25",
       closeDate: addDays(now, 18),
+      forecastCategory: "Best Case",
+      industry: "Manufacturing",
+      employees: 4200,
+      region: "AMER - Central",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "Dell VxRail",
+      renewalDate: addDays(now, 150),
+      hypervisor: "VMware ESXi",
+      portfolio: JSON.stringify(["NCI", "NCM"]),
+      products: JSON.stringify(["NCI Pro", "NCM Starter"]),
+      tags: JSON.stringify(["consolidation", "DR", "renewal"]),
+      partners: "CDW",
+      useCase: "Consolidate three aging vSphere clusters and add async DR before the datacenter runs out of space.",
+      currentEnvironment: "3-node vSphere 7 cluster, ~180 cores, all-flash, storage sustained above 80 percent. No new rack space this quarter.",
+      whyNow: "Storage is nearly full and the VMware support contract renews in about five months.",
+      whyNutanix: "Denser nodes reclaim rack space and a single platform simplifies operations versus a like-for-like VMware refresh.",
+      technicalDecisionMaker: "Dana Whitfield",
+      nextStepsToClose: "1) Complete discovery summary 2) Present sizing at QBR 3) Align on early renewal bundle",
     },
   });
 
@@ -153,8 +176,28 @@ async function main() {
       nextAction: "Validate replication target options",
       latestSignal: "Customer evaluating async DR expansion.",
       amount: 1150000,
+      acvAmount: 383000,
+      servicesAcv: 90000,
       technicalCloseStatus: "50",
       closeDate: addDays(now, 9),
+      forecastCategory: "Commit",
+      industry: "Financial Services",
+      employees: 9800,
+      region: "AMER - East",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "VMware VCF",
+      renewalDate: addDays(now, 60),
+      hypervisor: "VMware ESXi",
+      portfolio: JSON.stringify(["NCI", "NCM", "NUS (Files/Objects/Volumes)"]),
+      products: JSON.stringify(["NCI Ultimate", "NCM Pro"]),
+      tags: JSON.stringify(["DR", "replication", "core-banking"]),
+      partners: "WWT",
+      useCase: "Modernize disaster recovery for the core banking tier with sub-15-minute RPO across two sites.",
+      currentEnvironment: "Dual-site vSphere estate, ~640 cores, array-based replication nearing end of support. RPO currently around 30 minutes.",
+      whyNow: "DR modernization budget is approved for this fiscal year and the decision committee meets in two weeks.",
+      whyNutanix: "Native async DR and a single management plane reduce RPO and remove a separate replication appliance.",
+      technicalDecisionMaker: "Robert Langley",
+      nextStepsToClose: "1) Validate replication targets 2) Confirm WAN bandwidth 3) Present to decision committee",
     },
   });
 
@@ -167,8 +210,31 @@ async function main() {
       nextAction: "Confirm POC success criteria sign-off",
       latestSignal: "POC cluster validated; awaiting security review.",
       amount: 780000,
+      acvAmount: 260000,
+      servicesAcv: 55000,
       technicalCloseStatus: "99",
       closeDate: addDays(now, 5),
+      forecastCategory: "Commit",
+      industry: "Healthcare",
+      employees: 6100,
+      region: "AMER - West",
+      incumbentVendor: "Citrix on VMware",
+      primaryCompetitor: "Nutanix vs. keep Citrix/VMware",
+      renewalDate: addDays(now, 90),
+      hypervisor: "VMware ESXi",
+      portfolio: JSON.stringify(["NCI", "EUC"]),
+      products: JSON.stringify(["NCI Pro", "EUC Pro"]),
+      tags: JSON.stringify(["VDI", "security", "expansion"]),
+      partners: "Presidio",
+      useCase: "Expand clinical VDI to 2,000 seats with validated density and pass security segmentation review.",
+      currentEnvironment: "POC cluster validated for VDI density with headroom. Production is Citrix on vSphere, ~2,000 desktops planned.",
+      whyNow: "Current term ends soon and validation success unlocks a multi-year expansion.",
+      whyNutanix: "Validated VDI density with headroom and simpler operations than the incumbent Citrix-on-VMware stack.",
+      technicalDecisionMaker: "Carlos Mendoza",
+      nextStepsToClose: "1) Security sign-off on segmentation 2) Confirm POC success criteria 3) Finalize expansion order",
+      intendToUseForNc2: false,
+      bomAttached: true,
+      xrayUsed: true,
     },
   });
 
@@ -421,7 +487,8 @@ async function main() {
         integrationKey: "salesforce",
         displayName: "Salesforce",
         status: IntegrationStatus.NEEDS_ATTENTION,
-        setupNotes: "Pipeline sync is planned after foundation validation.",
+        setupNotes:
+          "Review the Salesforce Account Schema card below to confirm our field mapping matches your SFDC org, then wire live credentials. Pipeline and opportunity sync feeds Account-AI.",
       },
       {
         integrationKey: "lucidchart",
@@ -626,6 +693,58 @@ async function main() {
     ],
   });
 
+  // Showcase buying committees.
+  await prisma.contact.createMany({
+    data: [
+      { dealId: alphaDeal.id, name: "Dana Whitfield", title: "VP of Infrastructure", email: "dana.whitfield@acme.example", role: "Economic Buyer", disposition: "SUPPORTER", notes: "Owns the budget; wants a refresh plan before budget close." },
+      { dealId: alphaDeal.id, name: "Morgan Reyes", title: "IT Operations Lead", email: "morgan.reyes@acme.example", role: "Champion", disposition: "CHAMPION", notes: "Day-to-day champion; sensitive to datacenter footprint." },
+      { dealId: alphaDeal.id, name: "Acme CIO", title: "CIO", email: "cio@acme.example", role: "Executive Sponsor", disposition: "NEUTRAL", notes: "Economic buyer at exec level; competitive pressure from incumbent." },
+      { dealId: bravoDeal.id, name: "Robert Langley", title: "Director of Platform Engineering", email: "robert.langley@betafin.example", role: "Technical Evaluator", disposition: "SUPPORTER", notes: "Comparing sync vs async replication; wants RPO under 15 minutes." },
+      { dealId: bravoDeal.id, name: "Diana Flores", title: "VP Infrastructure", email: "diana.flores@betafin.example", role: "Economic Buyer", disposition: "CHAMPION", notes: "Sponsor for DR modernization; budget approved this FY." },
+      { dealId: bravoDeal.id, name: "Beta Procurement", title: "Procurement Manager", email: "procurement@betafin.example", role: "Procurement", disposition: "NEUTRAL", notes: "Engages after technical validation." },
+      { dealId: gammaDeal.id, name: "Carlos Mendoza", title: "Director of Infrastructure", email: "carlos.mendoza@gammahealth.example", role: "Technical Evaluator", disposition: "SUPPORTER", notes: "Owns technical decision; pleased with POC density." },
+      { dealId: gammaDeal.id, name: "Elena Popova", title: "Security Architect", email: "elena.popova@gammahealth.example", role: "Technical Evaluator", disposition: "SKEPTIC", notes: "Raised network segmentation questions; must sign off before procurement." },
+      { dealId: gammaDeal.id, name: "Gamma CISO", title: "CISO", email: "security@gammahealth.example", role: "Executive Sponsor", disposition: "NEUTRAL", notes: "Security sign-off is the remaining blocker." },
+    ],
+  });
+
+  await prisma.meetingTranscript.createMany({
+    data: [
+      {
+        meetingId: acmeMeeting.id,
+        dealId: alphaDeal.id,
+        source: "zoom",
+        summary: "The team reviewed QBR prep for Acme. DR is confirmed as the top priority. Walked through the async DR slide and agreed to pull updated sizing before the readout.",
+        notes: "Action: Lizi to refresh sizing. Dana wants the refresh plan before budget close.",
+        transcript: "[00:02] Lizi: Let's confirm priorities for the QBR. [00:15] Morgan: DR is the top one, storage is nearly full. [00:41] Dana: I need the refresh plan before budget close. [01:10] Lizi: I'll pull updated sizing before the readout.",
+      },
+      {
+        meetingId: betaMeeting.id,
+        dealId: bravoDeal.id,
+        source: "zoom",
+        summary: "Design review for Beta Financial DR. Customer is comparing sync vs async replication and wants RPO under 15 minutes for the core banking tier. Need WAN bandwidth numbers to finalize.",
+        notes: "Action: gather WAN bandwidth. Decision committee meets in two weeks.",
+        transcript: "[00:03] Robert: We need RPO under 15 minutes for core banking. [00:22] Jordan: Async gets you there if WAN bandwidth supports it. [00:48] Robert: Let's get the bandwidth numbers before the committee.",
+      },
+      {
+        meetingId: gammaPocMeeting.id,
+        dealId: gammaDeal.id,
+        source: "zoom",
+        summary: "POC readout for Gamma VDI. Density hit target with headroom. Security team raised segmentation questions that must be resolved before procurement can proceed.",
+        notes: "Action: send segmentation design to Elena. Procurement ready once security clears.",
+        transcript: "[00:05] Priya: Density hit target with headroom. [00:30] Carlos: Great, that unblocks the expansion. [00:52] Elena: I still need to review network segmentation before I can sign off.",
+      },
+    ],
+  });
+
+  await prisma.salesforceTask.createMany({
+    data: [
+      { dealId: alphaDeal.id, taskName: "Refresh async DR sizing before QBR readout", status: "In Progress", priority: "High", type: "Sizing", dueDate: addDays(now, 3), assignee: "lizi.singletary@nutanix.com", relatedAccount: "Acme Manufacturing", products: JSON.stringify(["NCI Pro"]) },
+      { dealId: bravoDeal.id, taskName: "Collect WAN bandwidth numbers for DR replication", status: "Not Started", priority: "High", type: "Discovery", dueDate: addDays(now, 4), assignee: "jordan.kim@nutanix.com", relatedAccount: "Beta Financial" },
+      { dealId: gammaDeal.id, taskName: "Send network segmentation design to security team", status: "Not Started", priority: "High", type: "Technical", dueDate: addDays(now, 2), assignee: "priya.nadar@nutanix.com", relatedAccount: "Gamma Healthcare" },
+    ],
+  });
+
   // --- Generated demo accounts so the calendar, pipeline, and accounts views feel populated ---
   const fakeCompanies = [
     "Northwind Logistics",
@@ -648,6 +767,33 @@ async function main() {
     "Aperion Health",
     "Black Mesa Research",
     "Soylent Foods",
+    "Meridian Freight",
+    "Cascade Utilities",
+    "Summit Healthcare",
+    "Ironclad Insurance",
+    "Bluewave Telecom",
+    "Redstone Mining",
+    "Cornerstone Credit Union",
+    "Evergreen Public Schools",
+    "Harbor Point Media",
+    "Sterling Aerospace",
+    "Lakeside Regional Hospital",
+    "Pinnacle Payments",
+    "Granite State University",
+    "Coastal Power & Light",
+    "Vertex Pharmaceuticals Co",
+    "Frontier Retail Group",
+    "Atlas Manufacturing",
+    "Beacon Financial Group",
+    "Copperline Energy",
+    "Delta Ridge Logistics",
+    "Nimbus Software",
+    "Orchard Foods",
+    "Sentinel Defense Systems",
+    "Trailhead Outdoors",
+    "Union Metro Transit",
+    "Willowbrook Health System",
+    "Zenith Broadcasting",
   ];
   const fakeOwners = [
     "Lizi Singletary",
@@ -714,6 +860,263 @@ async function main() {
     "Tracking utilization to right-size the next subscription term.",
   ];
 
+  // Coherent deal archetypes so each generated account reads like a real,
+  // internally-consistent opportunity (industry, incumbent, use case, products,
+  // and narrative all line up). Fabricated, but shaped for a useful demo.
+  type Archetype = {
+    industry: string;
+    incumbentVendor: string;
+    primaryCompetitor: string;
+    hypervisor: string;
+    portfolio: string[];
+    products: string[];
+    tags: string[];
+    useCase: string;
+    currentEnvironment: string;
+    whyNow: string;
+    whyNutanix: string;
+    signal: string;
+    se: string;
+    ae: string;
+    sam: string;
+    transcriptSummary: string;
+    transcriptNotes: string;
+    transcript: string;
+    task: string;
+  };
+  const archetypes: Archetype[] = [
+    {
+      industry: "Manufacturing",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "Dell VxRail",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NCM"],
+      products: ["NCI Pro", "NCM Starter"],
+      tags: ["consolidation", "renewal", "VMware-exit"],
+      useCase: "Consolidate aging vSphere clusters onto a denser platform ahead of a datacenter space constraint.",
+      currentEnvironment: "Three vSphere 7 clusters, roughly 220 cores, all-flash, storage sustained above 80 percent.",
+      whyNow: "The VMware support renewal quote arrived with a large price increase.",
+      whyNutanix: "Denser nodes reclaim rack space and one platform simplifies operations versus a like-for-like refresh.",
+      signal: "Renewal quote from incumbent came in higher than expected.",
+      se: "Technical team is comparing us against the incumbent on core density and operational simplicity.",
+      ae: "Compelling event is the VMware renewal; economic buyer wants a business case before the renewal date.",
+      sam: "Renewal timing lines up well with a platform refresh and early subscription.",
+      transcriptSummary: "Reviewed current-state inventory and the renewal timeline. Agreed the main driver is the VMware price increase and rack space limits.",
+      transcriptNotes: "Action: build a side-by-side TCO versus the renewal quote.",
+      transcript: "[00:04] SE: Walk me through the current clusters. [00:20] Customer: Three vSphere clusters, storage is nearly full. [00:45] Customer: The renewal quote jumped a lot this year. [01:02] SE: Let's build a TCO against that quote.",
+      task: "Build TCO comparison versus the VMware renewal quote",
+    },
+    {
+      industry: "Healthcare",
+      incumbentVendor: "Citrix on VMware",
+      primaryCompetitor: "Keep Citrix/VMware",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "EUC"],
+      products: ["NCI Pro", "EUC Pro"],
+      tags: ["VDI", "security", "expansion"],
+      useCase: "Expand clinical virtual desktops with validated density and a clean security segmentation story.",
+      currentEnvironment: "Citrix on vSphere serving about 1,500 clinical desktops, planning growth to 2,500 seats.",
+      whyNow: "Desktop growth is outpacing the current environment and the Citrix term is ending.",
+      whyNutanix: "Validated VDI density with headroom and simpler operations than the incumbent Citrix on VMware stack.",
+      signal: "Clinical VDI growth requiring additional capacity.",
+      se: "Security team flagged network segmentation requirements for the clinical VLANs.",
+      ae: "Champion is the end-user computing lead; security sign-off is the gating item.",
+      sam: "Strong adoption signals; expansion sets up a multi-year term.",
+      transcriptSummary: "POC readout showed VDI density hitting target with headroom. Security asked for a segmentation design before approving.",
+      transcriptNotes: "Action: deliver segmentation design to the security architect.",
+      transcript: "[00:03] SE: Density hit target with headroom. [00:19] Customer: That unblocks the expansion. [00:40] Security: I need the segmentation design before I sign off.",
+      task: "Deliver network segmentation design to security",
+    },
+    {
+      industry: "Financial Services",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "VMware VCF",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NCM", "NUS (Files/Objects/Volumes)"],
+      products: ["NCI Ultimate", "NCM Pro"],
+      tags: ["DR", "replication", "compliance"],
+      useCase: "Modernize disaster recovery for regulated workloads with a tighter RPO across two sites.",
+      currentEnvironment: "Dual-site vSphere estate, about 640 cores, array-based replication near end of support.",
+      whyNow: "DR modernization budget is approved this fiscal year and a committee decision is near.",
+      whyNutanix: "Native async DR and one management plane reduce RPO and remove a separate replication appliance.",
+      signal: "Evaluating DR expansion for critical workloads.",
+      se: "Need to confirm WAN bandwidth before finalizing the async DR design.",
+      ae: "Budget approved; decision committee meets soon, so timing is tight.",
+      sam: "Healthy account; DR modernization opens a larger footprint conversation.",
+      transcriptSummary: "Design review compared sync versus async replication. Customer wants RPO under 15 minutes for the core tier.",
+      transcriptNotes: "Action: gather WAN bandwidth numbers before the committee.",
+      transcript: "[00:05] Customer: We need RPO under 15 minutes. [00:22] SE: Async gets you there if bandwidth supports it. [00:41] Customer: Let's confirm the bandwidth.",
+      task: "Confirm WAN bandwidth for DR replication",
+    },
+    {
+      industry: "Public Sector",
+      incumbentVendor: "Microsoft Hyper-V",
+      primaryCompetitor: "Azure Stack HCI",
+      hypervisor: "Hyper-V",
+      portfolio: ["NCI"],
+      products: ["NCI Pro"],
+      tags: ["hypervisor-migration", "budget-cycle"],
+      useCase: "Standardize on a single platform and reduce hypervisor licensing across agencies.",
+      currentEnvironment: "Mixed Hyper-V and legacy vSphere, about 300 cores, split across two datacenters.",
+      whyNow: "Annual budget cycle is the window to fund a platform change.",
+      whyNutanix: "AHV removes hypervisor licensing cost and simplifies operations for a small ops team.",
+      signal: "Hypervisor renewal driving a platform review.",
+      se: "Customer is interested in mixed-workload consolidation and AHV migration via Move.",
+      ae: "Funding must be committed within this budget cycle.",
+      sam: "Low churn risk; standardization improves long-term health.",
+      transcriptSummary: "Discovery workshop mapped the Hyper-V estate and migration candidates. AHV licensing savings resonated.",
+      transcriptNotes: "Action: scope a Move migration for the first workload group.",
+      transcript: "[00:06] SE: Which workloads move first? [00:24] Customer: The general-purpose VMs. [00:39] SE: Move can handle those with minimal downtime.",
+      task: "Scope Nutanix Move migration for first workload group",
+    },
+    {
+      industry: "Retail",
+      incumbentVendor: "Dell + VMware",
+      primaryCompetitor: "Dell VxRail",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NDB"],
+      products: ["NCI Pro", "NDB"],
+      tags: ["database", "consolidation"],
+      useCase: "Consolidate database sprawl and simplify database lifecycle management.",
+      currentEnvironment: "About 60 database VMs on vSphere with manual provisioning and inconsistent backups.",
+      whyNow: "A hardware refresh is due and DBA team is overloaded with manual work.",
+      whyNutanix: "NDB automates database provisioning, patching, and copy data management on one platform.",
+      signal: "Consolidating multiple legacy clusters.",
+      se: "Validated node density assumptions against current database inventory.",
+      ae: "DBA productivity is the business case; refresh budget is in play.",
+      sam: "Room to grow into NDB add-ons after the core refresh.",
+      transcriptSummary: "Walked through database estate and the manual provisioning pain. NDB automation was the clear hook.",
+      transcriptNotes: "Action: run an NDB demo against a representative database.",
+      transcript: "[00:04] Customer: Provisioning a new database takes days. [00:21] SE: NDB brings that to minutes. [00:35] Customer: Show me with our workload.",
+      task: "Schedule NDB automation demo with the DBA team",
+    },
+    {
+      industry: "Media & Telecom",
+      incumbentVendor: "Legacy NAS + VMware",
+      primaryCompetitor: "Dell PowerScale",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NUS (Files/Objects/Volumes)"],
+      products: ["NCI Pro", "Files", "Objects"],
+      tags: ["unstructured-data", "files", "growth"],
+      useCase: "Consolidate fast-growing unstructured media data onto a scalable files and objects platform.",
+      currentEnvironment: "Aging NAS at roughly 1.2 PB and growing, plus a separate vSphere compute tier.",
+      whyNow: "NAS is out of capacity and support is ending this year.",
+      whyNutanix: "Unified files and objects on the same platform as compute simplifies growth and management.",
+      signal: "Unstructured data growth outpacing current NAS.",
+      se: "Champion wants a reference architecture for files and objects before the next review.",
+      ae: "Capacity wall creates urgency; competitive with a standalone storage vendor.",
+      sam: "Data growth trend supports a multi-year capacity plan.",
+      transcriptSummary: "Reviewed unstructured data growth and the NAS end-of-support date. Unified files and objects landed well.",
+      transcriptNotes: "Action: size Files and Objects for the projected 24-month growth.",
+      transcript: "[00:05] Customer: The NAS is full and support ends this year. [00:23] SE: Files and Objects scale on the same platform. [00:40] Customer: Size it for our growth.",
+      task: "Size Files and Objects for 24-month data growth",
+    },
+    {
+      industry: "Energy & Utilities",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "Azure",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NC2"],
+      products: ["NCI Pro", "NC2"],
+      tags: ["edge", "ROBO", "hybrid-cloud"],
+      useCase: "Standardize edge and remote sites and add cloud bursting for seasonal demand.",
+      currentEnvironment: "A dozen remote sites on small vSphere clusters with limited on-site IT.",
+      whyNow: "Edge hardware is aging and cloud strategy is being defined this year.",
+      whyNutanix: "Consistent platform from edge to cloud with NC2 for burst and DR into the hyperscaler.",
+      signal: "Exploring hybrid cloud bursting options.",
+      se: "Customer is interested in a consistent edge-to-cloud operating model.",
+      ae: "Cloud strategy decision opens a multi-site standardization play.",
+      sam: "Edge standardization improves supportability and reduces churn risk.",
+      transcriptSummary: "Discussed edge site standardization and NC2 for cloud burst and DR. Operational consistency was the key theme.",
+      transcriptNotes: "Action: design a reference edge site plus NC2 DR target.",
+      transcript: "[00:04] Customer: Every site is a little different today. [00:20] SE: One platform edge to cloud fixes that. [00:38] Customer: Design a reference site.",
+      task: "Design reference edge site and NC2 DR target",
+    },
+    {
+      industry: "Technology",
+      incumbentVendor: "Bare-metal GPU servers",
+      primaryCompetitor: "Public cloud GPU",
+      hypervisor: "KVM",
+      portfolio: ["NCI", "NAI", "NKP"],
+      products: ["NCI Ultimate", "NAI", "NKP"],
+      tags: ["AI", "GPU", "kubernetes"],
+      useCase: "Stand up a private GPU platform for model inference with Kubernetes and enterprise AI services.",
+      currentEnvironment: "Ad-hoc bare-metal GPU servers, no shared scheduling, growing cloud GPU spend.",
+      whyNow: "Cloud GPU costs are rising and data governance requires on-prem inference.",
+      whyNutanix: "NAI plus NKP deliver a governed private AI platform with GPU-aware Kubernetes on one stack.",
+      signal: "Rising cloud GPU spend prompting a private AI platform review.",
+      se: "Champion wants a reference architecture for GPU scheduling and NKP before the next review.",
+      ae: "Cost and data governance drive the business case for private AI.",
+      sam: "New workload footprint; strong expansion potential into NAI.",
+      transcriptSummary: "Reviewed AI inference goals and data governance. NAI and NKP on one platform addressed both cost and control.",
+      transcriptNotes: "Action: architect GPU node pool and NKP cluster for inference.",
+      transcript: "[00:05] Customer: Cloud GPU spend is out of control. [00:22] SE: A governed private platform with NAI and NKP fixes cost and control. [00:41] Customer: Let's architect it.",
+      task: "Architect GPU node pool and NKP cluster for inference",
+    },
+    {
+      industry: "Life Sciences",
+      incumbentVendor: "VMware (Broadcom)",
+      primaryCompetitor: "HPE SimpliVity",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "NCM"],
+      products: ["NCI Pro", "NCM Pro"],
+      tags: ["consolidation", "compliance", "renewal"],
+      useCase: "Consolidate research and GxP workloads with stronger governance and simpler operations.",
+      currentEnvironment: "Two vSphere clusters, about 260 cores, mixed research and validated GxP workloads.",
+      whyNow: "VMware renewal and an audit finding on inconsistent management practices.",
+      whyNutanix: "NCM centralizes governance and automation while consolidating both workload types on one platform.",
+      signal: "Audit finding driving a management and governance review.",
+      se: "Security and compliance flagged governance gaps we can close with NCM.",
+      ae: "Renewal plus audit finding create a clear compelling event.",
+      sam: "Governance improvements strengthen a long-term relationship.",
+      transcriptSummary: "Reviewed the audit finding and renewal timing. NCM governance and automation directly addressed the gap.",
+      transcriptNotes: "Action: map NCM policies to the audit findings.",
+      transcript: "[00:04] Customer: The audit flagged inconsistent management. [00:21] SE: NCM centralizes policy and automation. [00:37] Customer: Map that to our findings.",
+      task: "Map NCM policies to audit findings",
+    },
+    {
+      industry: "Education",
+      incumbentVendor: "VMware Horizon",
+      primaryCompetitor: "Omnissa Horizon",
+      hypervisor: "VMware ESXi",
+      portfolio: ["NCI", "EUC"],
+      products: ["NCI Pro", "EUC Pro"],
+      tags: ["VDI", "budget-cycle", "EUC"],
+      useCase: "Deliver student and lab virtual desktops at lower cost after Horizon licensing changes.",
+      currentEnvironment: "Horizon on vSphere serving lab and student desktops, about 1,200 seats.",
+      whyNow: "Horizon licensing changes and the annual budget window.",
+      whyNutanix: "EUC on AHV delivers desktops without separate hypervisor and broker licensing overhead.",
+      signal: "VDI licensing changes prompting an alternative review.",
+      se: "Customer wants a density and cost comparison versus the current Horizon stack.",
+      ae: "Budget cycle timing plus licensing changes drive urgency.",
+      sam: "Cost story supports a durable multi-year commitment.",
+      transcriptSummary: "Discussed Horizon licensing changes and lab desktop needs. EUC on AHV addressed both cost and simplicity.",
+      transcriptNotes: "Action: build density and cost comparison versus Horizon.",
+      transcript: "[00:05] Customer: Horizon licensing changed on us. [00:20] SE: EUC on AHV removes broker and hypervisor overhead. [00:38] Customer: Show the cost comparison.",
+      task: "Build EUC vs Horizon density and cost comparison",
+    },
+  ];
+
+  // Deterministic pools for fabricating buying-committee contacts.
+  const contactFirst = [
+    "Michael", "Jennifer", "David", "Sarah", "James", "Linda", "Robert", "Patricia", "John", "Elizabeth",
+    "Daniel", "Karen", "Paul", "Nancy", "Mark", "Lisa", "Steven", "Sandra", "Kevin", "Ashley",
+    "Brian", "Emily", "George", "Rachel", "Edward", "Megan", "Anthony", "Olivia", "Jason", "Grace",
+  ];
+  const contactLast = [
+    "Anderson", "Bennett", "Carter", "Diaz", "Edwards", "Foster", "Griffin", "Hughes", "Ingram", "Jensen",
+    "Knight", "Lambert", "Morrison", "Nguyen", "Ortiz", "Patel", "Quinn", "Reed", "Sullivan", "Turner",
+    "Underwood", "Vargas", "Weaver", "Xiong", "Young", "Zimmerman", "Brooks", "Campbell", "Delgado", "Erickson",
+  ];
+  // role, title, disposition for each committee slot (taken in order).
+  const committee: { role: string; title: string; disposition: ContactDisposition }[] = [
+    { role: "Economic Buyer", title: "VP of Infrastructure", disposition: "SUPPORTER" },
+    { role: "Champion", title: "Infrastructure Architect", disposition: "CHAMPION" },
+    { role: "Technical Evaluator", title: "Lead Systems Engineer", disposition: "SUPPORTER" },
+    { role: "Executive Sponsor", title: "CIO", disposition: "NEUTRAL" },
+    { role: "Procurement", title: "Procurement Manager", disposition: "NEUTRAL" },
+  ];
+
   for (let i = 0; i < fakeCompanies.length; i++) {
     const company = fakeCompanies[i];
     const stage = stageCycle[i % stageCycle.length];
@@ -742,6 +1145,17 @@ async function main() {
       isClosed = i % 2 === 0;
     }
 
+    const arch = archetypes[i % archetypes.length];
+    const regions = ["AMER - East", "AMER - West", "AMER - Central", "EMEA", "APJ"];
+    const forecastCategory =
+      isClosed && technicalCloseStatus === "100"
+        ? "Closed"
+        : stage === "Validation"
+          ? "Commit"
+          : stage === "Design"
+            ? "Best Case"
+            : "Pipeline";
+
     const deal = await prisma.deal.create({
       data: {
         name: dealName,
@@ -749,11 +1163,35 @@ async function main() {
         stage,
         owner,
         nextAction: nextActionsByStage[stage][i % 3],
-        latestSignal: signals[i % signals.length],
+        latestSignal: arch.signal,
         amount,
+        acvAmount: Math.round(amount / 3 / 1000) * 1000,
+        servicesAcv: Math.round((amount * 0.08) / 1000) * 1000,
         technicalCloseStatus,
         closeDate,
         isClosed,
+        forecastCategory,
+        industry: arch.industry,
+        employees: 500 + ((i * 137) % 9500),
+        region: regions[i % regions.length],
+        incumbentVendor: arch.incumbentVendor,
+        primaryCompetitor: arch.primaryCompetitor,
+        renewalDate: addDays(now, 30 + ((i * 11) % 330)),
+        hypervisor: arch.hypervisor,
+        portfolio: JSON.stringify(arch.portfolio),
+        products: JSON.stringify(arch.products),
+        tags: JSON.stringify(arch.tags),
+        partners: ["CDW", "WWT", "Presidio", "Insight", "SHI", "-"][i % 6],
+        useCase: arch.useCase,
+        currentEnvironment: arch.currentEnvironment,
+        whyNow: arch.whyNow,
+        whyNutanix: arch.whyNutanix,
+        outcome: `${stage} stage: ${arch.se}`,
+        nextStepsToClose: `1) ${nextActionsByStage[stage][i % 3]} 2) ${nextActionsByStage[stage][(i + 1) % 3]} 3) Align account team on close plan`,
+        technicalDecisionMaker: `${contactFirst[(i + 1) % contactFirst.length]} ${contactLast[(i + 2) % contactLast.length]}`,
+        intendToUseForNc2: arch.portfolio.includes("NC2"),
+        bomAttached: technicalCloseStatus === "99" || technicalCloseStatus === "100",
+        xrayUsed: stage === "Validation",
       },
     });
 
@@ -877,30 +1315,115 @@ async function main() {
           meetingId: pastMeeting.id,
           role: "SE",
           author: ownerEmail,
-          body: seNoteBodies[i % seNoteBodies.length],
+          body: arch.se,
         },
         {
           dealId: deal.id,
           meetingId: pastMeeting.id,
           role: "AE",
           author: `${fakeOwners[(i + 3) % fakeOwners.length].toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`,
-          body: aeNoteBodies[i % aeNoteBodies.length],
+          body: arch.ae,
         },
         {
           dealId: deal.id,
           meetingId: upcomingMeeting.id,
           role: "SE",
           author: ownerEmail,
-          body: `Prep for ${stage} sync: ${signals[(i + 1) % signals.length]}`,
+          body: `Prep for ${stage} sync: ${arch.useCase}`,
         },
         {
           dealId: deal.id,
           meetingId: null,
           role: "SAM",
           author: `${fakeOwners[(i + 5) % fakeOwners.length].toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`,
-          body: samNoteBodies[i % samNoteBodies.length],
+          body: arch.sam,
         },
       ],
+    });
+
+    // Buying committee: 3 to 5 contacts, deterministic and archetype-consistent.
+    const committeeSize = 3 + (i % 3);
+    const contactData = committee.slice(0, committeeSize).map((slot, slotIdx) => {
+      const first = contactFirst[(i * 3 + slotIdx * 7) % contactFirst.length];
+      const last = contactLast[(i * 5 + slotIdx * 3) % contactLast.length];
+      // Vary technical-evaluator disposition so not every committee is uniform.
+      const disposition: ContactDisposition =
+        slot.role === "Technical Evaluator" && i % 4 === 0 ? ContactDisposition.SKEPTIC : slot.disposition;
+      return {
+        dealId: deal.id,
+        name: `${first} ${last}`,
+        title: slot.title,
+        email: `${first.toLowerCase()}.${last.toLowerCase()}@${domain}`,
+        role: slot.role,
+        disposition,
+        notes:
+          slot.role === "Champion"
+            ? "Primary internal advocate for the project."
+            : slot.role === "Economic Buyer"
+              ? "Controls the budget for this initiative."
+              : slot.role === "Technical Evaluator"
+                ? `Evaluating the technical fit for ${arch.useCase.toLowerCase()}`
+                : slot.role === "Executive Sponsor"
+                  ? "Executive sponsor; cares about business outcomes and risk."
+                  : "Engages once technical validation is complete.",
+      };
+    });
+    await prisma.contact.createMany({ data: contactData });
+
+    // Zoom transcript on the past (intro) call, archetype-flavored.
+    await prisma.meetingTranscript.create({
+      data: {
+        meetingId: pastMeeting.id,
+        dealId: deal.id,
+        source: "zoom",
+        summary: arch.transcriptSummary,
+        notes: arch.transcriptNotes,
+        transcript: arch.transcript,
+      },
+    });
+
+    // Two follow-up tasks: one archetype-specific, one stage-generic.
+    const taskStatus = stage === "Validation" ? "In Progress" : "Not Started";
+    await prisma.salesforceTask.createMany({
+      data: [
+        {
+          dealId: deal.id,
+          taskName: arch.task,
+          status: taskStatus,
+          priority: technicalCloseStatus === "99" ? "High" : "Normal",
+          type: "Technical",
+          dueDate: addDays(now, 5 + (i % 20)),
+          assignee: ownerEmail,
+          relatedAccount: company,
+          products: JSON.stringify(arch.products),
+        },
+        {
+          dealId: deal.id,
+          taskName: nextActionsByStage[stage][i % 3],
+          status: "Not Started",
+          priority: "Normal",
+          type: "Sales",
+          dueDate: addDays(now, 10 + (i % 15)),
+          assignee: ownerEmail,
+          relatedAccount: company,
+        },
+      ],
+    });
+
+    // One assigned email so the account brain has an email thread too.
+    await prisma.dealEmail.create({
+      data: {
+        dealId: deal.id,
+        threadId: `t-${domain}-001`,
+        messageId: `m-${domain}-001`,
+        subject: `${firstWord}: ${arch.useCase.slice(0, 60)}`,
+        from: `it@${domain}`,
+        body: `${arch.currentEnvironment} ${arch.whyNow}`,
+        receivedAt: addDays(now, -(3 + (i % 12))),
+        assignedBy: ownerEmail,
+        assignedAt: addDays(now, -(2 + (i % 10))),
+        summary: arch.signal,
+      },
     });
   }
 

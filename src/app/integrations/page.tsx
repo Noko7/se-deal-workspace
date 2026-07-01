@@ -1,10 +1,11 @@
-import { Plug, Video } from "lucide-react";
+import { Database, Plug, Video } from "lucide-react";
 import { clearLlmApiKeyAction, integrationStatusAction, integrationTestAction, saveLlmCredentialsAction, saveZoomConfigAction } from "@/lib/actions";
 import { integrationAdapters } from "@/lib/adapters";
 import { getDashboardData, getLlmCredentialSummary } from "@/lib/data";
 import { getZoomConfigSummary } from "@/lib/zoom";
 import { ActionBar, Button, Card, EmptyState, IntegrationStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 import { NaiTestPanel } from "@/components/nai-test-panel";
+import { SchemaExplorer } from "@/components/schema-explorer";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,18 @@ export default async function IntegrationsPage() {
             );
           })}
         </div>
+      </Card>
+
+      <Card
+        title="Salesforce Account Schema"
+        subtitle="The Account and Opportunity fields we track, mapped to Salesforce objects and API names. Diff this against your real SFDC org before wiring the live connection. This is the same data Account-AI reasons over."
+        icon={<Database className="h-5 w-5" />}
+      >
+        <SectionHeader
+          title="Schema &amp; Field Mapping"
+          subtitle="Standard Salesforce fields use their real API names; custom fields use a best-guess __c name to verify in your org. Run a test request to see a live sample record in this shape."
+        />
+        <SchemaExplorer />
       </Card>
 
       <Card

@@ -106,9 +106,9 @@ export function AccountAiWorkspace({
       return {
         description: `Account-AI knows your whole portfolio — ${aggregate.accountCount} accounts, ${aggregate.meetingCount} meetings, ${aggregate.noteCount} notes, and ${aggregate.assetCount} documents. Pick an account in the prompt box below to focus, or ask across all of them.`,
         suggestions: [
-          "What is the most important account for me to approach this week?",
-          "Which of my deals look at risk, and why?",
-          "Summarize what's on my calendar across all accounts this week.",
+          "Which 3 accounts should I focus on this week to move deals forward, and why?",
+          "Which deals are at risk of slipping, and what is the single next step for each?",
+          "Which accounts have an incumbent renewal coming up that I should press on?",
         ],
         placeholder: "Ask anything across your accounts…",
       };
@@ -120,9 +120,9 @@ export function AccountAiWorkspace({
     return {
       description: `Account-AI is trained on ${name}'s knowledge base — ${counts} for this account only.`,
       suggestions: [
-        "Summarize where this deal stands and the top technical risks.",
-        "Draft discovery questions for our next meeting.",
-        "What objections should I prepare for, and how do I counter them?",
+        "What is the fastest path to close this deal, and what is blocking it today?",
+        "Map the buying committee: who is my champion, who is a blocker, and how do I win them?",
+        "What objections should I prepare for based on the incumbent and competitor, and how do I counter them?",
       ],
       placeholder: `Ask anything about ${name}…`,
     };

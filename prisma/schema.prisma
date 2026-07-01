@@ -47,6 +47,16 @@ enum NoteRole {
   SAM
 }
 
+// Where a stakeholder sits on the deal. Mirrors how an SE/AE mentally maps a
+// buying committee, and drives strategic questions in Account-AI.
+enum ContactDisposition {
+  CHAMPION
+  SUPPORTER
+  NEUTRAL
+  SKEPTIC
+  BLOCKER
+}
+
 // Application user for the login / signup flow. Passwords are stored as a
 // scrypt hash (see src/lib/auth.ts); the plaintext is never persisted.
 model User {
@@ -70,6 +80,14 @@ model Deal {
   technicalCloseStatus String               @default("-")
   closeDate           DateTime?
   isClosed            Boolean               @default(false)
+  // Account firmographics (map to standard Salesforce Account fields). These
+  // give the SE/AE strategic context the AI can reason over.
+  industry            String?
+  employees           Int?
+  region              String?
+  incumbentVendor     String?
+  renewalDate         DateTime?
+  primaryCompetitor   String?
   // Opportunity detail fields (mirror the "Helper" opportunity view).
   acvAmount           Float                 @default(0)
   servicesAcv         Float                 @default(0)
@@ -90,6 +108,9 @@ model Deal {
   whyNutanix          String?
   channelNotes        String?
   keyContacts         String?
+  // Free-text technical framing used by the SE across the cycle.
+  useCase             String?
+  currentEnvironment  String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   meetings            Meeting[]
@@ -103,6 +124,28 @@ model Deal {
   notes               MeetingNote[]
   transcripts         MeetingTranscript[]
   salesforceTasks     SalesforceTask[]
+  contacts            Contact[]
+}
+
+// A person on the customer's buying committee. Maps to the standard Salesforce
+// Contact object (with OpportunityContactRole semantics folded in via `role`).
+model Contact {
+  id          String             @id @default(cuid())
+  dealId      String
+  name        String
+  title       String?
+  email       String?
+  phone       String?
+  // Buying-committee role, e.g. "Economic Buyer", "Champion", "Technical
+  // Evaluator", "Procurement", "Executive Sponsor", "End User".
+  role        String
+  disposition ContactDisposition @default(NEUTRAL)
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deal        Deal               @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
 }
 
 model Meeting {

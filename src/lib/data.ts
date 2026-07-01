@@ -183,6 +183,12 @@ export async function getAccountDetail(dealId: string) {
       emails: { orderBy: { receivedAt: "desc" } },
       context: { orderBy: { updatedAt: "desc" } },
       recommendations: { orderBy: { createdAt: "desc" } },
+      contacts: { orderBy: { createdAt: "asc" } },
+      transcripts: {
+        orderBy: { autoIngestedAt: "desc" },
+        include: { meeting: { select: { id: true, subject: true, startTime: true } } },
+      },
+      salesforceTasks: { orderBy: { createdAt: "desc" } },
     },
   });
 }

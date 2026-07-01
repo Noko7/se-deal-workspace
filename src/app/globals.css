@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 /*
+  Dark mode is a class on <html> (toggled by ThemeToggle), not the OS setting, so
+  redefine the `dark:` variant to key off that class. This lets components opt
+  into dark-aware tints (e.g. semantic status chips) that track the manual
+  toggle, alongside the token remapping in the `.dark` block below.
+*/
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
   Nutanix brand system
   - Lead with White + Charcoal Gray, use Iris Purple as a deliberate accent.
   - Secondary colors (Aqua Blue, Mantis Green, Peach Pink) for highlights only.

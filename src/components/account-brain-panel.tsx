@@ -77,7 +77,9 @@ function ItemRow({
           type="button"
           onClick={onToggleExpand}
           disabled={!hasBody}
-          className={`min-w-0 flex-1 text-left ${hasBody ? "cursor-pointer" : "cursor-default"}`}
+          className={`min-w-0 flex-1 rounded-md bg-transparent p-0 text-left font-normal hover:bg-transparent focus-visible:ring-2 focus-visible:ring-iris-400 disabled:opacity-100 ${
+            hasBody ? "cursor-pointer" : "cursor-default"
+          }`}
           aria-expanded={hasBody ? expanded : undefined}
         >
           <div className="flex items-center gap-2">
@@ -151,7 +153,7 @@ function Section({
           type="button"
           onClick={onToggleOpen}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-transparent p-0 text-left font-normal text-charcoal-800 hover:bg-transparent focus-visible:ring-2 focus-visible:ring-iris-400"
         >
           <span className="text-iris-600">{SECTION_ICON[section.key]}</span>
           <span className="truncate text-sm font-semibold text-charcoal-800">{section.label}</span>
@@ -174,7 +176,7 @@ function Section({
                   type="button"
                   onClick={() => onBulk(section, true)}
                   disabled={allIn}
-                  className="rounded px-1.5 py-0.5 text-iris-600 hover:bg-iris-50 disabled:text-charcoal-300 disabled:hover:bg-transparent"
+                  className="rounded bg-transparent px-1.5 py-0.5 font-medium text-iris-600 hover:bg-iris-50 disabled:text-charcoal-300 disabled:opacity-100 disabled:hover:bg-transparent"
                 >
                   All
                 </button>
@@ -183,7 +185,7 @@ function Section({
                   type="button"
                   onClick={() => onBulk(section, false)}
                   disabled={noneIn}
-                  className="rounded px-1.5 py-0.5 text-charcoal-500 hover:bg-charcoal-100 disabled:text-charcoal-300 disabled:hover:bg-transparent"
+                  className="rounded bg-transparent px-1.5 py-0.5 font-medium text-charcoal-500 hover:bg-charcoal-100 disabled:text-charcoal-300 disabled:opacity-100 disabled:hover:bg-transparent"
                 >
                   None
                 </button>
@@ -345,7 +347,7 @@ export function AccountBrainPanel({
       <div
         aria-hidden
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-charcoal-900/30 transition-opacity duration-300 ${
+        className={`fixed inset-0 z-40 bg-black/30 transition-opacity duration-300 dark:bg-black/60 ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
@@ -383,11 +385,11 @@ export function AccountBrainPanel({
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {locked ? (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+              <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
               <div>
-                <p className="text-sm font-semibold text-amber-800">AI usage opted out</p>
-                <p className="mt-0.5 text-sm text-amber-700">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">AI usage opted out</p>
+                <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-200/80">
                   {summary.accountName} has opted out of AI usage at Nutanix. Their data is shown for reference only and
                   is never sent to Account-AI.
                 </p>
@@ -396,7 +398,7 @@ export function AccountBrainPanel({
           ) : null}
 
           {/* Context coverage */}
-          <div className="rounded-xl border border-iris-200 bg-iris-50 p-3">
+          <div className="rounded-xl border border-iris-200 bg-iris-50 p-3 dark:border-iris-500/30">
             <div className="flex items-center justify-between">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-iris-700">
                 <Sparkles className="h-3.5 w-3.5" /> In context
@@ -405,7 +407,7 @@ export function AccountBrainPanel({
                 {includedCount} / {summary.totalCount} items
               </p>
             </div>
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white">
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/70 dark:bg-black/30">
               <div
                 className="h-full rounded-full bg-iris-500 transition-all duration-300"
                 style={{ width: `${summary.totalCount ? (includedCount / summary.totalCount) * 100 : 0}%` }}
@@ -447,7 +449,9 @@ export function AccountBrainPanel({
           ) : null}
 
           {error ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+              {error}
+            </div>
           ) : null}
 
           {/* Sections */}

@@ -89,19 +89,25 @@ export function ContextSwitch({
 }
 
 // --- SourceBadge ------------------------------------------------------------
-// Small colored chip that shows where an ingested item came from.
+// Small colored chip that shows where an ingested item came from. Each tone
+// carries an explicit dark-mode pairing (translucent fill + light text) so the
+// chip stays legible and on-brand in either theme instead of rendering as a
+// bright light patch when the app is in dark mode.
 
 const SOURCE_TONES: Record<string, string> = {
-  Zoom: "bg-sky-100 text-sky-700",
-  Salesforce: "bg-cyan-100 text-cyan-700",
-  Email: "bg-amber-100 text-amber-700",
+  Zoom: "bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300",
+  Salesforce: "bg-cyan-100 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300",
+  Email: "bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
+  // iris tokens already flip under `.dark`, so this pairing is theme-safe as-is.
   "SE note": "bg-iris-100 text-iris-700",
-  "AE note": "bg-violet-100 text-violet-700",
-  "SAM note": "bg-emerald-100 text-emerald-700",
+  "AE note": "bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-300",
+  "SAM note": "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300",
 };
 
+const FALLBACK_TONE = "bg-charcoal-100 text-charcoal-600";
+
 export function SourceBadge({ source }: { source: string }) {
-  const tone = SOURCE_TONES[source] ?? "bg-charcoal-100 text-charcoal-600";
+  const tone = SOURCE_TONES[source] ?? FALLBACK_TONE;
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone}`}>
       {source}

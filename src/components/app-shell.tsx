@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
-  Briefcase,
   Calculator,
   CalendarDays,
   FileText,
@@ -29,8 +28,7 @@ export type SessionUser = { email: string; name: string };
 const navigation = [
   { href: "/", label: "Account-AI", description: "Per-account knowledge base and assistant", icon: Sparkles },
   { href: "/calendar", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
-  { href: "/deals", label: "Current Deals", description: "Pipeline and build recommendations", icon: Briefcase },
-  { href: "/accounts", label: "My Accounts", description: "Customer history, notes, and assets", icon: Users },
+  { href: "/accounts", label: "My Accounts", description: "Pipeline, deal workspaces, notes, and assets", icon: Users },
   { href: "/account-map", label: "Account Map", description: "Geo coverage by region and SE", icon: MapPinned },
   { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
   { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },

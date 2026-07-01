@@ -49,37 +49,46 @@ function Narrative({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-export function OpportunityDetail({ opp }: { opp: OpportunityDetailView }) {
+export function OpportunityDetail({ opp, embedded = false }: { opp: OpportunityDetailView; embedded?: boolean }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const [editing, setEditing] = useState(false);
 
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <Card title={opp.opportunityName} subtitle={`${opp.oppId} · ${opp.accountName}`}>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill tone="info">{opp.stage}</StatusPill>
-          <StatusPill tone="neutral">Tech close: {opp.technicalCloseStatus}</StatusPill>
-          <StatusPill tone="neutral">Owner: {opp.owner}</StatusPill>
-          {opp.partners ? <StatusPill tone="neutral">{opp.partners}</StatusPill> : null}
-          {opp.tags.map((tag) => (
-            <StatusPill key={tag} tone="warning">
-              {tag}
-            </StatusPill>
-          ))}
-        </div>
+  const headerBody = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill tone="info">{opp.stage}</StatusPill>
+        <StatusPill tone="neutral">Tech close: {opp.technicalCloseStatus}</StatusPill>
+        <StatusPill tone="neutral">Owner: {opp.owner}</StatusPill>
+        {opp.partners ? <StatusPill tone="neutral">{opp.partners}</StatusPill> : null}
+        {opp.tags.map((tag) => (
+          <StatusPill key={tag} tone="warning">
+            {tag}
+          </StatusPill>
+        ))}
+      </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Fact label="ACV Amount" value={money(opp.acvAmount)} />
-          <Fact label="Services ACV" value={money(opp.servicesAcv)} />
-          <Fact label="Amount" value={money(opp.amount)} />
-          <Fact label="Probability" value={`${opp.probability}%`} />
-          <Fact label="Close" value={`${opp.closeQuarter}${opp.closeDate ? ` · ${fmtDate(opp.closeDate)}` : ""}`} />
-          <Fact label="Forecast" value={opp.forecastCategory} />
-          <Fact label="Portfolio" value={opp.portfolio} />
-          <Fact label="Tech Close Date" value={fmtDate(opp.technicalCloseDate)} />
-        </div>
-      </Card>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Fact label="ACV Amount" value={money(opp.acvAmount)} />
+        <Fact label="Services ACV" value={money(opp.servicesAcv)} />
+        <Fact label="Amount" value={money(opp.amount)} />
+        <Fact label="Probability" value={`${opp.probability}%`} />
+        <Fact label="Close" value={`${opp.closeQuarter}${opp.closeDate ? ` · ${fmtDate(opp.closeDate)}` : ""}`} />
+        <Fact label="Forecast" value={opp.forecastCategory} />
+        <Fact label="Portfolio" value={opp.portfolio} />
+        <Fact label="Tech Close Date" value={fmtDate(opp.technicalCloseDate)} />
+      </div>
+    </>
+  );
+
+  return (
+    <div className={embedded ? "space-y-4" : "space-y-5"}>
+      {/* Header — when embedded (inside a collapsible account row that already
+          shows the opp name), skip the Card chrome to avoid a duplicate title. */}
+      {embedded ? (
+        <div className="rounded-lg border border-charcoal-200 bg-charcoal-50/50 p-3">{headerBody}</div>
+      ) : (
+        <Card title={opp.opportunityName} subtitle={`${opp.oppId} · ${opp.accountName}`}>{headerBody}</Card>
+      )}
 
       {/* Tabs — high-contrast segmented control */}
       <div className="flex flex-wrap gap-1.5 rounded-lg border border-charcoal-300 bg-charcoal-100 p-1">

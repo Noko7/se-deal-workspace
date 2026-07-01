@@ -412,6 +412,46 @@ export async function getAccountOptions(): Promise<AccountOption[]> {
     .sort((a, b) => a.accountName.localeCompare(b.accountName));
 }
 
+// Opportunity picker options for the Proposal Builder: every open opportunity
+// with the narrative fields the builder can prefill from (why now / why
+// Nutanix), grouped client-side by account.
+export type ProposalOppOption = {
+  dealId: string;
+  accountName: string;
+  dealName: string;
+  owner: string;
+  stage: string;
+  isClosed: boolean;
+  whyNow: string | null;
+  whyNutanix: string | null;
+};
+
+export async function getProposalOppOptions(): Promise<ProposalOppOption[]> {
+  const deals = await prisma.deal.findMany({
+    orderBy: [{ accountName: "asc" }, { isClosed: "asc" }, { name: "asc" }],
+    select: {
+      id: true,
+      accountName: true,
+      name: true,
+      owner: true,
+      stage: true,
+      isClosed: true,
+      whyNow: true,
+      whyNutanix: true,
+    },
+  });
+  return deals.map((d) => ({
+    dealId: d.id,
+    accountName: d.accountName,
+    dealName: d.name,
+    owner: d.owner,
+    stage: d.stage,
+    isClosed: d.isClosed,
+    whyNow: d.whyNow,
+    whyNutanix: d.whyNutanix,
+  }));
+}
+
 // Attach a (formatted) note to a meeting. The note is automatically associated
 // with the meeting's account (deal) too. Returns null if the meeting is gone.
 export async function attachNoteToMeeting(input: {

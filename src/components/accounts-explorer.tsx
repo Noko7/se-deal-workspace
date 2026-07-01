@@ -51,7 +51,7 @@ export function AccountsExplorer({ accounts, query = "" }: { accounts: AccountOv
           {filtered.map((account) => (
             <Link
               key={account.id}
-              href={`/?account=${account.id}`}
+              href={`/accounts/${account.id}`}
               className="group flex flex-col rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm transition hover:border-l-iris-600 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-2">

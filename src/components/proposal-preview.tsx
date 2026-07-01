@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
 import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor, platformSpecFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
@@ -63,12 +64,34 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // A single letterhead-styled page: white sheet with the official letterhead
 // overlay (angled NUTANIX tab + purple footer rule) and a Nutanix footer line.
+// Watches its own content: if edits push text past the printable area, a
+// warning badge appears in the preview (hidden on the print surface) instead of
+// the overflow silently clipping in the exported PDF.
 function Page({ children, pageNo, customer }: { children: React.ReactNode; pageNo: number; customer: string }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [overflowPx, setOverflowPx] = useState(0);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const check = () => setOverflowPx(Math.max(0, el.scrollHeight - el.clientHeight));
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    for (const child of Array.from(el.children)) ro.observe(child);
+    return () => ro.disconnect();
+  });
+
   return (
     <div className="proposal-page relative bg-white text-charcoal-900" style={{ width: PAGE_W, height: PAGE_H, ...FONT }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/letterhead-overlay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
-      <div className="relative flex h-full flex-col px-16 pb-24 pt-28">{children}</div>
+      <div ref={contentRef} className="relative flex h-full flex-col overflow-hidden px-16 pb-24 pt-28">{children}</div>
+      {overflowPx > 4 ? (
+        <div className="proposal-overflow-badge absolute inset-x-16 bottom-16 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-semibold text-amber-800 shadow-sm">
+          Content overflows page {pageNo} by ~{Math.round(overflowPx)}px and will be cut off in the PDF — trim the text above.
+        </div>
+      ) : null}
       <div className="absolute inset-x-16 bottom-9 flex justify-between text-[8px]" style={{ color: NUTANIX_HEX_SLATE }}>
         <span>Nutanix, Inc.&nbsp;&nbsp;Tel +1-855-688-2549&nbsp;&nbsp;•&nbsp;&nbsp;info@nutanix.com&nbsp;&nbsp;•&nbsp;&nbsp;© {new Date().getFullYear()} Nutanix, Inc. All Rights Reserved</span>
         <span>Confidential · {customer} · Page {pageNo}</span>

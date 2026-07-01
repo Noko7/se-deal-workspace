@@ -292,4 +292,8 @@ body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  /* The on-screen overflow warning must never land on the exported PDF. */
+  .proposal-overflow-badge {
+    display: none !important;
+  }
 }

@@ -17,6 +17,8 @@ const AccountMapView = dynamic(
 
 type Props = {
   records: AccountMapRecord[];
+  // accountName -> primary dealId, for pin click-through into the workspace.
+  accountLinks?: Record<string, string>;
 };
 
 const ALL = "All";
@@ -64,7 +66,7 @@ function Stat({ value, label, accent }: { value: ReactNode; label: string; accen
   );
 }
 
-export function AccountMapExplorer({ records }: Props) {
+export function AccountMapExplorer({ records, accountLinks }: Props) {
   // The whole explorer (filters + map) is the fullscreen target so filters stay
   // usable in fullscreen, instead of only the map element going fullscreen.
   const fullscreenRef = useRef<HTMLDivElement>(null);
@@ -73,7 +75,6 @@ export function AccountMapExplorer({ records }: Props) {
   const [subRegion, setSubRegion] = useState(ALL);
   const [vertical, setVertical] = useState(ALL);
   const [me, setMe] = useState(EVERYONE);
-  const [onlyMine, setOnlyMine] = useState(false);
   const [types, setTypes] = useState<Record<string, boolean>>(() => defaultTypeState(records));
 
   const accountTypes = useMemo(() => presentTypes(records), [records]);
@@ -112,6 +113,7 @@ export function AccountMapExplorer({ records }: Props) {
   const meSe = me === EVERYONE ? null : me;
   const search = query.trim().toLowerCase();
 
+  // Selecting an SE filters straight down to that SE's accounts.
   const filtered = useMemo(
     () =>
       records.filter(
@@ -125,14 +127,14 @@ export function AccountMapExplorer({ records }: Props) {
           (subRegion === ALL || record.subRegion === subRegion) &&
           (vertical === ALL || record.vertical === vertical) &&
           (types[record.accountType] ?? DEFAULT_ON_TYPES.has(record.accountType)) &&
-          (!onlyMine || (meSe !== null && record.systemEngineer === meSe)),
+          (meSe === null || record.systemEngineer === meSe),
       ),
-    [records, search, theater, subRegion, vertical, types, onlyMine, meSe],
+    [records, search, theater, subRegion, vertical, types, meSe],
   );
 
   const totalSales = filtered.reduce((sum, record) => sum + record.lastSales, 0);
   const totalVMs = filtered.reduce((sum, record) => sum + record.vmCount, 0);
-  const mineCount = meSe ? filtered.filter((record) => record.systemEngineer === meSe).length : 0;
+  const seCount = new Set(filtered.map((record) => record.systemEngineer).filter(Boolean)).size;
 
   const typesAtDefault = accountTypes.every(
     (t) => (types[t] ?? DEFAULT_ON_TYPES.has(t)) === DEFAULT_ON_TYPES.has(t),
@@ -143,7 +145,6 @@ export function AccountMapExplorer({ records }: Props) {
     subRegion !== ALL ||
     vertical !== ALL ||
     me !== EVERYONE ||
-    onlyMine ||
     !typesAtDefault;
   const resetFilters = () => {
     setQuery("");
@@ -151,7 +152,6 @@ export function AccountMapExplorer({ records }: Props) {
     setSubRegion(ALL);
     setVertical(ALL);
     setMe(EVERYONE);
-    setOnlyMine(false);
     setTypes(defaultTypeState(records));
   };
 
@@ -168,8 +168,12 @@ export function AccountMapExplorer({ records }: Props) {
       />
 
       <div ref={fullscreenRef} className="account-map-fs grid gap-4 lg:grid-cols-[264px_1fr]">
-        <aside className="relative z-10 h-fit overflow-hidden rounded-xl border border-charcoal-200 border-t-2 border-t-iris-500 bg-white shadow-sm lg:sticky lg:top-[84px]">
-          <div className="flex items-center justify-between px-4 py-3">
+        {/* Sidebar is a flex column: header + scrollable filters + pinned stats.
+            No overflow-hidden on the shell, so nothing (helper text, focus
+            rings, future popovers) gets clipped; tall filter lists scroll
+            internally instead of running past the viewport. */}
+        <aside className="relative z-10 flex h-fit flex-col rounded-xl border border-charcoal-200 border-t-2 border-t-iris-500 bg-white shadow-sm lg:sticky lg:top-[84px] lg:max-h-[calc(100vh-104px)]">
+          <div className="flex shrink-0 items-center justify-between px-4 py-3">
             <span className="flex items-center gap-2 text-sm font-semibold text-charcoal-900">
               <SlidersHorizontal className="h-4 w-4 text-iris-500" aria-hidden />
               Filters
@@ -184,7 +188,7 @@ export function AccountMapExplorer({ records }: Props) {
             </button>
           </div>
 
-          <div className="space-y-5 px-4 pb-4">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" aria-hidden />
               <input
@@ -265,8 +269,8 @@ export function AccountMapExplorer({ records }: Props) {
               ) : null}
             </FilterGroup>
 
-            <FilterGroup label="Highlight">
-              <FormRow label="Viewing as (SE)" htmlFor="meFilter" helper="Your accounts get a highlighted ring on the map.">
+            <FilterGroup label="System Engineer">
+              <FormRow label="Viewing as (SE)" htmlFor="meFilter" helper="Picking an SE shows only their accounts.">
                 <select id="meFilter" value={me} onChange={(event) => setMe(event.target.value)}>
                   {systemEngineers.map((option) => (
                     <option key={option} value={option}>
@@ -275,33 +279,18 @@ export function AccountMapExplorer({ records }: Props) {
                   ))}
                 </select>
               </FormRow>
-
-              <label
-                className={`flex cursor-pointer items-center gap-2 rounded-md bg-charcoal-50 px-2.5 py-2 text-xs font-medium normal-case tracking-normal ${
-                  meSe ? "text-charcoal-700" : "cursor-not-allowed text-charcoal-400"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-iris-600"
-                  checked={onlyMine}
-                  disabled={!meSe}
-                  onChange={(event) => setOnlyMine(event.target.checked)}
-                />
-                Show only my accounts
-              </label>
             </FilterGroup>
           </div>
 
-          <div className="grid grid-cols-2 gap-px border-t border-charcoal-100 bg-charcoal-100 text-center">
+          <div className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-b-xl border-t border-charcoal-100 bg-charcoal-100 text-center">
             <Stat value={filtered.length.toLocaleString()} label="Accounts" accent />
-            <Stat value={meSe ? mineCount.toLocaleString() : "—"} label="Mine" />
+            <Stat value={meSe ? "1" : seCount.toLocaleString()} label={meSe ? "SE selected" : "SEs"} />
             <Stat value={`$${Math.round(totalSales / 1000).toLocaleString()}K`} label="Sales" />
             <Stat value={totalVMs.toLocaleString()} label="VMs" />
           </div>
         </aside>
 
-        <AccountMapView records={filtered} meSe={meSe} fullscreenContainer={fullscreenRef} />
+        <AccountMapView records={filtered} meSe={meSe} fullscreenContainer={fullscreenRef} accountLinks={accountLinks} />
       </div>
     </div>
   );

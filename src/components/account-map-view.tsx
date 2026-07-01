@@ -15,6 +15,9 @@ type Props = {
   // When provided, the fullscreen button toggles this element (filters + map)
   // instead of only the map canvas, so the filters stay usable in fullscreen.
   fullscreenContainer?: RefObject<HTMLElement | null>;
+  // accountName -> dealId; pins for accounts that exist in the workspace get an
+  // "Open account workspace" link in their popup.
+  accountLinks?: Record<string, string>;
 };
 
 // Plots are colored by Account Type.
@@ -116,7 +119,7 @@ function toFeatureCollection(records: AccountMapRecord[], meSe: string | null): 
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char] ?? char);
 
-function popupHtml(properties: Record<string, unknown>): string {
+function popupHtml(properties: Record<string, unknown>, workspaceHref: string | null): string {
   const row = (label: string, value: string) =>
     `<div style="color:#8e8e8e">${label}</div><div style="text-align:right;font-weight:500;color:#313131">${value}</div>`;
   const mine = properties.mine ? ' <span style="color:#6d4de2;font-weight:600">(you)</span>' : "";
@@ -140,13 +143,24 @@ function popupHtml(properties: Record<string, unknown>): string {
         ${row("Nodes", String(properties.nodeCount))}
         ${row("VMs", Number(properties.vmCount).toLocaleString())}
       </div>
+      ${
+        workspaceHref
+          ? `<a href="${escapeHtml(workspaceHref)}" style="display:block;margin-top:10px;padding:6px 10px;border-radius:8px;background:#7855fa;color:#fff;font-size:12px;font-weight:600;text-align:center;text-decoration:none">Open account workspace →</a>`
+          : ""
+      }
     </div>`;
 }
 
-export function AccountMapView({ records, meSe, fullscreenContainer }: Props) {
+export function AccountMapView({ records, meSe, fullscreenContainer, accountLinks }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Kept in a ref so the click handler (bound once at map load) always sees the
+  // latest lookup without re-binding.
+  const accountLinksRef = useRef<Record<string, string> | undefined>(accountLinks);
+  useEffect(() => {
+    accountLinksRef.current = accountLinks;
+  }, [accountLinks]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -201,7 +215,10 @@ export function AccountMapView({ records, meSe, fullscreenContainer }: Props) {
           return;
         }
         const [lng, lat] = feature.geometry.coordinates as [number, number];
-        popup.setLngLat([lng, lat]).setHTML(popupHtml(feature.properties ?? {})).addTo(map);
+        const props = feature.properties ?? {};
+        const dealId = accountLinksRef.current?.[String(props.accountName ?? "")];
+        const href = dealId ? `/accounts/${encodeURIComponent(dealId)}` : null;
+        popup.setLngLat([lng, lat]).setHTML(popupHtml(props, href)).addTo(map);
       });
 
       map.on("mouseenter", "accounts-circles", () => {
@@ -259,7 +276,7 @@ export function AccountMapView({ records, meSe, fullscreenContainer }: Props) {
       <div className="relative isolate z-0">
         <div
           ref={containerRef}
-          className="account-map-canvas h-[600px] w-full overflow-hidden rounded-lg border border-charcoal-200 bg-[#eef2fb]"
+          className="account-map-canvas h-[clamp(420px,calc(100vh-320px),820px)] w-full overflow-hidden rounded-lg border border-charcoal-200 bg-[#eef2fb]"
         />
         {!loaded ? <MapLoading variant="overlay" /> : null}
       </div>
@@ -276,10 +293,11 @@ export function AccountMapView({ records, meSe, fullscreenContainer }: Props) {
             {type}
           </span>
         ))}
-        <span className="inline-flex items-center gap-2 rounded-full border border-charcoal-200 bg-white px-2.5 py-1">
-          <span className="h-2.5 w-2.5 rounded-full ring-2 ring-[#1e293b]" style={{ backgroundColor: CUSTOMER_COLOR }} />
-          My accounts (highlighted ring)
-        </span>
+        {meSe ? (
+          <span className="inline-flex items-center gap-2 rounded-full border border-iris-200 bg-iris-50 px-2.5 py-1 font-medium text-iris-700">
+            Showing {meSe}&apos;s accounts only
+          </span>
+        ) : null}
         <span className="ml-auto text-charcoal-400">Scroll to zoom · drag to pan · click a point for details</span>
       </div>
     </div>

@@ -5,6 +5,8 @@ import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, History, 
 import { addNoteAction } from "@/lib/actions";
 import { buildAccountKnowledgeBase } from "@/lib/account-ai";
 import { toCalendarMeeting } from "@/lib/calendar";
+import { getOpportunityDetail, type OpportunityDetailView } from "@/lib/opportunity-detail";
+import { AccountOpportunities } from "@/components/account-opportunities";
 import { AccountWorkspaceClient } from "@/components/account-workspace-client";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
@@ -49,6 +51,12 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   const { deals } = knowledgeBase;
   const anchor = deals.find((d) => d.id === id) ?? deals[0];
   const accountName = anchor.accountName;
+
+  // Full per-opportunity workspaces (notes, activity, contacts, attachments)
+  // rendered inline as collapsible sections below the Account AI.
+  const oppDetails = (
+    await Promise.all(deals.map((deal) => getOpportunityDetail(deal.id)))
+  ).filter((opp): opp is OpportunityDetailView => opp !== null);
 
   // Aggregate activity across ALL of the account's opportunities so the page
   // reflects the account, not just the opp the user navigated in through.
@@ -131,46 +139,11 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       </Card>
 
       <Card
-        title="Opportunities (Salesforce-Ready)"
-        subtitle="Every opportunity on this account with its SFDC stage and technical close status."
+        title="Opportunities"
+        subtitle="Every opportunity on this account. Expand any row to open its full deal workspace inline — notes, activity, contacts, and attachments."
         icon={<Briefcase className="h-5 w-5" />}
       >
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-charcoal-200 bg-charcoal-50 text-charcoal-700">
-                <th className="px-3 py-2 font-semibold">Opportunity</th>
-                <th className="px-3 py-2 font-semibold">Stage</th>
-                <th className="px-3 py-2 font-semibold">Tech Close</th>
-                <th className="px-3 py-2 font-semibold">Amount</th>
-                <th className="px-3 py-2 font-semibold">Close Date</th>
-                <th className="px-3 py-2 font-semibold">Owner</th>
-                <th className="px-3 py-2 font-semibold">SFDC ID</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-charcoal-100">
-              {deals.map((deal) => (
-                <tr key={deal.id} className={deal.id === anchor.id ? "bg-iris-50/40" : undefined}>
-                  <td className="px-3 py-2 font-medium text-charcoal-900">{deal.name}</td>
-                  <td className="px-3 py-2">
-                    <StatusPill tone={deal.isClosed ? (deal.stage === "Closed Won" ? "good" : "neutral") : "info"}>
-                      {deal.stage}
-                    </StatusPill>
-                  </td>
-                  <td className="px-3 py-2 text-charcoal-900">
-                    {deal.technicalCloseStatus === "-" ? "-" : `${deal.technicalCloseStatus}%`}
-                  </td>
-                  <td className="px-3 py-2 text-charcoal-900">${deal.amount.toLocaleString()}</td>
-                  <td className="px-3 py-2 text-charcoal-900">{deal.closeDate ? shortDate(deal.closeDate) : "-"}</td>
-                  <td className="px-3 py-2 text-charcoal-700">{deal.owner}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-charcoal-600">
-                    SF-{deal.id.slice(0, 8).toUpperCase()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <AccountOpportunities opps={oppDetails} defaultOpenId={deals.some((deal) => deal.id === id) ? id : undefined} />
       </Card>
 
       <Card

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { NoteRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { attachNoteToMeeting, getMeetingOptions } from "@/lib/data";
+import { invalidateAccountKb } from "@/lib/account-ai";
 import { sanitizeNotes } from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +70,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "That meeting no longer exists." }, { status: 404 });
   }
 
-  // Reflect the new note across the account views.
+  // Reflect the new note across the account views AND the Account AI context
+  // immediately (drop the cached knowledge base for this account).
+  invalidateAccountKb();
   revalidatePath("/accounts");
   revalidatePath(`/accounts/${note.dealId}`);
 

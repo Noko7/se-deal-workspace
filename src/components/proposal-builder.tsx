@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignLeft, Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Sparkles, Upload, X, Zap } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AlignLeft, Building2, Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Save, Sparkles, Upload, X, Zap } from "lucide-react";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
-import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
+import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, proposalHelpers, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
+import type { ProposalOppOption } from "@/lib/data";
 import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
@@ -58,7 +59,52 @@ async function loadImageAsset(url: string): Promise<ImgAsset | null> {
   }
 }
 
-export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
+// First paragraph of a Salesforce narrative field, capped so a long "Why now"
+// note doesn't blow out a one-line intro slot on the brief.
+function firstParagraph(text: string, max = 420): string {
+  const para = text.split(/\n\s*\n/)[0]?.trim() ?? "";
+  return para.length > max ? `${para.slice(0, max).trimEnd()}…` : para;
+}
+
+// Prefill proposal fields from a linked opportunity. Only fills what the deal
+// actually has — no fabricated narrative.
+function applyOppToDoc(d: ProposalDoc, opp: ProposalOppOption): ProposalDoc {
+  if (d.meta.title === `Nutanix Solution Proposal for ${d.meta.customer}`) {
+    d.meta.title = `Nutanix Solution Proposal for ${opp.accountName}`;
+  }
+  d.meta.customer = opp.accountName;
+  d.meta.opportunityName = opp.dealName;
+  if (opp.whyNow?.trim()) d.challengesIntro = firstParagraph(opp.whyNow);
+  if (opp.whyNutanix?.trim()) d.benefitsIntro = firstParagraph(opp.whyNutanix);
+  return d;
+}
+
+// Plain-text summary of the proposed design, saved as a note so the Account AI
+// can reason over the proposal without parsing the exported deck.
+function proposalSummaryText(doc: ProposalDoc): string {
+  const { fmtInt, tib } = proposalHelpers;
+  const t = doc.scenario.totals;
+  const lines: (string | null)[] = [
+    `Proposal saved from Proposal Builder: ${doc.meta.title}`,
+    `Prepared by ${doc.meta.preparedBy} on ${doc.meta.dateLabel}.`,
+    "",
+    `Proposed design: ${fmtInt(t.nodes)} nodes across ${fmtInt(t.clusters)} cluster(s) · ${fmtInt(t.cores)} cores · ${fmtInt(t.ramGiB)} GB RAM · ${tib(t.ssdTiB + t.hddTiB)} usable.`,
+    doc.options?.externalStorage
+      ? `External storage design: primary storage on ${doc.options.externalStorageVendor} over NVMe/TCP.`
+      : null,
+    "",
+    "Software scope:",
+    ...doc.licensing.lines.map(
+      (l) => `- ${LICENSE_CATALOG[l.product].label} ${l.tier}: ${fmtInt(l.qty)} ${l.unit} (${doc.licensing.termYears}-year term)`,
+    ),
+    "",
+    "Executive summary:",
+    doc.executiveSummary,
+  ];
+  return lines.filter((x): x is string => x !== null).join("\n");
+}
+
+export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; opps?: ProposalOppOption[] }) {
   const [doc, setDoc] = useState<ProposalDoc | null>(null);
   // What the preview/print surface renders. Kept slightly behind `doc` so typing
   // in the editor stays snappy; synced automatically (debounced) or on demand.
@@ -69,10 +115,57 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
   const [dragging, setDragging] = useState(false);
+  const [linkedDealId, setLinkedDealId] = useState<string>("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const fileInput = useRef<HTMLInputElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
   const previewStale = doc !== previewDoc;
+  const linkedOpp = useMemo(() => opps.find((o) => o.dealId === linkedDealId) ?? null, [opps, linkedDealId]);
+
+  // Opportunities grouped by account for the <select>, open deals first.
+  const oppGroups = useMemo(() => {
+    const byAccount = new Map<string, ProposalOppOption[]>();
+    for (const o of opps) {
+      const list = byAccount.get(o.accountName) ?? [];
+      list.push(o);
+      byAccount.set(o.accountName, list);
+    }
+    return [...byAccount.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [opps]);
+
+  // Link (or re-link) the proposal to an opportunity and prefill from it.
+  function linkOpportunity(dealId: string) {
+    setLinkedDealId(dealId);
+    setSaveState("idle");
+    const opp = opps.find((o) => o.dealId === dealId);
+    if (!opp) return;
+    setDoc((d) => {
+      if (!d) return d;
+      const next = applyOppToDoc(structuredCloneSafe(d), opp);
+      setPreviewDoc(next);
+      return next;
+    });
+  }
+
+  async function saveToAccount() {
+    if (!doc || !linkedOpp || saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      const res = await fetch("/api/proposal/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dealId: linkedOpp.dealId,
+          title: doc.meta.title,
+          summary: proposalSummaryText(doc),
+        }),
+      });
+      setSaveState(res.ok ? "saved" : "error");
+    } catch {
+      setSaveState("error");
+    }
+  }
 
   // Debounced auto-sync of the preview after edits.
   useEffect(() => {
@@ -82,11 +175,14 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   }, [doc, autoRefresh]);
 
   function loadScenario(scenario: ProposalScenario) {
-    const built = buildProposalDoc(scenario);
+    let built = buildProposalDoc(scenario);
     if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") built.meta.preparedBy = defaultSe;
+    const opp = opps.find((o) => o.dealId === linkedDealId);
+    if (opp) built = applyOppToDoc(built, opp);
     setDoc(built);
     setPreviewDoc(built);
     setError(null);
+    setSaveState("idle");
   }
 
   async function handleFile(file: File) {
@@ -234,6 +330,33 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           </span>
         </button>
         {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+        {opps.length ? (
+          <div className="mx-auto flex w-full max-w-xl flex-wrap items-center justify-center gap-2 rounded-lg border border-charcoal-200 bg-white px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-charcoal-700">
+              <Building2 className="h-4 w-4 text-iris-500" /> Link to an opportunity
+            </span>
+            <select
+              value={linkedDealId}
+              onChange={(e) => linkOpportunity(e.target.value)}
+              className="min-w-0 flex-1 text-sm"
+              aria-label="Link this proposal to an opportunity"
+            >
+              <option value="">None (standalone proposal)</option>
+              {oppGroups.map(([account, list]) => (
+                <optgroup key={account} label={account}>
+                  {list.map((o) => (
+                    <option key={o.dealId} value={o.dealId}>
+                      {o.dealName}{o.isClosed ? " · closed" : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <p className="w-full text-center text-[11px] text-charcoal-400">
+              Prefills the customer, opportunity, and Salesforce narrative — and lets you save the proposal back to the account for the Account AI.
+            </p>
+          </div>
+        ) : null}
         <div className="flex items-center justify-center gap-2 text-sm text-charcoal-500">
           <span>No export handy?</span>
           <button onClick={() => loadScenario(buildSampleScenario(defaultSe))} className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 font-medium text-iris-600 ring-1 ring-iris-200 hover:bg-iris-50">
@@ -279,6 +402,40 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           <Button tone="secondary" onClick={() => fileInput.current?.click()}>
             <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" /> Change file</span>
           </Button>
+          {opps.length ? (
+            <select
+              value={linkedDealId}
+              onChange={(e) => linkOpportunity(e.target.value)}
+              className="max-w-[220px] text-xs"
+              aria-label="Linked opportunity"
+              title="Link this proposal to an opportunity"
+            >
+              <option value="">No linked opp</option>
+              {oppGroups.map(([account, list]) => (
+                <optgroup key={account} label={account}>
+                  {list.map((o) => (
+                    <option key={o.dealId} value={o.dealId}>
+                      {o.dealName}{o.isClosed ? " · closed" : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          ) : null}
+          {linkedOpp ? (
+            <Button tone="secondary" onClick={saveToAccount} disabled={saveState === "saving"}>
+              <span className="flex items-center gap-1.5">
+                {saveState === "saving" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : saveState === "saved" ? (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {saveState === "saved" ? "Saved to account" : saveState === "error" ? "Retry save" : "Save to account"}
+              </span>
+            </Button>
+          ) : null}
           <Button tone="secondary" onClick={exportPdf} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} 2-Pager PDF</span>
           </Button>
@@ -435,12 +592,10 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           </div>
 
           {tab === "twopager" ? (
-            <div className="overflow-auto rounded-xl border border-charcoal-200 bg-charcoal-100 p-4">
-              <div className="mx-auto flex flex-col items-center gap-4" style={{ width: 816, transformOrigin: "top center" }}>
-                <PreviewScaler>
-                  <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
-                </PreviewScaler>
-              </div>
+            <div className="rounded-xl border border-charcoal-200 bg-charcoal-100 p-4">
+              <PreviewScaler>
+                <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
+              </PreviewScaler>
             </div>
           ) : (
             <ProposalBomPreview doc={previewDoc ?? doc} />
@@ -456,12 +611,41 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   );
 }
 
-// Scales the fixed 816px pages down to fit the preview column while keeping the
-// document crisp. Pure CSS so it never affects the print output.
+// Scales the fixed 816px Letter pages down to fit the preview column. Measures
+// the container with a ResizeObserver (same pattern as the QBR slide frame) and
+// reserves the exact scaled height, so nothing clips or overlaps content below.
+const PROPOSAL_PAGE_W = 816;
+
 function PreviewScaler({ children }: { children: React.ReactNode }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [contentH, setContentH] = useState(0);
+
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    const update = () => {
+      setScale(Math.min(1, outer.clientWidth / PROPOSAL_PAGE_W));
+      setContentH(inner.offsetHeight);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(outer);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <div className="origin-top" style={{ transform: "scale(0.72)", marginBottom: -560 }}>
-      <div className="flex flex-col items-center gap-5 shadow-lg [&>.proposal-page]:shadow-xl">{children}</div>
+    <div ref={outerRef} className="relative w-full" style={{ height: contentH * scale || undefined }}>
+      <div
+        ref={innerRef}
+        className="absolute left-1/2 top-0 flex flex-col items-center gap-5 [&>.proposal-page]:shadow-xl"
+        style={{ width: PROPOSAL_PAGE_W, transform: `translateX(-50%) scale(${scale})`, transformOrigin: "top center" }}
+      >
+        {children}
+      </div>
     </div>
   );
 }

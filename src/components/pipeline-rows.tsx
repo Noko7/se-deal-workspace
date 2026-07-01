@@ -106,10 +106,9 @@ function PipelineRow({
   const scroller = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
-  // On hover, the chosen card slides to the far left and a wide detail tile
-  // expands to its right (replacing the classic popup).
-  const [active, setActive] = useState<{ deal: PipelineDeal; opp: Opportunity; from: number } | null>(null);
-  const [slid, setSlid] = useState(false);
+  // Hovering a card opens a detail panel BESIDE the row (never on top of it),
+  // so the other cards stay scrollable and clickable while the detail shows.
+  const [active, setActive] = useState<{ deal: PipelineDeal; opp: Opportunity } | null>(null);
 
   const update = () => {
     const el = scroller.current;
@@ -124,32 +123,19 @@ function PipelineRow({
     return () => window.removeEventListener("resize", update);
   }, [deals.length]);
 
-  // Animate from the card's current on-screen position to the far left.
-  useEffect(() => {
-    if (!active) return;
-    const id = requestAnimationFrame(() => setSlid(true));
-    return () => cancelAnimationFrame(id);
-  }, [active]);
-
   const scrollBy = (direction: number) => {
     const el = scroller.current;
     if (!el) return;
     el.scrollBy({ left: direction * (el.clientWidth - 60), behavior: "smooth" });
   };
 
-  const openDetail = (deal: PipelineDeal, cardEl: HTMLElement) => {
-    const sc = scroller.current?.getBoundingClientRect();
-    // 8px = the scroller's p-2 left padding, so the overlay card starts flush.
-    const from = sc ? cardEl.getBoundingClientRect().left - sc.left - 8 : 0;
-    setSlid(false);
-    setActive({ deal, opp: pipelineDealToOpportunity(deal), from });
-  };
-
   const total = deals.reduce((sum, deal) => sum + deal.amount, 0);
 
   return (
     <div className="overflow-hidden rounded-lg border border-charcoal-200 bg-white">
-      <div className="flex items-stretch">
+      {/* Clearing the panel happens when the pointer leaves the whole row, so
+          moving from a card into the side panel keeps it open. */}
+      <div className="flex items-stretch" onMouseLeave={() => setActive(null)}>
         <div
           className="flex w-32 shrink-0 flex-col justify-center border-l-4 px-3 py-3"
           style={{ borderLeftColor: row.color, backgroundColor: row.tint }}
@@ -160,7 +146,7 @@ function PipelineRow({
         </div>
 
         <div className="relative min-w-0 flex-1">
-          {canLeft && !active ? (
+          {canLeft ? (
             <button
               type="button"
               aria-label="Scroll left"
@@ -170,7 +156,7 @@ function PipelineRow({
               <ChevronLeft className="h-4 w-4" />
             </button>
           ) : null}
-          {canRight && !active ? (
+          {canRight ? (
             <button
               type="button"
               aria-label="Scroll right"
@@ -192,9 +178,11 @@ function PipelineRow({
               deals.map((deal) => (
                 <Link
                   key={deal.id}
-                  href={`/?account=${deal.id}`}
-                  onMouseEnter={(event) => openDetail(deal, event.currentTarget)}
-                  className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md"
+                  href={`/accounts/${deal.id}`}
+                  onMouseEnter={() => setActive({ deal, opp: pipelineDealToOpportunity(deal) })}
+                  className={`flex w-[200px] shrink-0 flex-col rounded-md border border-l-4 bg-white p-2.5 shadow-sm transition hover:shadow-md ${
+                    active?.deal.id === deal.id ? "border-iris-300 ring-1 ring-iris-200" : "border-charcoal-200"
+                  }`}
                   style={{ borderLeftColor: row.color }}
                 >
                   <div className="flex items-start justify-between gap-1.5">
@@ -210,67 +198,36 @@ function PipelineRow({
               ))
             )}
           </div>
-
-          {/* Hover detail: focused card on the left + wide info tile filling the row. */}
-          {active ? (
-            <Link
-              href={`/?account=${active.opp.id}`}
-              onMouseLeave={() => setActive(null)}
-              className="absolute inset-0 z-20 flex items-stretch gap-2 bg-white p-2"
-            >
-              <div
-                className="flex w-[200px] shrink-0 flex-col rounded-md border border-charcoal-200 border-l-4 bg-white p-2.5 shadow-sm transition-transform duration-200 ease-out"
-                style={{
-                  borderLeftColor: row.color,
-                  transform: slid ? "translateX(0)" : `translateX(${active.from}px)`,
-                }}
-              >
-                <div className="flex items-start justify-between gap-1.5">
-                  <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{active.deal.name}</p>
-                  <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(active.deal.amount)}</span>
-                </div>
-                <p className="truncate text-xs text-charcoal-500">{active.deal.accountName}</p>
-                <div className="mt-1.5 flex items-center justify-between text-[11px] text-charcoal-500">
-                  <span className="truncate font-medium tracking-wide text-charcoal-500">{dealOppCode(active.deal)}</span>
-                  {active.deal.closeDate ? (
-                    <span className="shrink-0">{shortDate(new Date(active.deal.closeDate))}</span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div
-                className="flex min-w-0 flex-1 flex-col justify-center gap-2 overflow-hidden rounded-md border border-charcoal-200 border-l-4 bg-white px-5 py-2.5 shadow-sm"
-                style={{ borderLeftColor: row.color, animation: "carousel-from-right 220ms ease-out" }}
-              >
-                <div className="grid min-w-0 grid-cols-2 gap-x-8 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-5">
-                  <DetailStat label="Stage" value={active.opp.stage} />
-                  <DetailStat label="Probability" value={`${active.opp.probability}%`} accent />
-                  <DetailStat label="Amount" value={formatCurrencyShort(active.opp.amount)} />
-                  <DetailStat label="Sim ARR" value={formatCurrencyShort(active.opp.arr)} />
-                  <DetailStat label="Close" value={active.opp.closeQuarter} />
-                  <DetailStat label="Technical Fit" value={active.opp.fit} />
-                  <DetailStat label="Tech Close" value={active.opp.technicalCloseStatus} />
-                  <DetailStat label="Meetings" value={String(active.opp.meetings)} />
-                  <DetailStat label="Emails" value={String(active.opp.emails)} />
-                  <DetailStat label="AI Recs" value={String(active.opp.recommendations)} />
-                </div>
-
-                <div className="flex min-w-0 flex-wrap items-center gap-x-8 gap-y-0.5 border-t border-charcoal-100 pt-2 text-xs">
-                  <p className="min-w-0 max-w-full truncate">
-                    <span className="text-charcoal-500">Next: </span>
-                    <span className="font-semibold text-charcoal-800">{active.opp.nextAction}</span>
-                  </p>
-                  {active.opp.latestSignal ? (
-                    <p className="min-w-0 max-w-full truncate">
-                      <span className="text-charcoal-500">Signal: </span>
-                      <span className="font-medium text-charcoal-600">{active.opp.latestSignal}</span>
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </Link>
-          ) : null}
         </div>
+
+        {/* Side detail panel: sits to the right of the row instead of covering
+            the cards, so scrolling and clicking other deals keeps working. */}
+        {active ? (
+          <Link
+            href={`/accounts/${active.opp.id}`}
+            className="hidden w-[340px] shrink-0 flex-col justify-center gap-2 border-l-2 bg-charcoal-50/60 px-4 py-2.5 lg:flex"
+            style={{ borderLeftColor: row.color, animation: "carousel-from-right 180ms ease-out" }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate text-sm font-semibold text-charcoal-900">{active.deal.name}</p>
+              <span className="shrink-0 text-xs font-bold text-iris-600">{formatCurrencyShort(active.deal.amount)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-1 text-xs">
+              <DetailStat label="Stage" value={active.opp.stage} />
+              <DetailStat label="Probability" value={`${active.opp.probability}%`} accent />
+              <DetailStat label="Close" value={active.opp.closeQuarter} />
+              <DetailStat label="Tech Close" value={active.opp.technicalCloseStatus} />
+              <DetailStat label="Sim ARR" value={formatCurrencyShort(active.opp.arr)} />
+              <DetailStat label="Fit" value={active.opp.fit} />
+              <DetailStat label="Meetings" value={String(active.opp.meetings)} />
+              <DetailStat label="Emails" value={String(active.opp.emails)} />
+            </div>
+            <p className="min-w-0 truncate border-t border-charcoal-200 pt-1.5 text-xs">
+              <span className="text-charcoal-500">Next: </span>
+              <span className="font-semibold text-charcoal-800">{active.opp.nextAction}</span>
+            </p>
+          </Link>
+        ) : null}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { MapPinned } from "lucide-react";
 import { AccountMapExplorer } from "@/components/account-map-explorer";
 import { Card } from "@/components/ui";
 import { getAccountMapRecords } from "@/lib/account-map";
+import { getAccountOptions } from "@/lib/data";
 import { ENV_COOKIE, ENVIRONMENTS, resolveEnvironmentId } from "@/lib/environment";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,14 @@ export default async function AccountMapPage() {
   const environment = resolveEnvironmentId(store.get(ENV_COOKIE)?.value);
   const envLabel = ENVIRONMENTS.find((env) => env.id === environment)?.label ?? environment;
 
-  const records = await getAccountMapRecords(environment).catch(() => null);
+  const [records, accountOptions] = await Promise.all([
+    getAccountMapRecords(environment).catch(() => null),
+    getAccountOptions().catch(() => []),
+  ]);
+  // Map pins link into the account workspace when the account exists in the DB
+  // (Foundation map data is generated from the same seeded accounts).
+  const accountLinks: Record<string, string> = {};
+  for (const option of accountOptions) accountLinks[option.accountName] = option.dealId;
 
   return (
     <div className="space-y-6">
@@ -31,7 +39,7 @@ export default async function AccountMapPage() {
             </p>
           </div>
         ) : (
-          <AccountMapExplorer records={records} />
+          <AccountMapExplorer records={records} accountLinks={accountLinks} />
         )}
       </Card>
     </div>

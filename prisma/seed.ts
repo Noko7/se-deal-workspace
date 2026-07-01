@@ -435,7 +435,7 @@ async function main() {
   ];
   for (const account of featuredSiblings) {
     for (const opp of account.opps) {
-      await prisma.deal.create({
+      const created = await prisma.deal.create({
         data: {
           name: opp.name,
           accountName: account.accountName,
@@ -452,6 +452,40 @@ async function main() {
           forecastCategory: opp.forecastCategory,
           whyNow: opp.whyNow,
           outcome: opp.outcome,
+        },
+      });
+
+      // Every featured sibling opp gets its own activity trail so its deal
+      // workspace never opens empty.
+      const ownerEmail = `${account.owner.toLowerCase().replace(/[^a-z]+/g, ".")}@nutanix.com`;
+      const domain = `${account.accountName.toLowerCase().replace(/[^a-z]+/g, "")}.example`;
+      const meetingStart = opp.isClosed
+        ? new Date(opp.closeDate.getFullYear(), opp.closeDate.getMonth(), Math.max(1, opp.closeDate.getDate() - 21), 10, 0, 0)
+        : addDays(now, 4 + (opp.name.length % 8));
+      const meeting = await prisma.meeting.create({
+        data: {
+          source: "internal_seed",
+          subject: opp.isClosed ? `Deployment Wrap-Up - ${opp.name}` : `${opp.stage} Sync - ${opp.name}`,
+          organizer: ownerEmail,
+          startTime: meetingStart,
+          endTime: new Date(meetingStart.getTime() + 60 * 60 * 1000),
+          attendeesJson: JSON.stringify([
+            { email: `it@${domain}`, displayName: `${account.accountName} IT` },
+            { email: ownerEmail, displayName: account.owner },
+          ]),
+          externalDomains: domain,
+          dealId: created.id,
+        },
+      });
+      await prisma.meetingNote.create({
+        data: {
+          dealId: created.id,
+          meetingId: meeting.id,
+          role: "SE",
+          author: ownerEmail,
+          body: opp.isClosed
+            ? `Deployment wrap-up for ${opp.name}: cluster live, handover complete, customer sign-off received. Reference footprint for the account's current opportunities.`
+            : `Working notes for ${opp.name}: ${opp.nextAction}. ${opp.whyNow ?? ""}`.trim(),
         },
       });
     }
@@ -1819,7 +1853,7 @@ async function main() {
       });
     }
     for (const s of siblingDeals) {
-      await prisma.deal.create({
+      const siblingDeal = await prisma.deal.create({
         data: {
           name: s.name,
           accountName: company,
@@ -1855,6 +1889,160 @@ async function main() {
           aiOptOut: aiOptedOutCompanies.has(company),
         },
       });
+
+      // Every opportunity carries its own activity trail so no workspace opens
+      // empty: meetings, notes, and (where it makes sense) an asset — scaled to
+      // the opp's stage and age. Historical opps get a historical record;
+      // open expansions get live activity.
+      const sibIsWon = s.stage === "Closed Won";
+      const sibIsLost = s.stage === "Closed Lost";
+      const at = (base: Date, days: number, hour: number) => {
+        const d = addDays(base, days);
+        d.setHours(hour, i % 2 === 0 ? 0 : 30, 0, 0);
+        return d;
+      };
+
+      if (sibIsWon) {
+        const kickoff = await prisma.meeting.create({
+          data: {
+            source: "internal_seed",
+            subject: `Deployment Kickoff - ${s.name}`,
+            organizer: ownerEmail,
+            startTime: at(s.closeDate, -45, 10),
+            endTime: at(s.closeDate, -45, 11),
+            attendeesJson: JSON.stringify([
+              { email: `it@${domain}`, displayName: `${company} IT` },
+              { email: ownerEmail, displayName: owner },
+            ]),
+            externalDomains: domain,
+            dealId: siblingDeal.id,
+          },
+        });
+        await prisma.meeting.create({
+          data: {
+            source: "internal_seed",
+            subject: `Go-Live Readiness Review - ${company}`,
+            organizer: ownerEmail,
+            startTime: at(s.closeDate, -7, 14),
+            endTime: at(s.closeDate, -7, 15),
+            attendeesJson: JSON.stringify([{ email: `it@${domain}`, displayName: `${company} IT` }]),
+            externalDomains: domain,
+            dealId: siblingDeal.id,
+          },
+        });
+        await prisma.meetingNote.createMany({
+          data: [
+            {
+              dealId: siblingDeal.id,
+              meetingId: kickoff.id,
+              role: "SE",
+              author: ownerEmail,
+              body: `Deployment kickoff for the initial footprint. Foundation imaging scheduled; cluster network (VLANs, OOB) confirmed with the customer's network admin. Handover runbook drafted.`,
+            },
+            {
+              dealId: siblingDeal.id,
+              role: "SE",
+              author: ownerEmail,
+              body: `Post go-live wrap-up: cluster in production, Prism Central registered, protection policies applied. Customer signed off on the as-built. This footprint is the reference for later expansions on this account.`,
+            },
+          ],
+        });
+        await prisma.meetingAsset.create({
+          data: {
+            dealId: siblingDeal.id,
+            type: "PRESENTATION",
+            source: "manual",
+            sourceTool: "Proposal Builder",
+            title: `${company} As-Built & Handover.pptx`,
+            uri: `uploaded://${encodeURIComponent(`${company}-as-built.pptx`)}`,
+            uploadedBy: ownerEmail,
+            previewStatus: "FAILED",
+          },
+        });
+      } else if (sibIsLost) {
+        const debrief = await prisma.meeting.create({
+          data: {
+            source: "internal_seed",
+            subject: `Loss Review - ${s.name}`,
+            organizer: ownerEmail,
+            startTime: at(s.closeDate, 10, 11),
+            endTime: at(s.closeDate, 10, 12),
+            attendeesJson: JSON.stringify([{ email: ownerEmail, displayName: owner }]),
+            externalDomains: "",
+            dealId: siblingDeal.id,
+          },
+        });
+        await prisma.meetingNote.create({
+          data: {
+            dealId: siblingDeal.id,
+            meetingId: debrief.id,
+            role: "AE",
+            author: ownerEmail,
+            body: `Loss review: lost to ${arch.primaryCompetitor} on price/timing. Technical evaluation went well; budget was pulled mid-cycle. Relationship intact — flagged for re-engagement at the next hardware refresh.`,
+          },
+        });
+      } else {
+        // Open expansion opp: one recent meeting, one upcoming, live notes, and
+        // a sizing artifact.
+        const recent = await prisma.meeting.create({
+          data: {
+            source: "internal_seed",
+            subject: `${s.stage} Working Session - ${s.name}`,
+            organizer: ownerEmail,
+            startTime: at(now, -(6 + (i % 9)), 13),
+            endTime: at(now, -(6 + (i % 9)), 14),
+            attendeesJson: JSON.stringify([
+              { email: `it@${domain}`, displayName: `${company} IT` },
+              { email: ownerEmail, displayName: owner },
+            ]),
+            externalDomains: domain,
+            joinUrl: joinUrlFor(i + 7),
+            dealId: siblingDeal.id,
+          },
+        });
+        await prisma.meeting.create({
+          data: {
+            source: "internal_seed",
+            subject: `Expansion Design Review - ${company}`,
+            organizer: ownerEmail,
+            startTime: at(now, 5 + (i % 10), 10),
+            endTime: at(now, 5 + (i % 10), 11),
+            attendeesJson: JSON.stringify([{ email: `it@${domain}`, displayName: `${company} IT` }]),
+            externalDomains: domain,
+            joinUrl: joinUrlFor(i + 9),
+            dealId: siblingDeal.id,
+          },
+        });
+        await prisma.meetingNote.createMany({
+          data: [
+            {
+              dealId: siblingDeal.id,
+              meetingId: recent.id,
+              role: "SE",
+              author: ownerEmail,
+              body: `Expansion working session: validated the current cluster's headroom against projected growth. Customer wants the expansion sized against the existing footprint — pulling utilization from Prism before the design review.`,
+            },
+            {
+              dealId: siblingDeal.id,
+              role: "AE",
+              author: ownerEmail,
+              body: aeNoteBodies[(i + 3) % aeNoteBodies.length],
+            },
+          ],
+        });
+        await prisma.meetingAsset.create({
+          data: {
+            dealId: siblingDeal.id,
+            type: "COLLECTOR",
+            source: "manual",
+            sourceTool: "Nutanix Collector",
+            title: `${company} Expansion Collector Output.csv`,
+            uri: `uploaded://${encodeURIComponent(`${company}-expansion-collector.csv`)}`,
+            uploadedBy: ownerEmail,
+            previewStatus: "FAILED",
+          },
+        });
+      }
     }
 
     // Spread three meetings per account across business hours and weekdays over
@@ -2352,6 +2540,165 @@ async function main() {
       },
     ],
   });
+
+  await generateFoundationAccountMapCsv();
+}
+
+// --- Foundation account-map CSV -------------------------------------------
+// The Account Map (Foundation environment) reads public/data/account-map-dummy.csv.
+// Generate it from the freshly-seeded DB accounts so the map and the workspace
+// pages describe the SAME accounts: pins can link into /accounts/{dealId}, SE
+// names match deal owners, and metrics are derived from the seeded pipeline.
+async function generateFoundationAccountMapCsv() {
+  const { writeFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  // Deterministic city pools per seeded deal region.
+  const CITY_POOLS: Record<string, { city: string; state: string; country: string; lat: number; lng: number }[]> = {
+    "AMER - East": [
+      { city: "New York", state: "NY", country: "United States", lat: 40.7128, lng: -74.006 },
+      { city: "Boston", state: "MA", country: "United States", lat: 42.3601, lng: -71.0589 },
+      { city: "Atlanta", state: "GA", country: "United States", lat: 33.749, lng: -84.388 },
+      { city: "Charlotte", state: "NC", country: "United States", lat: 35.2271, lng: -80.8431 },
+      { city: "Philadelphia", state: "PA", country: "United States", lat: 39.9526, lng: -75.1652 },
+      { city: "Miami", state: "FL", country: "United States", lat: 25.7617, lng: -80.1918 },
+    ],
+    "AMER - West": [
+      { city: "San Jose", state: "CA", country: "United States", lat: 37.3382, lng: -121.8863 },
+      { city: "Seattle", state: "WA", country: "United States", lat: 47.6062, lng: -122.3321 },
+      { city: "Denver", state: "CO", country: "United States", lat: 39.7392, lng: -104.9903 },
+      { city: "Phoenix", state: "AZ", country: "United States", lat: 33.4484, lng: -112.074 },
+      { city: "Los Angeles", state: "CA", country: "United States", lat: 34.0522, lng: -118.2437 },
+      { city: "Portland", state: "OR", country: "United States", lat: 45.5152, lng: -122.6784 },
+    ],
+    "AMER - Central": [
+      { city: "Chicago", state: "IL", country: "United States", lat: 41.8781, lng: -87.6298 },
+      { city: "Dallas", state: "TX", country: "United States", lat: 32.7767, lng: -96.797 },
+      { city: "Minneapolis", state: "MN", country: "United States", lat: 44.9778, lng: -93.265 },
+      { city: "Austin", state: "TX", country: "United States", lat: 30.2672, lng: -97.7431 },
+      { city: "Kansas City", state: "MO", country: "United States", lat: 39.0997, lng: -94.5786 },
+      { city: "Houston", state: "TX", country: "United States", lat: 29.7604, lng: -95.3698 },
+    ],
+    EMEA: [
+      { city: "London", state: "", country: "United Kingdom", lat: 51.5074, lng: -0.1278 },
+      { city: "Frankfurt", state: "", country: "Germany", lat: 50.1109, lng: 8.6821 },
+      { city: "Paris", state: "", country: "France", lat: 48.8566, lng: 2.3522 },
+      { city: "Amsterdam", state: "", country: "Netherlands", lat: 52.3676, lng: 4.9041 },
+      { city: "Madrid", state: "", country: "Spain", lat: 40.4168, lng: -3.7038 },
+      { city: "Stockholm", state: "", country: "Sweden", lat: 59.3293, lng: 18.0686 },
+    ],
+    APJ: [
+      { city: "Sydney", state: "NSW", country: "Australia", lat: -33.8688, lng: 151.2093 },
+      { city: "Singapore", state: "", country: "Singapore", lat: 1.3521, lng: 103.8198 },
+      { city: "Tokyo", state: "", country: "Japan", lat: 35.6762, lng: 139.6503 },
+      { city: "Bangalore", state: "KA", country: "India", lat: 12.9716, lng: 77.5946 },
+      { city: "Seoul", state: "", country: "South Korea", lat: 37.5665, lng: 126.978 },
+      { city: "Melbourne", state: "VIC", country: "Australia", lat: -37.8136, lng: 144.9631 },
+    ],
+  };
+  const AE_NAMES = ["Chris Alvarez", "Morgan Patel", "Riley Thompson", "Jamie Fox", "Taylor Brooks", "Alex Nguyen", "Casey Rivera"];
+  const streetNames = ["Main St", "Market St", "Innovation Dr", "Commerce Blvd", "Enterprise Way", "Industrial Pkwy"];
+
+  const deals = await prisma.deal.findMany({
+    select: {
+      accountName: true,
+      owner: true,
+      industry: true,
+      region: true,
+      amount: true,
+      stage: true,
+      isClosed: true,
+    },
+    orderBy: { accountName: "asc" },
+  });
+
+  const byAccount = new Map<string, typeof deals>();
+  for (const deal of deals) {
+    const list = byAccount.get(deal.accountName) ?? [];
+    list.push(deal);
+    byAccount.set(deal.accountName, list);
+  }
+
+  const esc = (value: string) => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+  const rows: string[] = [
+    [
+      "Account Name",
+      "Account Executive",
+      "System Engineer",
+      "Theater",
+      "Region",
+      "Sub-Region",
+      "Vertical",
+      "Last Sales",
+      "Account Type",
+      "Country",
+      "State",
+      "City",
+      "Street",
+      "Active Cluster Count",
+      "Node Count",
+      "VM Count",
+      "Latitude",
+      "Longitude",
+    ].join(","),
+  ];
+
+  let idx = 0;
+  for (const [accountName, accountDeals] of byAccount) {
+    const primary = accountDeals[0];
+    const region = primary.region && CITY_POOLS[primary.region] ? primary.region : "AMER - Central";
+    const pool = CITY_POOLS[region];
+    const loc = pool[idx % pool.length];
+    const theater = region.startsWith("AMER") ? "Americas" : region;
+
+    const wonAmount = accountDeals.filter((d) => d.stage === "Closed Won").reduce((sum, d) => sum + d.amount, 0);
+    const hasWon = wonAmount > 0;
+    const hasOpen = accountDeals.some((d) => !d.isClosed);
+    const accountType = hasWon ? "Customer" : hasOpen ? "Prospect" : "Ex - Customer";
+
+    const clusters = hasWon ? 1 + (idx % 4) : 0;
+    const nodes = clusters * (3 + (idx % 5));
+    const vms = hasWon ? 120 + ((idx * 53) % 900) : 0;
+    // Small jitter (~±0.02°) so co-located accounts don't stack on one pixel.
+    const jitterLat = ((idx * 37) % 41 - 20) / 1000;
+    const jitterLng = ((idx * 53) % 41 - 20) / 1000;
+
+    rows.push(
+      [
+        esc(accountName),
+        esc(AE_NAMES[idx % AE_NAMES.length]),
+        esc(primary.owner),
+        esc(theater),
+        esc(region),
+        esc(region),
+        esc(primary.industry ?? "Technology"),
+        String(Math.round(wonAmount)),
+        esc(accountType),
+        esc(loc.country),
+        esc(loc.state),
+        esc(loc.city),
+        esc(`${100 + ((idx * 7) % 899)} ${streetNames[idx % streetNames.length]}`),
+        String(clusters),
+        String(nodes),
+        String(vms),
+        (loc.lat + jitterLat).toFixed(5),
+        (loc.lng + jitterLng).toFixed(5),
+      ].join(","),
+    );
+    idx += 1;
+  }
+
+  const dataDir = path.join(process.cwd(), "public", "data");
+  await writeFile(path.join(dataDir, "account-map-dummy.csv"), rows.join("\n") + "\n", "utf8");
+  // The billing companion file previously carried unrelated dummy accounts;
+  // reduce it to a header so it no longer injects accounts that don't exist in
+  // the workspace DB.
+  await writeFile(
+    path.join(dataDir, "account-map2-dummy.csv"),
+    "Account Name,Account Owner,SE Owner,Type,Billing Street,Billing City,Billing State/Province,Billing Country,Latitude,Longitude,Total Cluster Count\n",
+    "utf8",
+  );
+  console.log(`Account map CSV regenerated for ${byAccount.size} accounts (foundation environment).`);
 }
 
 main()

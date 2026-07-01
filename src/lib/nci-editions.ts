@@ -80,6 +80,110 @@ export const NCI_EDITION_MATRIX: EditionSection[] = [
 
 export const NCI_EDITIONS_SOURCE = "https://www.nutanix.com/products/cloud-platform/software-options";
 
+// Nutanix Cloud Manager (NCM) software editions — Starter / Pro / Ultimate.
+// Transcribed from the "NCM Software Editions" pages (Portfolio 2) so the deck
+// can mirror the NCI editions treatment for the management layer.
+export const NCM_EDITION_TAGLINE: Record<EditionKey, string> = {
+  Starter: "Infrastructure AIOps and low-code automation",
+  Pro: "IaaS and cost governance across private and public clouds",
+  Ultimate: "Enterprise app automation, security, and governance",
+};
+
+export const NCM_EDITION_IDEAL: Record<EditionKey, string> = {
+  Starter: "Infrastructure AIOps: monitoring, planning, rightsizing and low code automation",
+  Pro: "IaaS across private and public clouds, plus cost governance",
+  Ultimate: "Enterprise deployments, supporting complex app automation, security features and governance workflows",
+};
+
+export const NCM_EDITION_MATRIX: EditionSection[] = [
+  {
+    title: "Intelligent Operations",
+    rows: [
+      { feature: "Reporting", starter: true, pro: true, ultimate: true },
+      { feature: "Customizable Dashboard", starter: true, pro: true, ultimate: true },
+      { feature: "Capacity Forecast and Planning", starter: true, pro: true, ultimate: true },
+      { feature: "Resource Inefficiency Detection and Right-sizing", starter: true, pro: true, ultimate: true },
+      { feature: "Support for ESXi on non-NCI environments", starter: true, pro: true, ultimate: true },
+      { feature: "Low-code / No-code Operations Automation", starter: true, pro: true, ultimate: true },
+      { feature: "SQL Server Monitoring for IT Ops", starter: false, pro: true, ultimate: true },
+      { feature: "Application Discovery", starter: false, pro: true, ultimate: true },
+      { feature: "Self-tuning with Machine Learning", starter: false, pro: false, ultimate: true },
+    ],
+  },
+  {
+    title: "Cost Governance",
+    rows: [
+      { feature: "Cost Metering for Private Cloud Resources", starter: false, pro: true, ultimate: true },
+      { feature: "Cloud Visibility and Optimization", starter: false, pro: true, ultimate: true },
+      { feature: "Budgeting and Chargeback", starter: false, pro: true, ultimate: true },
+    ],
+  },
+  {
+    title: "Self-Service",
+    rows: [
+      { feature: "Self-Service Marketplace", starter: false, pro: true, ultimate: true },
+      { feature: "IaaS (Single VM) Blueprints", starter: false, pro: true, ultimate: true },
+      { feature: "Advanced Orchestration Runbooks", starter: false, pro: true, ultimate: true },
+      { feature: "App (Multi VM) Blueprints", starter: false, pro: false, ultimate: true },
+      { feature: "Governance (Approvals & Scheduler)", starter: false, pro: false, ultimate: true },
+    ],
+  },
+  {
+    title: "Security Compliance",
+    rows: [
+      { feature: "Security Monitoring & Remediation", starter: false, pro: false, ultimate: true },
+      { feature: "Network Security Planning", starter: false, pro: false, ultimate: true },
+      { feature: "Regulatory Compliance", starter: false, pro: false, ultimate: true },
+    ],
+  },
+];
+
+// Implementation plan (Portfolio 2 delivery model). Mirrors the Furman-style
+// "Implementation Plan" slide: the delivery is grouped into the workstreams
+// below. Commercial detail (session counts, pricing) lives in the quote.
+export type ImplementationPhase = { title: string; subtitle: string; items: string[] };
+export const IMPLEMENTATION_PLAN: ImplementationPhase[] = [
+  {
+    title: "Migration",
+    subtitle: "Data migration & Day 1",
+    items: [
+      "Discovery and migration planning workshop",
+      "Nutanix Move for VM migration from ESXi / Hyper-V",
+      "Cutover runbook, validation, and Day-1 operational handoff",
+    ],
+  },
+  {
+    title: "Deployment",
+    subtitle: "Professional Services (virtual)",
+    items: [
+      "Foundation imaging and cluster creation",
+      "Prism Central deployment and registration",
+      "Network, storage, and data services configuration",
+    ],
+  },
+  {
+    title: "Rack & Cluster Deploy",
+    subtitle: "Rack & stack",
+    items: [
+      "Physical rack & stack of nodes and switches",
+      "Cabling, power, and out-of-band (IPMI) setup",
+      "Cluster bring-up and health validation",
+    ],
+  },
+  {
+    title: "Education & Enablement",
+    subtitle: "Administrator enablement",
+    items: [
+      "Administrator enablement on Prism and AHV",
+      "Operational runbook and best-practice review",
+      "Nutanix University learning paths and certification",
+    ],
+  },
+];
+
+export const IMPLEMENTATION_ADDON_NOTE =
+  "Add-on implementation services (for example a DR deployment session) are available and detailed in the quote.";
+
 // Support programs (Portfolio 2) — used for the support slide.
 export type SupportProgram = { name: string; ideal: string; rows: { label: string; value: string }[] };
 export const SUPPORT_PROGRAMS: SupportProgram[] = [

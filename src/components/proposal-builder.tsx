@@ -6,7 +6,7 @@ import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
 import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
-import { hardwareImageFor } from "@/lib/hardware-images";
+import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
 import { BASE_PLATFORMS, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
@@ -133,13 +133,21 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       const skus = new Set<string>();
       doc.scenario.clusters.forEach((c) => c.models.forEach((m) => skus.add(m.sku)));
       const images: Record<string, ImgAsset> = {};
+      const rearImages: Record<string, ImgAsset> = {};
       const brand: ProposalBrandImages = { productIcons: {} };
+      const usesPure = Boolean(doc.options?.externalStorage) && (doc.options?.externalStorageVendor ?? "Pure Storage") === "Pure Storage";
       await Promise.all([
         ...[...skus].map(async (sku) => {
           const path = hardwareImageFor(sku);
-          if (!path) return;
-          const asset = await loadImageAsset(path);
-          if (asset) images[sku] = asset;
+          if (path) {
+            const asset = await loadImageAsset(path);
+            if (asset) images[sku] = asset;
+          }
+          const rearPath = hardwareRearImageFor(sku);
+          if (rearPath) {
+            const rear = await loadImageAsset(rearPath);
+            if (rear) rearImages[sku] = rear;
+          }
         }),
         ...purchasedProducts(doc).map(async (p) => {
           const asset = await loadImageAsset(getProductIcon(p, "Color", "text"));
@@ -148,6 +156,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         loadImageAsset("/brand/deck-cover.png").then((a) => { if (a) brand.coverBg = a; }),
         loadImageAsset("/brand/nutanix-wordmark-white.png").then((a) => { if (a) brand.wordmarkWhite = a; }),
         loadImageAsset("/brand/nutanix-mark-black.png").then((a) => { if (a) brand.markBlack = a; }),
+        usesPure ? loadImageAsset("/brand/pure-storage.png").then((a) => { if (a) brand.pureLogo = a; }) : Promise.resolve(),
       ]);
       // The uploaded customer logo is already a data URL; measure it for aspect-safe placement.
       let logoAsset: ImgAsset | null = null;
@@ -155,7 +164,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         const dims = await measureDataUrl(logo);
         if (dims) logoAsset = { data: logo, w: dims.w, h: dims.h };
       }
-      await exportProposalToPptx(doc, logoAsset, images, brand);
+      await exportProposalToPptx(doc, logoAsset, images, brand, rearImages);
     } finally {
       setExporting(null);
     }

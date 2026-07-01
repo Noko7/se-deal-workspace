@@ -13,15 +13,21 @@ import {
 } from "./proposal-doc";
 import type { ProposalCluster } from "./sizer-import";
 import { LICENSE_CATALOG } from "./license-catalog";
-import { platformSpecFor } from "./hardware-images";
+import { drivesPerNode, emptyDriveSlots, platformSpecFor } from "./hardware-images";
 import type { ProductKey } from "./nutanix-icons";
 import {
   Cell as EditionCell,
   EDITION_IDEAL,
   EDITION_TAGLINE,
   EDITIONS,
+  EditionSection,
+  IMPLEMENTATION_ADDON_NOTE,
+  IMPLEMENTATION_PLAN,
   NCI_EDITION_MATRIX,
   NCI_EDITIONS_SOURCE,
+  NCM_EDITION_IDEAL,
+  NCM_EDITION_MATRIX,
+  NCM_EDITION_TAGLINE,
   SUPPORT_PROGRAMS,
 } from "./nci-editions";
 
@@ -34,6 +40,7 @@ export type ProposalBrandImages = {
   coverBg?: ImgAsset; // Nutanix brand-template title background (16:9)
   wordmarkWhite?: ImgAsset; // white NUTANIX wordmark (for dark covers)
   markBlack?: ImgAsset; // black Nutanix "X" mark (for light content slides)
+  pureLogo?: ImgAsset; // external-storage partner (Pure Storage) logo
 };
 
 // Client-side .pptx exporter for the BOM proposal deck. Built on pptxgenjs in
@@ -61,6 +68,7 @@ export async function exportProposalToPptx(
   logo: ImgAsset | null,
   nodeImages: Record<string, ImgAsset>,
   brand: ProposalBrandImages = {},
+  nodeRearImages: Record<string, ImgAsset> = {},
 ): Promise<void> {
   const mod = await import("pptxgenjs");
   const PptxGenJS = mod.default;
@@ -182,6 +190,13 @@ export async function exportProposalToPptx(
       })),
     );
     slide.addTable([header, ...body], { x: MARGIN, y: 1.9, w: PAGE_W - MARGIN * 2, colW: [3.1, 1.0, 4.0, 1.2, 1.4, 1.43], border: { type: "solid", color: NUTANIX.line, pt: 0.5 }, rowH: 0.5, autoPage: false });
+    // External-storage deals: call out the primary-storage partner (e.g. Pure).
+    if (doc.options?.externalStorage && doc.options.externalStorageVendor === "Pure Storage" && brand.pureLogo) {
+      slide.addText("Primary storage delivered by", { x: MARGIN, y: PAGE_H - 1.15, w: 3.4, h: 0.4, fontFace: NUTANIX_FONT.body, fontSize: 11, color: NUTANIX.slate, valign: "middle" });
+      placeImage(slide, brand.pureLogo, { x: MARGIN + 3.3, y: PAGE_H - 1.2, w: 2.6, h: 0.5 }, "left", "middle");
+    } else if (doc.options?.externalStorage) {
+      slide.addText(`Primary storage delivered by an external ${doc.options.externalStorageVendor} array over NVMe/TCP.`, { x: MARGIN, y: PAGE_H - 1.1, w: PAGE_W - MARGIN * 2, h: 0.4, fontFace: NUTANIX_FONT.body, fontSize: 11, italic: true, color: NUTANIX.slate });
+    }
   }
 
   // 4..N — One slide per cluster
@@ -258,10 +273,12 @@ export async function exportProposalToPptx(
   // Licensing summary — auto-selected NCI edition + per-cluster entitlement
   addLicensingSummary();
 
-  // Full NCI software editions content (optional)
+  // Full NCI + NCM software editions content (optional)
   if (doc.options?.includeSoftwareSlides ?? true) {
     addEditionsOverview();
     addEditionsComparison();
+    addNcmEditionsOverview();
+    addNcmEditionsComparison();
     addSupportPrograms();
   }
 
@@ -353,6 +370,54 @@ export async function exportProposalToPptx(
     slide.addTable([header, ...rows], { x: MARGIN, y: 1.8, w: PAGE_W - MARGIN * 2, colW: [6.13, 2.0, 2.0, 2.0], border: { type: "solid", color: NUTANIX.line, pt: 0.5 }, rowH: 0.23, autoPage: true, autoPageRepeatHeader: true, autoPageHeaderRows: 1, valign: "middle" });
   }
 
+  function addNcmEditionsOverview() {
+    const slide = newSlide();
+    addChrome(slide, "NCM Software Editions", "Nutanix Cloud Manager · Starter · Pro · Ultimate", page);
+    const gap = 0.4;
+    const cardW = (PAGE_W - MARGIN * 2 - gap * 2) / 3;
+    EDITIONS.forEach((e, i) => {
+      const x = MARGIN + i * (cardW + gap);
+      slide.addShape(SHAPE.roundRect, { x, y: 2.0, w: cardW, h: 4.2, rectRadius: 0.08, fill: { color: "FBFAFF" }, line: { color: NUTANIX.mist, width: 1 } });
+      slide.addShape(SHAPE.rect, { x, y: 2.0, w: cardW, h: 0.5, fill: { color: NUTANIX.slate }, line: { type: "none" } });
+      slide.addText(e.toUpperCase(), { x, y: 2.0, w: cardW, h: 0.5, align: "center", valign: "middle", color: "FFFFFF", bold: true, fontFace: NUTANIX_FONT.heading, fontSize: 16 });
+      slide.addText(NCM_EDITION_TAGLINE[e], { x: x + 0.25, y: 2.8, w: cardW - 0.5, h: 1.2, align: "center", fontFace: NUTANIX_FONT.heading, fontSize: 14, bold: true, color: NUTANIX.ink, valign: "top" });
+      slide.addText(NCM_EDITION_IDEAL[e], { x: x + 0.25, y: 4.2, w: cardW - 0.5, h: 1.8, align: "center", fontFace: NUTANIX_FONT.body, fontSize: 11, color: NUTANIX.gray, valign: "top" });
+    });
+    slide.addText(`Source: ${NCI_EDITIONS_SOURCE}`, { x: MARGIN, y: PAGE_H - 0.9, w: PAGE_W - MARGIN * 2, h: 0.3, fontFace: NUTANIX_FONT.body, fontSize: 9, color: NUTANIX.slate });
+  }
+
+  function addComparisonTable(title: string, subtitle: string, matrix: EditionSection[], selIdx: number) {
+    const slide = newSlide();
+    addChrome(slide, title, subtitle, page);
+    const header = ["Capability", "Starter", "Pro", "Ultimate"].map((h, ci) => ({
+      text: h,
+      options: { bold: true, color: "FFFFFF", fill: { color: ci - 1 === selIdx ? NUTANIX.indigo : NUTANIX.purple }, fontFace: NUTANIX_FONT.body, fontSize: 10, align: ci === 0 ? "left" : "center", valign: "middle" },
+    }));
+    const rows: unknown[][] = [];
+    for (const section of matrix) {
+      rows.push([
+        { text: section.title, options: { bold: true, color: NUTANIX.purple, fill: { color: "EFEAFE" }, fontFace: NUTANIX_FONT.heading, fontSize: 10, colspan: 4 } },
+      ]);
+      for (const r of section.rows) {
+        const cells = [r.starter, r.pro, r.ultimate].map((v, ci) => {
+          const c = editionCell(v);
+          const isSel = ci === selIdx;
+          const color = c.tone === "good" ? "3F5E0A" : c.tone === "addon" ? "9A3B27" : c.tone === "no" ? NUTANIX.slate : NUTANIX.ink;
+          return { text: c.text, options: { align: "center", valign: "middle", color, bold: isSel, fill: { color: isSel ? "F1ECFE" : "FFFFFF" }, fontFace: NUTANIX_FONT.body, fontSize: 9 } };
+        });
+        rows.push([
+          { text: r.feature, options: { color: NUTANIX.ink, fontFace: NUTANIX_FONT.body, fontSize: 9, valign: "middle" } },
+          ...cells,
+        ]);
+      }
+    }
+    slide.addTable([header, ...rows], { x: MARGIN, y: 1.8, w: PAGE_W - MARGIN * 2, colW: [6.13, 2.0, 2.0, 2.0], border: { type: "solid", color: NUTANIX.line, pt: 0.5 }, rowH: 0.23, autoPage: true, autoPageRepeatHeader: true, autoPageHeaderRows: 1, valign: "middle" });
+  }
+
+  function addNcmEditionsComparison() {
+    addComparisonTable("NCM Software Editions Comparison", "Nutanix Cloud Manager capabilities by edition", NCM_EDITION_MATRIX, -1);
+  }
+
   function addSupportPrograms() {
     const slide = newSlide();
     addChrome(slide, "Product Support Programs", "Choose the right level of support", page);
@@ -381,10 +446,19 @@ export async function exportProposalToPptx(
       seen.add(m.sku);
       const slide = newSlide();
       const plat = platformSpecFor(m.sku);
-      addChrome(slide, `${m.sku} Node Overview`, plat ? `${plat.family} · ${plat.formFactor}` : "Configure-to-order platform specification", page);
-      const img = nodeImages[m.sku];
+      const genLabel = plat ? `${plat.family} · ${plat.generation} · ${plat.formFactor}` : "Configure-to-order platform specification";
+      addChrome(slide, `${m.sku} Node Overview`, genLabel, page);
+      const frontImg = nodeImages[m.sku];
+      const rearImg = nodeRearImages[m.sku];
+      const hasImg = Boolean(frontImg || rearImg);
+
+      // Drive-bay occupancy (empty slots) — only when we know the bay count.
+      const used = drivesPerNode(m.drives);
+      const empty = emptyDriveSlots(m.sku, m.drives);
+      const bays = plat?.maxDriveBays ?? null;
+
       const specX = MARGIN;
-      const specW = img ? 6.6 : PAGE_W - MARGIN * 2;
+      const specW = hasImg ? 6.6 : PAGE_W - MARGIN * 2;
       const specs: [string, string][] = [
         ["Server Compute", cpuSummary(m)],
         ["Memory", memorySummary(m)],
@@ -394,15 +468,30 @@ export async function exportProposalToPptx(
         ["Cores / Node", String(nodeCores(m) || "N/A")],
         ["Raw Storage / Node", `${nodeRawStorageTB(m).toFixed(2)} TB`],
       ];
+      if (bays != null) specs.push(["Drive Bays", `${used} of ${bays} populated${empty != null ? ` · ${empty} empty` : ""}`]);
       if (m.gpu) specs.push(["GPU", m.gpu]);
       const header = ["Specification", "Detail"].map((h) => ({ text: h, options: { bold: true, color: "FFFFFF", fill: { color: NUTANIX.purple }, fontFace: NUTANIX_FONT.body, fontSize: 11, valign: "middle" } }));
       const body = specs.map((row, ri) =>
         row.map((c, ci) => ({ text: c, options: { color: NUTANIX.ink, fill: { color: ri % 2 ? "F7F6FD" : "FFFFFF" }, fontFace: NUTANIX_FONT.body, fontSize: 10, bold: ci === 0, valign: "middle" } })),
       );
-      slide.addTable([header, ...body], { x: specX, y: 1.95, w: specW, colW: [2.2, specW - 2.2], border: { type: "solid", color: NUTANIX.line, pt: 0.5 }, rowH: 0.46, autoPage: false });
-      if (img) {
-        slide.addText("PRODUCT DIAGRAM", { x: 7.5, y: 1.95, w: 5.0, h: 0.3, fontFace: NUTANIX_FONT.heading, fontSize: 11, bold: true, color: NUTANIX.purple, charSpacing: 1 });
-        placeImage(slide, img, { x: 7.5, y: 2.4, w: 5.0, h: 1.6 }, "center", "middle");
+      slide.addTable([header, ...body], { x: specX, y: 1.95, w: specW, colW: [2.2, specW - 2.2], border: { type: "solid", color: NUTANIX.line, pt: 0.5 }, rowH: 0.44, autoPage: false });
+
+      // Right column: front + rear product renders (aspect-preserved), then the
+      // platform reference envelope.
+      const rx = 7.5;
+      const rw = 5.0;
+      let refTop = 1.95;
+      if (hasImg) {
+        slide.addText("PRODUCT DIAGRAM", { x: rx, y: 1.9, w: rw, h: 0.3, fontFace: NUTANIX_FONT.heading, fontSize: 11, bold: true, color: NUTANIX.purple, charSpacing: 1 });
+        if (frontImg) {
+          slide.addText("Front", { x: rx, y: 2.24, w: rw, h: 0.22, fontFace: NUTANIX_FONT.body, fontSize: 9, color: NUTANIX.slate });
+          placeImage(slide, frontImg, { x: rx, y: 2.46, w: rw, h: 1.0 }, "center", "middle");
+        }
+        if (rearImg) {
+          slide.addText("Rear", { x: rx, y: 3.52, w: rw, h: 0.22, fontFace: NUTANIX_FONT.body, fontSize: 9, color: NUTANIX.slate });
+          placeImage(slide, rearImg, { x: rx, y: 3.74, w: rw, h: 1.0 }, "center", "middle");
+        }
+        refTop = 4.95;
       }
       if (plat) {
         const rows: [string, string][] = [
@@ -412,20 +501,44 @@ export async function exportProposalToPptx(
           ["Memory", plat.memoryRange],
           ["Storage", plat.storage],
         ];
-        if (plat.gpu && plat.gpu !== "N/A") rows.push(["GPU", plat.gpu]);
+        if (plat.gpu) rows.push(["GPU", plat.gpu]);
+        if (bays != null) rows.push(["Drive bays", `${bays} (${empty ?? 0} unused)`]);
         rows.push(["Best for", plat.useCases]);
-        const py = img ? 4.3 : 4.55;
-        slide.addShape(SHAPE.roundRect, { x: 7.5, y: py, w: 5.0, h: PAGE_H - py - 0.7, rectRadius: 0.06, fill: { color: "FBFAFF" }, line: { color: NUTANIX.mist, width: 1 } });
-        slide.addText("PLATFORM REFERENCE", { x: 7.7, y: py + 0.15, w: 4.6, h: 0.3, fontFace: NUTANIX_FONT.heading, fontSize: 10, bold: true, color: NUTANIX.purple, charSpacing: 1 });
+        const py = hasImg ? refTop : 3.4;
+        const boxH = PAGE_H - py - 0.7;
+        slide.addShape(SHAPE.roundRect, { x: rx, y: py, w: rw, h: boxH, rectRadius: 0.06, fill: { color: "FBFAFF" }, line: { color: NUTANIX.mist, width: 1 } });
+        slide.addText("PLATFORM REFERENCE", { x: rx + 0.2, y: py + 0.13, w: rw - 0.4, h: 0.3, fontFace: NUTANIX_FONT.heading, fontSize: 10, bold: true, color: NUTANIX.purple, charSpacing: 1 });
         slide.addText(
           rows.flatMap((r) => [
-            { text: `${r[0]}:  `, options: { bold: true, fontFace: NUTANIX_FONT.body, fontSize: 9.5, color: NUTANIX.purple, breakLine: false } },
-            { text: r[1], options: { fontFace: NUTANIX_FONT.body, fontSize: 9.5, color: NUTANIX.ink, breakLine: true, paraSpaceAfter: 4 } },
+            { text: `${r[0]}:  `, options: { bold: true, fontFace: NUTANIX_FONT.body, fontSize: hasImg ? 8.5 : 9.5, color: NUTANIX.purple, breakLine: false } },
+            { text: r[1], options: { fontFace: NUTANIX_FONT.body, fontSize: hasImg ? 8.5 : 9.5, color: NUTANIX.ink, breakLine: true, paraSpaceAfter: hasImg ? 2 : 4 } },
           ]),
-          { x: 7.7, y: py + 0.5, w: 4.6, h: PAGE_H - py - 1.3, valign: "top" },
+          { x: rx + 0.2, y: py + 0.46, w: rw - 0.4, h: boxH - 0.6, valign: "top" },
         );
       }
     }
+  }
+
+  // Implementation plan — the delivery workstreams (Furman-style)
+  {
+    const slide = newSlide();
+    addChrome(slide, "Implementation Plan", "How we get you deployed, migrated, and enabled", page);
+    const gap = 0.35;
+    const cardW = (PAGE_W - MARGIN * 2 - gap * 3) / 4;
+    IMPLEMENTATION_PLAN.forEach((phase, i) => {
+      const x = MARGIN + i * (cardW + gap);
+      const y = 1.95;
+      const h = 4.35;
+      slide.addShape(SHAPE.roundRect, { x, y, w: cardW, h, rectRadius: 0.08, fill: { color: "FBFAFF" }, line: { color: NUTANIX.mist, width: 1 } });
+      slide.addShape(SHAPE.rect, { x, y, w: cardW, h: 0.7, fill: { color: NUTANIX.purple }, line: { type: "none" } });
+      slide.addText(`${i + 1}.  ${phase.title}`, { x: x + 0.15, y, w: cardW - 0.3, h: 0.7, valign: "middle", align: "center", color: "FFFFFF", bold: true, fontFace: NUTANIX_FONT.heading, fontSize: 13 });
+      slide.addText(phase.subtitle, { x: x + 0.2, y: y + 0.85, w: cardW - 0.4, h: 0.5, align: "center", fontFace: NUTANIX_FONT.body, fontSize: 10, italic: true, color: NUTANIX.slate, valign: "top" });
+      slide.addText(
+        phase.items.map((s) => ({ text: s, options: { bullet: { code: "2022", indent: 12 }, fontSize: 10, color: NUTANIX.ink, fontFace: NUTANIX_FONT.body, breakLine: true, paraSpaceAfter: 8 } })),
+        { x: x + 0.2, y: y + 1.5, w: cardW - 0.4, h: h - 1.6, valign: "top" },
+      );
+    });
+    slide.addText(IMPLEMENTATION_ADDON_NOTE, { x: MARGIN, y: PAGE_H - 0.9, w: PAGE_W - MARGIN * 2, h: 0.3, fontFace: NUTANIX_FONT.body, fontSize: 10, italic: true, color: NUTANIX.slate });
   }
 
   // Implementation considerations

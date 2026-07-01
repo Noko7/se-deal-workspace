@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:pm2": "prisma generate && next dev",
     "build": "next build",
     "start": "next start",
     "deploy": "bash deploy.sh",

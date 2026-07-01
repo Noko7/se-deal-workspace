@@ -1,7 +1,7 @@
 "use client";
 
 import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
-import { hardwareImageFor, platformSpecFor } from "@/lib/hardware-images";
+import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor, platformSpecFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { EDITION_TAGLINE, type EditionKey } from "@/lib/nci-editions";
 import { LICENSE_CATALOG } from "@/lib/license-catalog";
@@ -181,6 +181,18 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
               <span className="font-bold text-charcoal-900">{baseLabel}</span>: {baseTagline} {doc.meta.supportTerm}.
             </div>
           </div>
+          {doc.options?.externalStorage ? (
+            <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-charcoal-200 bg-charcoal-50 p-2.5">
+              <span className="text-[11px] text-charcoal-600">Primary storage delivered by</span>
+              {doc.options.externalStorageVendor === "Pure Storage" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src="/brand/pure-storage.png" alt="Pure Storage" className="h-4 w-auto object-contain" />
+              ) : (
+                <span className="text-[11px] font-bold text-charcoal-800">{doc.options.externalStorageVendor}</span>
+              )}
+              <span className="text-[11px] text-charcoal-500">over NVMe/TCP</span>
+            </div>
+          ) : null}
           {licLines.length ? (
             <table className="mb-3 w-full border-collapse text-[10px]">
               <thead>
@@ -204,16 +216,31 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
               </tbody>
             </table>
           ) : null}
-          {rollup.some((r) => hardwareImageFor(r.sku)) ? (
-            <div className="mb-3 flex flex-wrap items-end gap-4">
+          {rollup.some((r) => hardwareImageFor(r.sku) || hardwareRearImageFor(r.sku)) ? (
+            <div className="mb-3 flex flex-wrap items-end gap-5">
               {rollup.map((r) => {
-                const img = hardwareImageFor(r.sku);
-                if (!img) return null;
+                const front = hardwareImageFor(r.sku);
+                const rear = hardwareRearImageFor(r.sku);
+                if (!front && !rear) return null;
                 return (
                   <div key={r.sku} className="flex flex-col items-center">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img} alt={r.sku} className="h-12 w-auto max-w-[150px] object-contain" />
-                    <span className="mt-0.5 text-[9px] font-medium text-charcoal-500">{r.nodes}× {r.sku}</span>
+                    <div className="flex flex-col gap-1.5">
+                      {front ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-8 text-right text-[8px] uppercase tracking-wide text-charcoal-400">Front</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={front} alt={`${r.sku} front`} className="h-9 w-auto max-w-[150px] object-contain" />
+                        </div>
+                      ) : null}
+                      {rear ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-8 text-right text-[8px] uppercase tracking-wide text-charcoal-400">Rear</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={rear} alt={`${r.sku} rear`} className="h-9 w-auto max-w-[150px] object-contain" />
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="mt-1 text-[9px] font-medium text-charcoal-500">{r.nodes}× {r.sku}</span>
                   </div>
                 );
               })}
@@ -314,20 +341,41 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
         <h4 className="mb-2 text-sm font-bold text-charcoal-900">Node Spec Sheets</h4>
         <div className="grid gap-3 md:grid-cols-2">
           {uniqueModels.map((m) => {
-            const img = hardwareImageFor(m.sku);
+            const front = hardwareImageFor(m.sku);
+            const rear = hardwareRearImageFor(m.sku);
             const plat = platformSpecFor(m.sku);
+            const used = drivesPerNode(m.drives);
+            const empty = emptyDriveSlots(m.sku, m.drives);
+            const bays = plat?.maxDriveBays ?? null;
             return (
               <div key={m.sku} className="rounded-xl border border-charcoal-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-bold text-charcoal-900">{m.sku}</p>
-                    {plat ? <p className="text-[10px] font-medium text-iris-600">{plat.family} · {plat.formFactor}</p> : null}
+                    {plat ? <p className="text-[10px] font-medium text-iris-600">{plat.family} · {plat.generation} · {plat.formFactor}</p> : null}
                   </div>
+                  {plat && plat.status !== "current" ? (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                      {plat.status === "endOfSale" ? "End of sale" : "Out of support"}
+                    </span>
+                  ) : null}
                 </div>
-                {img ? (
-                  <div className="mt-2 flex w-full items-center justify-center rounded-lg bg-charcoal-50 p-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img} alt={m.sku} className="max-h-16 w-full object-contain" />
+                {front || rear ? (
+                  <div className="mt-2 space-y-1.5 rounded-lg bg-charcoal-50 p-2">
+                    {front ? (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Front</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={front} alt={`${m.sku} front`} className="max-h-12 w-full object-contain" />
+                      </div>
+                    ) : null}
+                    {rear ? (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Rear</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={rear} alt={`${m.sku} rear`} className="max-h-12 w-full object-contain" />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="mt-3 flex gap-3">
@@ -339,6 +387,7 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
                       ["Network", m.nic ?? "N/A"],
                       ["Cores/node", String(nodeCores(m) || "N/A")],
                       ["Raw/node", `${nodeRawStorageTB(m).toFixed(2)} TB`],
+                      ...(bays != null ? [["Drive bays", `${used} of ${bays} populated${empty != null ? ` · ${empty} empty` : ""}`] as [string, string]] : []),
                     ].map(([k, v]) => (
                       <div key={k} className="flex gap-2">
                         <dt className="w-20 shrink-0 font-semibold text-charcoal-500">{k}</dt>
@@ -357,7 +406,8 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
                         ["Cores/CPU", plat.coreRange],
                         ["Memory", plat.memoryRange],
                         ["Storage", plat.storage],
-                        ...(plat.gpu && plat.gpu !== "N/A" ? [["GPU", plat.gpu] as [string, string]] : []),
+                        ...(plat.gpu ? [["GPU", plat.gpu] as [string, string]] : []),
+                        ...(bays != null ? [["Drive bays", `${bays} (${empty ?? 0} unused)`] as [string, string]] : []),
                         ["Best for", plat.useCases],
                       ].map(([k, v]) => (
                         <div key={k} className="flex gap-2">

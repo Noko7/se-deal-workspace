@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, memo, type ReactNode } from "react";
 
 // Minimal, dependency-free Markdown renderer. It only needs to handle the
 // structure the Note Formatter prompt asks the model for (headings, ordered &
@@ -124,7 +124,9 @@ function parseBlocks(markdown: string): Block[] {
   return blocks;
 }
 
-export function MarkdownView({ markdown }: { markdown: string }) {
+// Memoized: chat turn contents are immutable strings, and the composer's
+// keystroke re-renders would otherwise re-parse every assistant message.
+export const MarkdownView = memo(function MarkdownView({ markdown }: { markdown: string }) {
   const blocks = parseBlocks(markdown);
 
   return (
@@ -199,4 +201,4 @@ export function MarkdownView({ markdown }: { markdown: string }) {
       })}
     </div>
   );
-}
+});

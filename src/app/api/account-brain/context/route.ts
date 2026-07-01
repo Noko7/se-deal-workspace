@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { invalidateAccountKb } from "@/lib/account-ai";
 import { setContextInclusion, type ContextItemType } from "@/lib/data";
 import { sanitizeField } from "@/lib/sanitize";
 
@@ -54,6 +55,9 @@ export async function POST(request: Request) {
 
   try {
     await setContextInclusion({ dealId, items, included });
+    // Toggles change what feeds the LLM; drop the cached knowledge base so the
+    // next chat/brain read reflects them immediately.
+    invalidateAccountKb();
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });

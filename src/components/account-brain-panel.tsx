@@ -35,7 +35,11 @@ const SECTION_ICON: Record<BrainItemType, React.ReactNode> = {
   email: <Mail className="h-4 w-4" />,
 };
 
-const itemKey = (item: { itemType: BrainItemType; id: string }) => `${item.itemType}:${item.id}`;
+// Keyed by owning deal too, mirroring how the server stores exclusions
+// (`dealId:itemType:itemId`), so synthetic per-deal ids can never collide
+// across an account's opportunities.
+const itemKey = (item: { dealId: string; itemType: BrainItemType; id: string }) =>
+  `${item.dealId}:${item.itemType}:${item.id}`;
 
 // --- One toggleable knowledge row ------------------------------------------
 

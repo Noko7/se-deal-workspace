@@ -6,7 +6,6 @@ import { AccountChat } from "@/components/account-chat";
 import { AccountBrainPanel } from "@/components/account-brain-panel";
 import { MeetingCarousel } from "@/components/meeting-carousel";
 import { MeetingDetailPanel } from "@/components/meeting-detail-panel";
-import { StatusPill } from "@/components/ui";
 import { detectTimeZone, type CalendarMeeting } from "@/lib/calendar";
 import type { BrainSummary } from "@/lib/account-ai";
 
@@ -20,21 +19,15 @@ const ACCOUNT_SUGGESTIONS = [
 export function AccountWorkspaceClient({
   dealId,
   accountName,
-  dealName,
-  stage,
   owner,
-  nextAction,
-  latestSignal,
+  opportunityCount,
   meetings,
   summary,
 }: {
   dealId: string;
   accountName: string;
-  dealName: string;
-  stage: string;
   owner: string;
-  nextAction: string;
-  latestSignal: string | null;
+  opportunityCount: number;
   meetings: CalendarMeeting[];
   summary: BrainSummary;
 }) {
@@ -65,12 +58,9 @@ export function AccountWorkspaceClient({
               <Sparkles className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-sm font-semibold text-charcoal-900">Account-AI · {accountName}</h2>
-                <StatusPill tone="info">{stage}</StatusPill>
-              </div>
+              <h2 className="truncate text-sm font-semibold text-charcoal-900">Account-AI · {accountName}</h2>
               <p className="truncate text-xs text-charcoal-500">
-                {dealName} · Owner {owner}
+                {opportunityCount} {opportunityCount === 1 ? "opportunity" : "opportunities"} · Owner {owner}
               </p>
             </div>
           </div>
@@ -83,15 +73,6 @@ export function AccountWorkspaceClient({
             <Globe className="h-3.5 w-3.5" /> Open in Insights <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-        <p className="mt-2 line-clamp-1 text-xs text-charcoal-600">
-          <span className="font-semibold text-charcoal-800">Next:</span> {nextAction}
-          {latestSignal ? (
-            <span className="text-charcoal-500">
-              {"  ·  "}
-              <span className="font-semibold text-charcoal-800">Signal:</span> {latestSignal}
-            </span>
-          ) : null}
-        </p>
       </div>
 
       <div className="border-b border-charcoal-200 px-4 py-3">

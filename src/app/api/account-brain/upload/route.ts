@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { invalidateAccountKb } from "@/lib/account-ai";
 import { createArtifact, createNote } from "@/lib/data";
 import { sanitizeField } from "@/lib/sanitize";
 
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
       }
     }
 
+    invalidateAccountKb();
     revalidatePath(`/accounts/${dealId}`);
     revalidatePath("/");
     return NextResponse.json({ ok: true });

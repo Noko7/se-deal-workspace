@@ -118,14 +118,27 @@ export async function getPipelineDeals() {
 
 export async function getAccountsOverview() {
   const now = new Date();
-  const deals = await prisma.deal.findMany({
-    orderBy: { updatedAt: "desc" },
-    include: {
-      meetings: { select: { id: true, startTime: true } },
-      assets: { select: { id: true, type: true } },
-      notes: { select: { id: true, createdAt: true } },
-    },
-  });
+  // Counts come from _count / groupBy instead of materializing every asset and
+  // note row (this runs on four force-dynamic pages). Meetings keep their
+  // startTime rows (needed for next/upcoming), notes keep only the latest
+  // createdAt (needed for last-activity).
+  const [deals, assetGroups] = await Promise.all([
+    prisma.deal.findMany({
+      orderBy: { updatedAt: "desc" },
+      include: {
+        meetings: { select: { startTime: true } },
+        notes: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+        _count: { select: { notes: true, assets: true } },
+      },
+    }),
+    prisma.meetingAsset.groupBy({ by: ["dealId", "type"], _count: { _all: true } }),
+  ]);
+
+  const assetTypeCounts = new Map<string, number>();
+  for (const g of assetGroups) {
+    assetTypeCounts.set(`${g.dealId}:${g.type}`, g._count._all);
+  }
+  const typeCount = (dealId: string, type: string) => assetTypeCounts.get(`${dealId}:${type}`) ?? 0;
 
   // One row per account (accounts carry several opportunities). The "primary"
   // opp is the active anchor: most meetings, preferring open deals, then most
@@ -145,17 +158,13 @@ export async function getAccountsOverview() {
     })[0];
 
     const allMeetings = group.flatMap((d) => d.meetings);
-    const allNotes = group.flatMap((d) => d.notes);
-    const allAssets = group.flatMap((d) => d.assets);
-    const presentationCount = allAssets.filter((asset) => asset.type === "PRESENTATION").length;
-    const whiteboardCount = allAssets.filter((asset) => asset.type === "WHITEBOARD").length;
     const upcoming = allMeetings
       .map((meeting) => meeting.startTime)
       .filter((start) => start >= now)
       .sort((a, b) => a.getTime() - b.getTime());
     const activityCandidates = [
       primary.updatedAt,
-      ...allNotes.map((note) => note.createdAt),
+      ...group.map((d) => d.notes[0]?.createdAt).filter((d): d is Date => Boolean(d)),
       ...allMeetings.map((meeting) => meeting.startTime).filter((start) => start < now),
     ];
     const lastActivityAt = activityCandidates.reduce(
@@ -175,10 +184,10 @@ export async function getAccountsOverview() {
       opportunityCount: group.length,
       meetingCount: allMeetings.length,
       upcomingMeetingCount: upcoming.length,
-      noteCount: allNotes.length,
-      assetCount: allAssets.length,
-      presentationCount,
-      whiteboardCount,
+      noteCount: group.reduce((sum, d) => sum + d._count.notes, 0),
+      assetCount: group.reduce((sum, d) => sum + d._count.assets, 0),
+      presentationCount: group.reduce((sum, d) => sum + typeCount(d.id, "PRESENTATION"), 0),
+      whiteboardCount: group.reduce((sum, d) => sum + typeCount(d.id, "WHITEBOARD"), 0),
       nextMeetingAt: upcoming[0]?.toISOString() ?? null,
       lastActivityAt: lastActivityAt.toISOString(),
     };
@@ -187,6 +196,22 @@ export async function getAccountsOverview() {
   return rows.sort(
     (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
   );
+}
+
+/**
+ * All meetings with the relations the calendar/carousel serializer needs —
+ * without the three unrelated table scans `getDashboardData` performs. Use this
+ * on pages that only need meetings.
+ */
+export async function getCalendarMeetings() {
+  return prisma.meeting.findMany({
+    orderBy: { startTime: "asc" },
+    include: {
+      deal: { select: { id: true, name: true, accountName: true, stage: true } },
+      assets: { orderBy: { createdAt: "asc" } },
+      notes: { orderBy: { createdAt: "desc" } },
+    },
+  });
 }
 
 const ACCOUNT_DETAIL_INCLUDE = {

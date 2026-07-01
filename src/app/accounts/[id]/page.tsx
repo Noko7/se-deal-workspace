@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import type { MeetingAsset } from "@prisma/client";
 import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, History, Users } from "lucide-react";
 import { addNoteAction } from "@/lib/actions";
-import { getAccountDetail } from "@/lib/data";
 import { buildAccountKnowledgeBase } from "@/lib/account-ai";
 import { toCalendarMeeting } from "@/lib/calendar";
 import { AccountWorkspaceClient } from "@/components/account-workspace-client";
@@ -38,42 +37,41 @@ function roleTone(role: NoteRole): string {
   return "bg-iris-100 text-iris-700";
 }
 
-function stageProbability(stage: string): number {
-  const s = stage.toLowerCase();
-  if (s.includes("closed won")) return 100;
-  if (s.includes("proposal")) return 70;
-  if (s.includes("technical")) return 65;
-  if (s.includes("qualification")) return 30;
-  if (s.includes("discovery")) return 20;
-  return 50;
-}
-
 export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const deal = await getAccountDetail(id);
-
-  if (!deal) {
+  // One load powers the whole page: the knowledge base already carries every
+  // opportunity (Deal) on the account with full relations.
+  const knowledgeBase = await buildAccountKnowledgeBase(id);
+  if (!knowledgeBase) {
     notFound();
   }
 
-  // Serialize the account's meetings for the carousel + reused detail panel, and
-  // assemble the per-account knowledge base summary for the Account-AI brain.
-  const calendarMeetings = deal.meetings.map((meeting) =>
+  const { deals } = knowledgeBase;
+  const anchor = deals.find((d) => d.id === id) ?? deals[0];
+  const accountName = anchor.accountName;
+
+  // Aggregate activity across ALL of the account's opportunities so the page
+  // reflects the account, not just the opp the user navigated in through.
+  const allMeetings = deals
+    .flatMap((deal) =>
+      deal.meetings.map((meeting) => ({ meeting, deal })),
+    )
+    .sort((a, b) => b.meeting.startTime.getTime() - a.meeting.startTime.getTime());
+  const calendarMeetings = allMeetings.map(({ meeting, deal }) =>
     toCalendarMeeting({
       ...meeting,
       deal: { id: deal.id, name: deal.name, accountName: deal.accountName, stage: deal.stage },
     }),
   );
-  const knowledgeBase = await buildAccountKnowledgeBase(id);
 
-  const notes = deal.notes as AccountNote[];
-  const allAssets = deal.assets;
+  const notes = deals.flatMap((deal) => deal.notes) as AccountNote[];
+  const allAssets = deals.flatMap((deal) => deal.assets);
   const presentations = allAssets.filter((asset) => asset.type === "PRESENTATION");
   const whiteboards = allAssets.filter((asset) => asset.type === "WHITEBOARD");
   const otherAssets = allAssets.filter((asset) => asset.type !== "PRESENTATION" && asset.type !== "WHITEBOARD");
 
   const timeline = [
-    ...deal.meetings.map((meeting) => ({
+    ...allMeetings.map(({ meeting }) => ({
       kind: "meeting" as const,
       id: meeting.id,
       at: meeting.startTime,
@@ -108,27 +106,23 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
 
       {/* Full-height Account-AI chatbot — the condensed account header + meeting
           carousel are contained inside the chat box at the top. */}
-      {knowledgeBase ? (
-        <AccountWorkspaceClient
-          dealId={deal.id}
-          accountName={deal.accountName}
-          dealName={deal.name}
-          stage={deal.stage}
-          owner={deal.owner}
-          nextAction={deal.nextAction}
-          latestSignal={deal.latestSignal}
-          meetings={calendarMeetings}
-          summary={knowledgeBase.summary}
-        />
-      ) : null}
+      <AccountWorkspaceClient
+        dealId={anchor.id}
+        accountName={accountName}
+        owner={anchor.owner}
+        opportunityCount={deals.length}
+        meetings={calendarMeetings}
+        summary={knowledgeBase.summary}
+      />
 
       <Card
         title="Account Workspace Summary"
-        subtitle="Clean central view of account health, activity, and collateral."
+        subtitle="Clean central view of account health, activity, and collateral — across every opportunity."
         icon={<BookOpenText className="h-5 w-5" />}
       >
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {stat("Meetings", deal.meetings.length)}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+          {stat("Opportunities", deals.length)}
+          {stat("Meetings", allMeetings.length)}
           {stat("Notes", notes.length)}
           {stat("Assets", allAssets.length)}
           {stat("Presentations", presentations.length)}
@@ -138,36 +132,42 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
 
       <Card
         title="Opportunities (Salesforce-Ready)"
-        subtitle="Central opportunity section with mapped fields, ready for Salesforce API integration."
+        subtitle="Every opportunity on this account with its SFDC stage and technical close status."
         icon={<Briefcase className="h-5 w-5" />}
       >
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead>
               <tr className="border-b border-charcoal-200 bg-charcoal-50 text-charcoal-700">
-                <th className="px-3 py-2 font-semibold">Field</th>
-                <th className="px-3 py-2 font-semibold">Value</th>
+                <th className="px-3 py-2 font-semibold">Opportunity</th>
+                <th className="px-3 py-2 font-semibold">Stage</th>
+                <th className="px-3 py-2 font-semibold">Tech Close</th>
+                <th className="px-3 py-2 font-semibold">Amount</th>
+                <th className="px-3 py-2 font-semibold">Close Date</th>
+                <th className="px-3 py-2 font-semibold">Owner</th>
+                <th className="px-3 py-2 font-semibold">SFDC ID</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-charcoal-100">
-              <SfFieldRow label="Opportunity Name" value={deal.name} />
-              <SfFieldRow label="Account Name" value={deal.accountName} />
-              <SfFieldRow label="Opportunity Owner" value={deal.owner} />
-              <SfFieldRow label="Stage" value={deal.stage} />
-              <SfFieldRow label="Forecast Category" value={deal.isClosed ? "Closed" : "Pipeline"} />
-              <SfFieldRow label="Probability (%)" value={String(stageProbability(deal.stage))} />
-              <SfFieldRow label="Amount" value={`$${deal.amount.toLocaleString()}`} />
-              <SfFieldRow label="Close Date" value={deal.closeDate ? shortDate(deal.closeDate) : "-"} />
-              <SfFieldRow label="Is Closed" value={deal.isClosed ? "Yes" : "No"} />
-              <SfFieldRow label="Technical Close Status" value={deal.technicalCloseStatus} />
-              <SfFieldRow label="Next Step" value={deal.nextAction} />
-              <SfFieldRow label="Latest Signal" value={deal.latestSignal || "-"} />
-              <SfFieldRow label="Salesforce Opportunity ID (placeholder)" value={`SF-${deal.id.slice(0, 8).toUpperCase()}`} />
-              <SfFieldRow
-                label="Insights Customer Link"
-                value={`https://insights.nutanix.com/?account=${encodeURIComponent(deal.accountName)}`}
-                mono
-              />
+              {deals.map((deal) => (
+                <tr key={deal.id} className={deal.id === anchor.id ? "bg-iris-50/40" : undefined}>
+                  <td className="px-3 py-2 font-medium text-charcoal-900">{deal.name}</td>
+                  <td className="px-3 py-2">
+                    <StatusPill tone={deal.isClosed ? (deal.stage === "Closed Won" ? "good" : "neutral") : "info"}>
+                      {deal.stage}
+                    </StatusPill>
+                  </td>
+                  <td className="px-3 py-2 text-charcoal-900">
+                    {deal.technicalCloseStatus === "-" ? "-" : `${deal.technicalCloseStatus}%`}
+                  </td>
+                  <td className="px-3 py-2 text-charcoal-900">${deal.amount.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-charcoal-900">{deal.closeDate ? shortDate(deal.closeDate) : "-"}</td>
+                  <td className="px-3 py-2 text-charcoal-700">{deal.owner}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-charcoal-600">
+                    SF-{deal.id.slice(0, 8).toUpperCase()}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -231,7 +231,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       >
         <SectionHeader title="Add Note" subtitle="Capture one note stream for the account. Link to meeting when applicable." />
         <form action={addNoteAction} className="mb-5 space-y-3 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
-          <input type="hidden" name="dealId" value={deal.id} />
+          <input type="hidden" name="dealId" value={anchor.id} />
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
               <label htmlFor="note-role">Role</label>
@@ -245,7 +245,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
               <label htmlFor="note-meeting">Meeting (optional)</label>
               <select id="note-meeting" name="meetingId" defaultValue="" className="w-full">
                 <option value="">Account-level note</option>
-                {deal.meetings.map((meeting) => (
+                {allMeetings.map(({ meeting }) => (
                   <option key={meeting.id} value={meeting.id}>
                     {shortDateTime(meeting.startTime)} - {meeting.subject}
                   </option>
@@ -346,15 +346,6 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         )}
       </Card>
     </div>
-  );
-}
-
-function SfFieldRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <tr>
-      <td className="px-3 py-2 font-medium text-charcoal-700">{label}</td>
-      <td className={`px-3 py-2 text-charcoal-900 ${mono ? "font-mono text-xs" : ""}`}>{value}</td>
-    </tr>
   );
 }
 

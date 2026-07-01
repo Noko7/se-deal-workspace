@@ -16,6 +16,7 @@ import {
   clearLlmCredentialApiKey,
 } from "./data";
 import { integrationAdapters } from "./adapters";
+import { invalidateAccountKb } from "./account-ai";
 import { invalidateLlmConfigCache } from "./llm";
 import { upsertZoomConfig } from "./zoom";
 import { createSalesforceTask } from "./salesforce";
@@ -153,6 +154,7 @@ export async function ingestAccountDataAction(formData: FormData) {
     await createNote({ dealId, meetingId, role, body, author: "se.workspace@nutanix.com" });
   }
 
+  invalidateAccountKb();
   revalidatePath(`/accounts/${dealId}`);
   revalidatePath("/");
 }
@@ -173,6 +175,7 @@ export async function addNoteAction(formData: FormData) {
     author: "se.workspace@nutanix.com",
   });
 
+  invalidateAccountKb();
   revalidatePath("/accounts");
   revalidatePath(`/accounts/${dealId}`);
   revalidatePath("/calendar");

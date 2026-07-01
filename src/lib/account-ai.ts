@@ -65,8 +65,6 @@ export type BrainSummary = {
   sections: BrainSection[];
 };
 
-// Synthetic id for the single opportunity-detail block (it has no row id).
-export const OPPORTUNITY_ITEM_ID = "opportunity-detail";
 // Synthetic id for the single "all Salesforce contacts" toggle (we no longer
 // surface every contact individually — one on/off switch for the whole set).
 export const CONTACTS_ITEM_ID = "contacts-all";
@@ -150,7 +148,30 @@ function extractTopics(texts: string[], limit = 5): string[] {
 export type AccountKnowledgeBase = {
   contextText: string;
   summary: BrainSummary;
+  /** Every opportunity (Deal) on the account, fully loaded. Lets server pages
+   *  reuse this data instead of re-querying the same deals. */
+  deals: AccountDetailDeal[];
 };
+
+// Constructing Intl.DateTimeFormat is expensive (ICU setup); a KB build formats
+// hundreds of dates, so share one instance at module scope.
+const DATE_FMT = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
+const fmtDate = (d: Date) => DATE_FMT.format(d);
+
+// Short-lived KB cache keyed by the resolved account name. Chat sends one POST
+// per turn and each rebuilds the full KB from scratch otherwise; a small TTL
+// plus explicit invalidation on writes keeps multi-turn chats cheap without
+// serving stale toggles.
+const KB_CACHE_TTL_MS = 15_000;
+const kbCache = new Map<string, { at: number; kb: AccountKnowledgeBase }>();
+const dealAccountCache = new Map<string, string>();
+
+/** Drop cached knowledge bases after any write that feeds the brain (context
+ *  toggles, ingested notes/assets). Pass the account name when known. */
+export function invalidateAccountKb(accountName?: string) {
+  if (accountName) kbCache.delete(accountName);
+  else kbCache.clear();
+}
 
 /**
  * Assemble an account-isolated knowledge base: a flat context string for the LLM
@@ -159,19 +180,31 @@ export type AccountKnowledgeBase = {
 export async function buildAccountKnowledgeBase(dealId: string): Promise<AccountKnowledgeBase | null> {
   // An account spans several opportunities. Resolve the account from the entry
   // deal, then load every opp on it so the brain and chat reason over the whole
-  // account, not just one deal.
-  const anchorRow = await prisma.deal.findUnique({
-    where: { id: dealId },
-    select: { accountName: true },
-  });
-  if (!anchorRow) return null;
-  const deals = await getAccountDealsByAccountName(anchorRow.accountName);
+  // account, not just one deal. The deal->account mapping is immutable in
+  // practice, so it is cached without a TTL.
+  let accountName = dealAccountCache.get(dealId);
+  if (!accountName) {
+    const anchorRow = await prisma.deal.findUnique({
+      where: { id: dealId },
+      select: { accountName: true },
+    });
+    if (!anchorRow) return null;
+    accountName = anchorRow.accountName;
+    dealAccountCache.set(dealId, accountName);
+  }
+
+  const cached = kbCache.get(accountName);
+  if (cached && Date.now() - cached.at < KB_CACHE_TTL_MS) return cached.kb;
+
+  const deals = await getAccountDealsByAccountName(accountName);
   if (deals.length === 0) return null;
-  const accountName = anchorRow.accountName;
+  // Stable anchor for account-level items (the contacts toggle): the smallest
+  // deal id. Never shifts when meetings/close dates change, unlike a
+  // "most active opp" heuristic, so saved exclusions stay honored.
+  const anchor = deals.reduce((min, d) => (d.id < min.id ? d : min), deals[0]);
   const primary = deals.find((d) => d.id === dealId) ?? deals[0];
   const aiOptOut = deals.some((d) => d.aiOptOut);
 
-  const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
   const parseList = (value: string | null | undefined): string[] => {
     if (!value) return [];
     try {
@@ -248,13 +281,13 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
         {
           itemType: "contact",
           id: CONTACTS_ITEM_ID,
-          dealId: primary.id,
+          dealId: anchor.id,
           title: "Salesforce contacts",
           detail: `${allContacts.length} ${allContacts.length === 1 ? "person" : "people"} on the account`,
           body: allContacts.map((c) => c.name).join(", ") || undefined,
           source: "Salesforce",
           date: null,
-          included: isIncluded(primary.id, "contact", CONTACTS_ITEM_ID),
+          included: isIncluded(anchor.id, "contact", CONTACTS_ITEM_ID),
         },
       ]
     : [];
@@ -425,7 +458,9 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     assetCount: allAssets.length,
     contactCount: allContacts.length,
     transcriptCount: allTranscripts.length,
-    taskCount: allTasks.filter((t) => isOpenTask(t.status)).length,
+    // All tasks, matching the panel's "Salesforce tasks" section count (only
+    // open ones feed the LLM context below).
+    taskCount: allTasks.length,
     includedCount,
     totalCount: allItems.length,
     topics,
@@ -435,7 +470,9 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
   // Opted-out accounts get an empty context: Account-AI must not reason over
   // their data at all. The chat route also blocks these before we get here.
   if (aiOptOut) {
-    return { contextText: "", summary };
+    const kb: AccountKnowledgeBase = { contextText: "", summary, deals };
+    kbCache.set(accountName, { at: Date.now(), kb });
+    return kb;
   }
 
   // --- Build the LLM context from INCLUDED items only ----------------------
@@ -471,7 +508,7 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     });
   }
 
-  const contactsOn = isIncluded(primary.id, "contact", CONTACTS_ITEM_ID);
+  const contactsOn = isIncluded(anchor.id, "contact", CONTACTS_ITEM_ID);
   if (contactsOn && allContacts.length > 0) {
     lines.push(
       "",
@@ -494,8 +531,10 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
   const includedNotes = deals.flatMap((d) => d.notes.filter((n) => isIncluded(d.id, "note", n.id)));
   if (includedNotes.length > 0) {
     lines.push("", "NOTES (SE / AE / SAM):");
+    // Bodies are excerpted: pasted Zoom summaries can run thousands of chars,
+    // and 60 uncapped notes would blow a small model's context window.
     for (const note of includedNotes.slice(0, 60)) {
-      lines.push(`- [${note.role} ${fmtDate(note.createdAt)}] ${note.body}`);
+      lines.push(`- [${note.role} ${fmtDate(note.createdAt)}] ${excerpt(note.body, 600)}`);
     }
   }
 
@@ -574,7 +613,9 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     lines.push(`NO DATA ON RECORD FOR: ${emptyLabels.join(", ")}. If asked about these, say there is nothing on record for this account.`);
   }
 
-  return { contextText: lines.join("\n"), summary };
+  const kb: AccountKnowledgeBase = { contextText: lines.join("\n"), summary, deals };
+  kbCache.set(accountName, { at: Date.now(), kb });
+  return kb;
 }
 
 // --- All-accounts (portfolio) knowledge base -------------------------------
@@ -609,8 +650,6 @@ export async function buildAllAccountsKnowledgeBase(): Promise<AllAccountsKnowle
       _count: { select: { notes: true, assets: true, emails: true } },
     },
   });
-
-  const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
 
   let meetingCount = 0;
   let noteCount = 0;

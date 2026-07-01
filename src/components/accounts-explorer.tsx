@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { ArrowRight, CalendarClock, FileText, Presentation, StickyNote } from "lucide-react";
+import { ArrowRight, Briefcase, CalendarClock, FileText, Presentation, StickyNote } from "lucide-react";
 import { relativeDay, shortDate } from "@/lib/format";
 import { EmptyState } from "@/components/ui";
 
@@ -14,6 +14,7 @@ export type AccountOverview = {
   owner: string;
   nextAction: string;
   latestSignal: string | null;
+  opportunityCount: number;
   meetingCount: number;
   upcomingMeetingCount: number;
   noteCount: number;
@@ -62,6 +63,10 @@ export function AccountsExplorer({ accounts, query = "" }: { accounts: AccountOv
               </div>
 
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-charcoal-600">
+                <span className="inline-flex items-center gap-1">
+                  <Briefcase className="h-3.5 w-3.5 text-iris-500" />
+                  {account.opportunityCount} {account.opportunityCount === 1 ? "opp" : "opps"}
+                </span>
                 <span className="inline-flex items-center gap-1">
                   <CalendarClock className="h-3.5 w-3.5 text-iris-500" />
                   {account.meetingCount} mtg

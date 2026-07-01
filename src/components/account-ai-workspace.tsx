@@ -16,9 +16,6 @@ export type AccountOption = {
   accountName: string;
   dealName: string;
   stage: string;
-  owner: string;
-  nextAction: string;
-  latestSignal: string | null;
   aiOptOut: boolean;
 };
 
@@ -90,10 +87,14 @@ export function AccountAiWorkspace({
     [accounts, selected],
   );
 
-  const filteredMeetings = useMemo(
-    () => (selected === "all" ? meetings : meetings.filter((m) => m.deal.id === selected)),
-    [meetings, selected],
-  );
+  // Match meetings by ACCOUNT, not by the selected deal id: meetings hang off
+  // individual opportunities, and the account spans several of them.
+  const filteredMeetings = useMemo(() => {
+    if (selected === "all") return meetings;
+    const accountName = selectedAccount?.accountName;
+    if (!accountName) return [];
+    return meetings.filter((m) => m.deal.accountName === accountName);
+  }, [meetings, selected, selectedAccount]);
 
   const selectedMeeting = useMemo(
     () => meetings.find((m) => m.id === selectedMeetingId) ?? null,

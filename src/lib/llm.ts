@@ -358,7 +358,8 @@ export async function runLlmConnectionDiagnostics(): Promise<LlmDiagnostics> {
       model: config.model,
       hasApiKey: Boolean(config.apiKey),
       insecureTls: config.insecureTls,
-      timeoutMs: Math.min(config.timeoutMs, 15000),
+      preflightTimeoutMs: Math.min(config.timeoutMs, 15000),
+      chatTimeoutMs: Math.min(config.timeoutMs, 45000),
     },
   });
   if (!config.apiKey) {
@@ -379,7 +380,11 @@ export async function runLlmConnectionDiagnostics(): Promise<LlmDiagnostics> {
     };
   }
 
+  // Preflight steps (DNS/TCP/models) stay snappy; the chat step gets a realistic
+  // budget so a slow model cold-start (common on shared NAI) isn't reported as a
+  // failure when the app's real 60s chat calls would still succeed.
   const probe: LlmConfig = { ...config, timeoutMs: Math.min(config.timeoutMs, 15000) };
+  const chatProbe: LlmConfig = { ...config, timeoutMs: Math.min(config.timeoutMs, 45000) };
   const socketTimeoutMs = Math.min(probe.timeoutMs, 5000);
   const targetUrl = new URL(config.baseUrl);
   const targetHost = targetUrl.hostname;
@@ -395,9 +400,14 @@ export async function runLlmConnectionDiagnostics(): Promise<LlmDiagnostics> {
     if (err.code) parts.push(`code=${err.code}`);
     return parts.join(" | ");
   };
-  const timedRequest = async (path: string, method: "GET" | "POST", payload?: unknown) => {
+  const timedRequest = async (
+    path: string,
+    method: "GET" | "POST",
+    payload?: unknown,
+    cfg: LlmConfig = probe,
+  ) => {
     const start = Date.now();
-    const result = await request(probe, path, method, payload);
+    const result = await request(cfg, path, method, payload);
     return { result, elapsedMs: Date.now() - start };
   };
   const runCommand = async (command: string, args: string[], timeoutMs = 7000) => {
@@ -661,11 +671,16 @@ export async function runLlmConnectionDiagnostics(): Promise<LlmDiagnostics> {
   }
 
   try {
-    const completion = await timedRequest("/chat/completions", "POST", {
-      model: config.model,
-      stream: false,
-      messages: [{ role: "user", content: "Reply with exactly: NAI_OK" }],
-    });
+    const completion = await timedRequest(
+      "/chat/completions",
+      "POST",
+      {
+        model: config.model,
+        stream: false,
+        messages: [{ role: "user", content: "Reply with exactly: NAI_OK" }],
+      },
+      chatProbe,
+    );
     const ok = completion.result.status >= 200 && completion.result.status < 300;
     if (!ok) {
       steps.push({
@@ -760,7 +775,7 @@ export async function runLlmConnectionDiagnostics(): Promise<LlmDiagnostics> {
     steps.push({
       step: "Chat completions endpoint",
       ok: false,
-      detail: `POST ${config.baseUrl}/chat/completions failed before receiving an HTTP response: ${formatErr(error)} (timeout=${probe.timeoutMs}ms).`,
+      detail: `POST ${config.baseUrl}/chat/completions failed before receiving an HTTP response: ${formatErr(error)} (timeout=${chatProbe.timeoutMs}ms).`,
       raw: {
         request: {
           method: "POST",

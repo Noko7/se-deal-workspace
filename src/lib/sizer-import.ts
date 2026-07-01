@@ -11,8 +11,20 @@
 export type SizerComponent = {
   code: string;
   description: string;
+  // OEM (Cisco/Dell/HPE) exports classify each line with a featureName such as
+  // "CPU", "RAM", "HDD", "SSD", "NVME" or "NETWORK" instead of using Nutanix
+  // C-* SKU prefixes. We key off this first so OEM specs populate correctly.
+  featureName: string | null;
   qtyPerNode: number | null;
   totalQty: number | null;
+};
+
+// External enterprise storage arrays Nutanix compute can run against (NVMe/TCP).
+export type ExternalStorageInfo = {
+  arrayDisplayName: string | null; // e.g. "FlashArray//C50"
+  productFamily: string | null; // e.g. "FlashArray//C50"
+  vendorCode: string | null; // e.g. "CISCO-OEM"
+  vendor: string | null; // normalized: "Pure Storage" | "Dell PowerStore"
 };
 
 export type NodeModel = {
@@ -58,6 +70,7 @@ export type ProposalCluster = {
   failover: { nMinus1: number | null; nMinus2: number | null }; // overall % at N-1 / N-2
   models: NodeModel[];
   license: { edition: string; cores: number | null; termMonths: number | null } | null;
+  externalStorage: ExternalStorageInfo | null;
 };
 
 export type ProposalScenario = {
@@ -84,6 +97,8 @@ export type ProposalScenario = {
     vCpus: number | null;
   };
   clusters: ProposalCluster[];
+  // First external storage array detected across clusters, if the build uses one.
+  externalStorage: ExternalStorageInfo | null;
 };
 
 // --- low-level guards --------------------------------------------------------
@@ -122,6 +137,7 @@ function parseComponents(raw: unknown[]): SizerComponent[] {
     out.push({
       code,
       description: strOf(c.description) ?? code,
+      featureName: strOf(c.featureName),
       qtyPerNode: numOf(c.qtyPerNode),
       totalQty: numOf(c.totalQtyAcrossBlocks) ?? numOf(c.qty),
     });
@@ -129,44 +145,96 @@ function parseComponents(raw: unknown[]): SizerComponent[] {
   return out;
 }
 
-function parseCpu(components: SizerComponent[]): NodeModel["cpu"] {
-  const c = components.find((x) => x.code.startsWith("C-CPU") && !/NONE/i.test(x.code));
+// A "NONE" placeholder line (e.g. C-HDD-NONE, C-SSD-NONE_Cisco-CP) means the
+// component is intentionally absent -- common on OEM external-storage builds.
+function isNone(c: SizerComponent): boolean {
+  // Match "NONE" even when a suffix is glued on (e.g. C-SSD-NONE_Cisco-CP), and
+  // catch OEM "No X Included" phrasing in the description.
+  return /NONE/i.test(c.code) || /\bNo\s+(HDD|SSD|NVMe?|GPU|Network|Memory)\b/i.test(c.description);
+}
+function feature(c: SizerComponent): string {
+  return (c.featureName ?? "").toUpperCase();
+}
+
+// Pull a clean "Intel Xeon 6745P" / "AMD EPYC 9654" out of either the Nutanix
+// description ("... Intel Xeon 6530P processor ...") or the OEM parenthetical
+// ("(Intel(R) Xeon(R) 6745P CPU @ 3.1GHz)").
+function cpuModelFromDescription(desc: string): string | null {
+  const intel = desc.match(/Intel(?:\(R\))?\s*Xeon(?:\(R\))?\s*[\w-]+/i);
+  if (intel) return intel[0].replace(/\(R\)/gi, "").replace(/\s+/g, " ").trim();
+  const amd = desc.match(/AMD\s*(?:\(R\))?\s*EPYC\s*[\w-]+/i);
+  if (amd) return amd[0].replace(/\(R\)/gi, "").replace(/\s+/g, " ").trim();
+  return null;
+}
+
+// Cluster context lets us derive per-CPU core counts for OEM exports whose
+// component descriptions omit the core count (we back it out of capacity).
+type ClusterContext = { cores?: number | null; nodes?: number | null };
+
+function parseCpu(components: SizerComponent[], ctx: ClusterContext = {}): NodeModel["cpu"] {
+  const c = components.find(
+    (x) => (feature(x) === "CPU" || x.code.startsWith("C-CPU") || /_CPU_/i.test(x.code)) && !isNone(x),
+  );
   if (!c) return null;
-  const ghz = c.description.match(/([\d.]+)\s*GHz/i);
-  const cores = c.description.match(/([\d]+)[ -]core/i);
+  // Prefer the human-readable "@ 3.1GHz" form; the raw SKU can glue a version
+  // like "..._CPU___3_1GHz" that would otherwise misparse to 1 GHz.
+  const ghz = c.description.match(/@\s*([\d.]+)\s*GHz/i) ?? c.description.match(/([\d]+\.[\d]+)\s*GHz/i);
+  const coreMatch = c.description.match(/([\d]+)[ -]?core/i);
   const watts = c.description.match(/([\d]+)\s*W\b/i);
-  const model = c.description.match(/Intel Xeon\s+\S+|AMD EPYC\s+\S+/i);
+  const socketsPerNode = c.qtyPerNode ?? 1;
+
+  let coresPerCpu = coreMatch ? Number(coreMatch[1]) : null;
+  // OEM exports rarely spell out cores; derive from cluster capacity when we can.
+  if (coresPerCpu == null && ctx.cores && ctx.nodes && socketsPerNode) {
+    const derived = ctx.cores / ctx.nodes / socketsPerNode;
+    if (Number.isFinite(derived) && derived > 0) coresPerCpu = Math.round(derived);
+  }
+
   return {
     code: c.code,
-    model: model ? model[0] : c.code.replace(/^C-CPU-/, "Xeon "),
+    model: cpuModelFromDescription(c.description) ?? c.code.replace(/^C-CPU-/, "Xeon "),
     ghz: ghz ? Number(ghz[1]) : null,
-    coresPerCpu: cores ? Number(cores[1]) : null,
+    coresPerCpu,
     watts: watts ? Number(watts[1]) : null,
-    socketsPerNode: c.qtyPerNode ?? 1,
+    socketsPerNode,
   };
 }
 
 function parseMemory(components: SizerComponent[]): NodeModel["memory"] {
-  const c = components.find((x) => x.code.startsWith("C-MEM") && !/NONE/i.test(x.code));
+  const c = components.find(
+    (x) =>
+      (feature(x) === "RAM" || feature(x) === "MEMORY" || x.code.startsWith("C-MEM") || /_MEMORY_/i.test(x.code)) &&
+      !isNone(x),
+  );
   if (!c) return null;
   const mod = c.description.match(/([\d]+)\s*GB/i);
   const moduleGiB = mod ? Number(mod[1]) : null;
   const modulesPerNode = c.qtyPerNode ?? 0;
+
+  // OEM lines report the total memory per node ("768GB Memory", qty 1) rather
+  // than a module size × count, so treat the GB figure as the per-node total.
+  const isOemTotal = feature(c) === "RAM" || /_MEMORY_/i.test(c.code);
+  if (isOemTotal && moduleGiB != null) {
+    return { moduleGiB: null, modulesPerNode: modulesPerNode || 1, perNodeGiB: moduleGiB };
+  }
+
   return {
     moduleGiB,
     modulesPerNode,
-    perNodeGiB: moduleGiB != null && modulesPerNode ? moduleGiB * modulesPerNode : null,
+    perNodeGiB: moduleGiB != null && modulesPerNode ? moduleGiB * modulesPerNode : moduleGiB,
   };
 }
 
 function parseDrives(components: SizerComponent[]): NodeModel["drives"] {
   const out: NodeModel["drives"] = [];
   for (const c of components) {
-    const isNvme = c.code.startsWith("C-NVM");
-    const isSsd = c.code.startsWith("C-SSD");
-    const isHdd = c.code.startsWith("C-HDD");
+    const fn = feature(c);
+    const isNvme = c.code.startsWith("C-NVM") || fn === "NVME" || /_NVME?_/i.test(c.code);
+    const isSsd = c.code.startsWith("C-SSD") || fn === "SSD";
+    const isHdd = c.code.startsWith("C-HDD") || fn === "HDD";
     if (!(isNvme || isSsd || isHdd)) continue;
-    if (/NONE/i.test(c.code)) continue;
+    // Skip NONE placeholders -- e.g. external-storage builds carry no internal drives.
+    if (isNone(c)) continue;
     const size = c.description.match(/([\d.]+)\s*TB/i);
     out.push({
       code: c.code,
@@ -179,17 +247,19 @@ function parseDrives(components: SizerComponent[]): NodeModel["drives"] {
 }
 
 function parseNic(components: SizerComponent[]): string | null {
-  const nics = components.filter((x) => x.code.startsWith("C-NIC") && !/NONE/i.test(x.code));
+  const nics = components.filter(
+    (x) => (x.code.startsWith("C-NIC") || feature(x) === "NETWORK" || feature(x) === "NETWORKING") && !isNone(x),
+  );
   if (!nics.length) return null;
   return nics.map((n) => `${n.qtyPerNode ?? 1}× ${n.description.replace(/^C-NIC-\S+\s*/, "")}`.trim()).join(", ");
 }
 
 function parseGpu(components: SizerComponent[]): string | null {
-  const g = components.find((x) => x.code.startsWith("C-GPU") && !/NONE/i.test(x.code));
+  const g = components.find((x) => (x.code.startsWith("C-GPU") || feature(x) === "GPU") && !isNone(x));
   return g ? g.description : null;
 }
 
-function parseBlocks(blockInfo: unknown[]): NodeModel[] {
+function parseBlocks(blockInfo: unknown[], ctx: ClusterContext = {}): NodeModel[] {
   const models: NodeModel[] = [];
   for (const b of blockInfo) {
     if (!isObj(b)) continue;
@@ -203,7 +273,7 @@ function parseBlocks(blockInfo: unknown[]): NodeModel[] {
       blocks,
       nodesInBlock,
       nodes: blocks * nodesInBlock,
-      cpu: parseCpu(components),
+      cpu: parseCpu(components, ctx),
       memory: parseMemory(components),
       drives: parseDrives(components),
       nic: parseNic(components),
@@ -212,6 +282,35 @@ function parseBlocks(blockInfo: unknown[]): NodeModel[] {
     });
   }
   return models;
+}
+
+// Map an array display name / vendor code to a normalized vendor label.
+function normalizeStorageVendor(...hints: (string | null)[]): string | null {
+  const hay = hints.filter(Boolean).join(" ");
+  if (/pure|flasharray|flashblade/i.test(hay)) return "Pure Storage";
+  if (/powerstore|dell|powermax|unity/i.test(hay)) return "Dell PowerStore";
+  return null;
+}
+
+// Detect an external storage array from a cluster's summary + externalStorageData.
+function parseExternalStorage(raw: Record<string, unknown>): ExternalStorageInfo | null {
+  const ssw = isObj(raw.sizingSummaryWrapper) ? raw.sizingSummaryWrapper : {};
+  const cs = isObj(ssw.currentSummary) ? ssw.currentSummary : {};
+  const summary = isObj(cs.externalStorageSummary) ? cs.externalStorageSummary : null;
+  const esd = isObj(raw.externalStorageData) ? raw.externalStorageData : {};
+  const sizing = isObj(esd.sizing) ? esd.sizing : {};
+
+  const arrayDisplayName = summary ? strOf(summary.arrayDisplayName) : null;
+  const productFamily = strOf(sizing.productFamily);
+  const vendorCode = strOf(sizing.vendorCode);
+  if (!arrayDisplayName && !productFamily) return null;
+
+  return {
+    arrayDisplayName,
+    productFamily,
+    vendorCode,
+    vendor: normalizeStorageVendor(arrayDisplayName, productFamily, vendorCode),
+  };
 }
 
 function parseLicense(cblInfo: unknown[]): ProposalCluster["license"] {
@@ -241,7 +340,14 @@ function parseCluster(raw: unknown): ProposalCluster | null {
   if (!isObj(raw)) return null;
   const name = strOf(raw.name) ?? "Cluster";
   const ml = isObj(raw.modelAndLicenseDetails) ? raw.modelAndLicenseDetails : {};
-  const models = parseBlocks(asArr(ml.blockBudgetaryQuoteInfo));
+  const capacity = parseCapacity(raw.capacitySummary);
+  // Count nodes up front so parseCpu can derive OEM core counts from capacity.
+  const blockInfo = asArr(ml.blockBudgetaryQuoteInfo);
+  const nodeCount = blockInfo.reduce<number>((sum, b) => {
+    if (!isObj(b)) return sum;
+    return sum + (numOf(b.count) ?? 0) * (numOf(b.nodesInBlock) ?? 1);
+  }, 0);
+  const models = parseBlocks(blockInfo, { cores: capacity.cores, nodes: nodeCount });
   const license = parseLicense(asArr(ml.cblBudgetaryQuoteInfo));
   const nodes = models.reduce((sum, m) => sum + m.nodes, 0);
 
@@ -257,7 +363,8 @@ function parseCluster(raw: unknown): ProposalCluster | null {
     name,
     solutionType: strOf(raw.solutionType),
     nodes,
-    capacity: parseCapacity(raw.capacitySummary),
+    capacity,
+    externalStorage: parseExternalStorage(raw),
     utilization: {
       cpu: numOf(cur.cpu),
       ram: numOf(cur.ram),
@@ -319,5 +426,6 @@ export function parseSizerScenario(raw: unknown): ProposalScenario {
       vCpus: numOf(wTotal.vCpus),
     },
     clusters,
+    externalStorage: clusters.find((c) => c.externalStorage)?.externalStorage ?? null,
   };
 }

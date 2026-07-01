@@ -324,10 +324,28 @@ export function applyDealMode(
   };
 }
 
+/** Map a detected external-storage vendor string to a supported deal vendor. */
+function detectExternalStorageVendor(scenario: ProposalScenario): ExternalStorageVendor | null {
+  const v = scenario.externalStorage?.vendor ?? null;
+  if (v && (EXTERNAL_STORAGE_VENDORS as string[]).includes(v)) return v as ExternalStorageVendor;
+  // Fall back to name sniffing when the vendor wasn't normalized upstream.
+  const hay = [scenario.externalStorage?.arrayDisplayName, scenario.externalStorage?.productFamily]
+    .filter(Boolean)
+    .join(" ");
+  if (/pure|flasharray|flashblade/i.test(hay)) return "Pure Storage";
+  if (/powerstore|dell|powermax|unity/i.test(hay)) return "Dell PowerStore";
+  return null;
+}
+
 /** Build a ready-to-edit proposal with defaults derived from the scenario. */
 export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
   const t = scenario.totals;
-  const n = proposalNarrative(scenario, false);
+
+  // Auto-detect an external-storage build (e.g. Nutanix compute + Pure FlashArray)
+  // so the copy, vendor logo, and deal framing default correctly on import.
+  const externalStorageDetected = scenario.externalStorage != null;
+  const detectedVendor = detectExternalStorageVendor(scenario) ?? "Pure Storage";
+  const n = proposalNarrative(scenario, externalStorageDetected, detectedVendor);
 
   const built: ProposalDoc = {
     meta: {
@@ -341,7 +359,11 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
       edition: detectEdition(scenario),
       vendor: detectVendor(scenario),
     },
-    options: { includeSoftwareSlides: true, externalStorage: false, externalStorageVendor: "Pure Storage" },
+    options: {
+      includeSoftwareSlides: true,
+      externalStorage: externalStorageDetected,
+      externalStorageVendor: detectedVendor,
+    },
     contacts: [
       { name: scenario.meta.se, title: "Systems Engineer", email: scenario.meta.seEmail ?? "", phone: "" },
       { name: "", title: "Account Executive", email: "", phone: "" },

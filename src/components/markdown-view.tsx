@@ -4,9 +4,13 @@ import { Fragment, type ReactNode } from "react";
 // structure the Note Formatter prompt asks the model for (headings, ordered &
 // unordered lists, task checkboxes, bold/inline code, paragraphs).
 
+// Split on **bold**, *italic*, `code`, and [links](url), keeping delimiters via
+// capture groups. Bold is listed before italic so the greedy ** match wins.
+const INLINE_SPLIT = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
+const LINK_RE = /^\[([^\]]+)\]\(([^)\s]+)\)$/;
+
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
-  // Split on **bold** and `code`, keeping the delimiters via capture groups.
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter((part) => part.length > 0);
+  const parts = text.split(INLINE_SPLIT).filter((part) => part.length > 0);
   return parts.map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (part.startsWith("**") && part.endsWith("**")) {
@@ -21,6 +25,27 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         <code key={key} className="rounded bg-charcoal-100 px-1 py-0.5 font-mono text-[0.85em] text-charcoal-800">
           {part.slice(1, -1)}
         </code>
+      );
+    }
+    const link = LINK_RE.exec(part);
+    if (link) {
+      return (
+        <a
+          key={key}
+          href={link[2]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-iris-600 underline underline-offset-2 hover:text-iris-700"
+        >
+          {link[1]}
+        </a>
+      );
+    }
+    if (part.length > 2 && part.startsWith("*") && part.endsWith("*")) {
+      return (
+        <em key={key} className="italic">
+          {part.slice(1, -1)}
+        </em>
       );
     }
     return <Fragment key={key}>{part}</Fragment>;

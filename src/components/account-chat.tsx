@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot, Lock, Plus, Send, Sparkles, User, X } from "lucide-react";
 import { ingestAccountDataAction } from "@/lib/actions";
 import { BrainIcon } from "@/components/brain-ui";
+import { MarkdownView } from "@/components/markdown-view";
 
 type Attachment = { id: string; name: string; url: string };
 type ChatTurn = { role: "user" | "assistant"; content: string; images?: string[] };
@@ -281,7 +282,11 @@ export function AccountChat({
                     ))}
                   </div>
                 ) : null}
-                <p className="whitespace-pre-wrap leading-relaxed">{turn.content}</p>
+                {turn.role === "assistant" ? (
+                  <MarkdownView markdown={turn.content} />
+                ) : (
+                  <p className="whitespace-pre-wrap leading-relaxed">{turn.content}</p>
+                )}
               </div>
             </div>
           ))

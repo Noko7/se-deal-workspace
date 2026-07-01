@@ -40,6 +40,7 @@ export function buildSampleScenario(se = "Nutanix SE"): ProposalScenario {
       failover: { nMinus1: 60, nMinus2: 90 },
       models: [model("NX-1175S-G10", 3, 1, { model: "Intel Xeon 6517P", ghz: 3.2, cores: 16, sockets: 1 }, { moduleGiB: 32, modules: 8 }, [{ kind: "NVMe" as const, sizeTB: 3.84, perNode: 4 }])],
       license: { edition: "Pro", cores: 48, termMonths: 36 },
+      externalStorage: null,
     },
     {
       name: "North-Char",
@@ -50,6 +51,7 @@ export function buildSampleScenario(se = "Nutanix SE"): ProposalScenario {
       failover: { nMinus1: 76, nMinus2: 108 },
       models: [model("NX-8170-G10", 4, 1, { model: "Intel Xeon 6530P", ghz: 2.3, cores: 32, sockets: 2 }, { moduleGiB: 32, modules: 24 }, [{ kind: "NVMe" as const, sizeTB: 7.68, perNode: 6 }])],
       license: { edition: "Pro", cores: 256, termMonths: 36 },
+      externalStorage: null,
     },
     {
       name: "CJIS",
@@ -63,6 +65,7 @@ export function buildSampleScenario(se = "Nutanix SE"): ProposalScenario {
         model("NX-3135-G10", 1, 1, { model: "Intel Xeon 6527P", ghz: 3.0, cores: 24, sockets: 2 }, { moduleGiB: 64, modules: 8 }, [{ kind: "SSD" as const, sizeTB: 7.68, perNode: 6 }]),
       ],
       license: { edition: "Pro", cores: 240, termMonths: 36 },
+      externalStorage: null,
     },
   ];
   return {
@@ -80,5 +83,6 @@ export function buildSampleScenario(se = "Nutanix SE"): ProposalScenario {
     },
     totals: { clusters: 3, nodes: 12, cores: 544, ramGiB: 6400, ssdTiB: 419.1, hddTiB: 0, vmCount: 123, vCpus: 553 },
     clusters,
+    externalStorage: null,
   };
 }

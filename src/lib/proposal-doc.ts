@@ -347,6 +347,13 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
   const detectedVendor = detectExternalStorageVendor(scenario) ?? "Pure Storage";
   const n = proposalNarrative(scenario, externalStorageDetected, detectedVendor);
 
+  // External-storage designs are licensed with NCI Compute (NCI-C); everything
+  // else uses the standard NCI base platform. Clamp the detected edition to the
+  // tiers the chosen base platform actually offers.
+  const detectedEdition = detectEdition(scenario);
+  const baseProduct = externalStorageDetected ? "ComputeInfrastructure" : "CloudInfrastructure";
+  const baseTier = LICENSE_CATALOG[baseProduct].tiers.includes(detectedEdition) ? detectedEdition : "Pro";
+
   const built: ProposalDoc = {
     meta: {
       customer: scenario.meta.customer,
@@ -378,7 +385,7 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
     timeline: DEFAULT_TIMELINE.map((m) => ({ ...m })),
     licensing: {
       termYears: 3,
-      lines: [newLicenseLine("CloudInfrastructure", { tier: detectEdition(scenario), qty: Math.round(t.cores) })],
+      lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) })],
     },
     quote: { ...n.quote },
     scenario,

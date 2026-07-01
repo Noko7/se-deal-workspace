@@ -5,9 +5,13 @@
 
 import type { ProductKey } from "@/lib/nutanix-icons";
 
-// EUC (End User Computing) is not in the product-icon set, so license lines use a
-// slightly wider key than ProductKey.
-export type LicenseProductKey = ProductKey | "EUC";
+// EUC (End User Computing) and NCI-C (NCI Compute) are not in the product-icon
+// set, so license lines use a slightly wider key than ProductKey.
+export type LicenseProductKey = ProductKey | "EUC" | "ComputeInfrastructure";
+
+// Base platforms rendered with a text badge instead of a brand product icon.
+export const TEXT_BADGE_PRODUCTS: LicenseProductKey[] = ["EUC", "ComputeInfrastructure"];
+export const hasBrandIcon = (p: LicenseProductKey): p is ProductKey => !TEXT_BADGE_PRODUCTS.includes(p);
 
 export type LicenseLine = {
   id: string;
@@ -47,6 +51,16 @@ export const LICENSE_CATALOG: Record<LicenseProductKey, CatalogEntry> = {
     blurbs: {
       Pro: "Full-stack platform for virtual desktops and apps",
       Ultimate: "End user computing with advanced management and security",
+    },
+  },
+  ComputeInfrastructure: {
+    label: "NCI-C",
+    category: "Cloud Infrastructure Compute (per core)",
+    unit: "cores",
+    tiers: ["Pro", "Ultimate"],
+    blurbs: {
+      Pro: "Nutanix compute (AHV) for nodes running against an external storage array",
+      Ultimate: "Nutanix compute for external storage with advanced management and security",
     },
   },
   CloudManager: {
@@ -122,8 +136,9 @@ export function licenseBlurb(product: LicenseProductKey, tier: string): string {
 }
 
 // Base platform licenses: every design has exactly one. EUC can replace NCI for
-// end-user-computing / VDI deployments.
-export const BASE_PLATFORMS: LicenseProductKey[] = ["CloudInfrastructure", "EUC"];
+// end-user-computing / VDI deployments; NCI-C (Compute) is the base for designs
+// where storage is delivered by an external array instead of Nutanix.
+export const BASE_PLATFORMS: LicenseProductKey[] = ["CloudInfrastructure", "ComputeInfrastructure", "EUC"];
 export const isBasePlatform = (p: LicenseProductKey) => BASE_PLATFORMS.includes(p);
 
 // Add-on products shown in the "add product" controls (base platforms excluded

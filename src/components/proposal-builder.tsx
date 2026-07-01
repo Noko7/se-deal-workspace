@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignLeft, Check, ChevronDown, Download, FileDown, FileJson, FileText, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Sparkles, Upload, X, Zap } from "lucide-react";
+import { AlignLeft, Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Sparkles, Upload, X, Zap } from "lucide-react";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
 import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
@@ -9,7 +9,7 @@ import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
-import { BASE_PLATFORMS, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
+import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
 import { Button } from "@/components/ui";
 
@@ -68,6 +68,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   const [tab, setTab] = useState<"twopager" | "bom">("twopager");
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
+  const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
@@ -88,10 +89,12 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
     setError(null);
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  async function handleFile(file: File) {
+    if (file.type && !/json/i.test(file.type) && !/\.json$/i.test(file.name)) {
+      setDoc(null);
+      setError("That is not a JSON file. Export your scenario from sizer.nutanix.com as JSON and try again.");
+      return;
+    }
     try {
       const text = await file.text();
       const json = JSON.parse(text);
@@ -100,6 +103,29 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       setDoc(null);
       setError(err instanceof Error ? err.message : "Could not read that file. Upload a Nutanix Sizer scenario JSON export.");
     }
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await handleFile(file);
+  }
+
+  // Shared drag-and-drop handlers for the upload dropzone.
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    if (!dragging) setDragging(true);
+  }
+  function onDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleFile(file);
   }
 
   function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -174,19 +200,37 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   if (!doc) {
     return (
       <div className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-charcoal-900">Proposal Builder</h2>
+            <p className="text-xs text-charcoal-500">Turn a Nutanix Sizer export into a customer-ready brief and BOM deck.</p>
+          </div>
+          <HelpPopover />
+        </div>
         <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
         <button
           type="button"
           onClick={() => fileInput.current?.click()}
-          className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-iris-300 bg-gradient-to-br from-iris-50 to-white px-6 py-12 text-center transition hover:border-iris-400"
+          onDragOver={onDragOver}
+          onDragEnter={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          aria-label="Upload or drop a Nutanix Sizer scenario JSON file"
+          className={`flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition ${
+            dragging
+              ? "border-iris-500 bg-iris-100 ring-2 ring-iris-300"
+              : "border-iris-300 bg-gradient-to-br from-iris-50 to-white hover:border-iris-400"
+          }`}
         >
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-iris-100 text-iris-600">
+          <span className={`flex h-12 w-12 items-center justify-center rounded-full text-iris-600 transition ${dragging ? "scale-110 bg-iris-200" : "bg-iris-100"}`}>
             <Upload className="h-6 w-6" />
           </span>
-          <span className="text-base font-semibold text-charcoal-900">Upload a Nutanix Sizer scenario (JSON)</span>
+          <span className="text-base font-semibold text-charcoal-900">
+            {dragging ? "Drop the JSON to build the proposal" : "Upload a Nutanix Sizer scenario (JSON)"}
+          </span>
           <span className="max-w-md text-sm text-charcoal-500">
-            In sizer.nutanix.com open your scenario → Actions → Export → JSON, then drop the file here. We&apos;ll build an on-brand
-            2-page Solution Brief and a polished BOM deck from it.
+            In sizer.nutanix.com open your scenario, then Actions, Export, JSON. Drag the file here or click to browse. We&apos;ll build
+            an on-brand 2-page Solution Brief and a polished BOM deck from it.
           </span>
         </button>
         {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
@@ -241,6 +285,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           <Button onClick={exportPptx} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pptx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} BOM .pptx</span>
           </Button>
+          <HelpPopover />
         </div>
       </div>
 
@@ -421,6 +466,77 @@ function PreviewScaler({ children }: { children: React.ReactNode }) {
   );
 }
 
+// A small "?" button that reveals plain, no-jargon usage steps. Closes on
+// Escape or an outside click, and is fully keyboard reachable.
+const HELP_STEPS: string[] = [
+  "In Sizer, size the scenario and set the correct Nutanix licensing (NCI edition, NCI-C for external storage, or EUC). This tool reads the licensing from your export, so set it there first.",
+  "Export the scenario as JSON: Actions, then Export, then JSON.",
+  "Drag the JSON file onto this page, or click the upload area to browse.",
+  "Review the 2-page brief and BOM deck, edit any text inline, then export to PDF or PowerPoint.",
+];
+
+function HelpPopover({ align = "right" }: { align?: "left" | "right" }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="How to use the Proposal Builder"
+        className="flex h-8 w-8 items-center justify-center rounded-full border border-charcoal-200 bg-white text-charcoal-500 transition hover:border-iris-300 hover:text-iris-600"
+      >
+        <HelpCircle className="h-4 w-4" />
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="How to use the Proposal Builder"
+          className={`absolute z-30 mt-2 w-80 rounded-xl border border-charcoal-200 bg-white p-4 shadow-xl ${align === "right" ? "right-0" : "left-0"}`}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-semibold text-charcoal-900">How to use this tool</p>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close help" className="rounded-md bg-transparent p-0.5 text-charcoal-400 hover:text-charcoal-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <ol className="space-y-2">
+            {HELP_STEPS.map((step, i) => (
+              <li key={i} className="flex gap-2.5 text-xs leading-relaxed text-charcoal-600">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-iris-100 text-[11px] font-semibold text-iris-700">
+                  {i + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 rounded-lg bg-iris-50 px-2.5 py-2 text-[11px] leading-relaxed text-iris-700">
+            Tip: external storage builds are detected automatically and reframe the copy and logos.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Section({ title, icon, defaultOpen, children }: { title: string; icon: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   return (
@@ -491,7 +607,7 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
       const l = d.licensing.lines.find((x) => x.id === id);
       if (l) {
         mut(l);
-        if (l.product === "CloudInfrastructure") d.meta.edition = l.tier as EditionKey;
+        if (l.product === "CloudInfrastructure" || l.product === "ComputeInfrastructure") d.meta.edition = l.tier as EditionKey;
       }
       return d;
     });
@@ -514,8 +630,8 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
       } else {
         d.licensing.lines = [newLicenseLine(product, { tier: preferredTier }), ...d.licensing.lines];
       }
-      if (product === "CloudInfrastructure") {
-        const t = d.licensing.lines.find((l) => l.product === "CloudInfrastructure")?.tier;
+      if (product === "CloudInfrastructure" || product === "ComputeInfrastructure") {
+        const t = d.licensing.lines.find((l) => l.product === product)?.tier;
         d.meta.edition = (t as EditionKey) ?? "Pro";
       }
       return d;
@@ -542,9 +658,9 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
         </label>
       </div>
 
-      {/* Base platform: NCI or EUC (mutually exclusive). */}
+      {/* Base platform: NCI, NCI-C (external storage), or EUC (mutually exclusive). */}
       <p className="mb-1 text-[11px] font-semibold text-charcoal-600">Base platform <span className="font-normal text-charcoal-400">(choose one)</span></p>
-      <div className="mb-2 grid grid-cols-2 gap-2">
+      <div className="mb-2 grid grid-cols-3 gap-2">
         {BASE_PLATFORMS.map((p) => {
           const selected = baseLine?.product === p;
           return (
@@ -562,16 +678,15 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
         {(baseLine ? [baseLine, ...addonLines] : addonLines).map((l) => {
           const cat = LICENSE_CATALOG[l.product];
           const base = isBasePlatform(l.product);
-          const isEuc = l.product === "EUC";
           return (
             <div key={l.id} className={`rounded-md border p-2 ${base ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"}`}>
               <div className="flex items-center gap-2">
-                {/* Little product icon for the license, except EUC (no icon in the brand pack -> text badge). */}
-                {isEuc ? (
-                  <span className="flex h-5 shrink-0 items-center rounded bg-iris-600 px-1.5 text-[10px] font-extrabold text-white">EUC</span>
-                ) : (
+                {/* Brand icon where one exists; EUC and NCI-C fall back to a text badge. */}
+                {hasBrandIcon(l.product) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={getProductIcon(l.product as Parameters<typeof getProductIcon>[0], "Color", "abbreviated")} alt={cat.label} className="h-5 w-5 shrink-0 object-contain" />
+                  <img src={getProductIcon(l.product, "Color", "abbreviated")} alt={cat.label} className="h-5 w-5 shrink-0 object-contain" />
+                ) : (
+                  <span className="flex h-5 shrink-0 items-center rounded bg-iris-600 px-1.5 text-[10px] font-extrabold text-white">{cat.label}</span>
                 )}
                 <span className="text-xs font-semibold text-charcoal-800">{cat.label}{base ? " (base)" : ""}</span>
                 <span className="ml-auto truncate text-[11px] text-charcoal-500">{cat.category}</span>

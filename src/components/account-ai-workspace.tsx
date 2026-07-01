@@ -122,8 +122,9 @@ export function AccountAiWorkspace({
     return {
       description: `Account-AI is trained on ${name}'s knowledge base — ${counts} for this account only.`,
       suggestions: [
-        "What is the fastest path to close this deal, and what is blocking it today?",
-        "Map the buying committee: who is my champion, who is a blocker, and how do I win them?",
+        "Get me up to speed on any open opportunities on this account and their status.",
+        "What is the fastest path to close the open deals, and what is blocking each today?",
+        "Summarize the latest next steps across the account and who owns them.",
         "What objections should I prepare for based on the incumbent and competitor, and how do I counter them?",
       ],
       placeholder: `Ask anything about ${name}…`,
@@ -151,20 +152,10 @@ export function AccountAiWorkspace({
                   <h3 className="text-xs font-semibold text-charcoal-900">
                     {isAll ? "Upcoming & past meetings" : `Meetings with ${selectedAccount?.accountName ?? "this account"}`}
                   </h3>
-                  <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
                 </span>
                 {selectedAccount ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
-                    <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
                     {selectedAccount.aiOptOut ? <StatusPill tone="warning">AI opted out</StatusPill> : null}
-                    <span>
-                      <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
-                    </span>
-                    {selectedAccount.latestSignal ? (
-                      <span>
-                        <span className="font-semibold text-charcoal-800">Signal:</span> {selectedAccount.latestSignal}
-                      </span>
-                    ) : null}
                     <a
                       href={insightsUrl}
                       target="_blank"

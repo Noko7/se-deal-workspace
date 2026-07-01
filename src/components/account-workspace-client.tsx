@@ -11,7 +11,8 @@ import { detectTimeZone, type CalendarMeeting } from "@/lib/calendar";
 import type { BrainSummary } from "@/lib/account-ai";
 
 const ACCOUNT_SUGGESTIONS = [
-  "Summarize where this deal stands and the top technical risks.",
+  "Get me up to speed on any open opportunities on this account and their status.",
+  "Summarize where the open deals stand and the top technical risks.",
   "Draft discovery questions for our next meeting.",
   "What objections should I prepare for, and how do I counter them?",
 ];
@@ -97,7 +98,6 @@ export function AccountWorkspaceClient({
         <div className="mb-2.5 flex items-center gap-2">
           <CalendarRange className="h-4 w-4 text-iris-600" />
           <h3 className="text-xs font-semibold text-charcoal-900">Meetings with {accountName}</h3>
-          <span className="text-[11px] text-charcoal-500">synced from Outlook</span>
         </div>
         <MeetingCarousel meetings={meetings} timeZone={timeZone} onSelectMeeting={setSelectedId} />
       </div>

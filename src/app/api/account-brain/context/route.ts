@@ -14,7 +14,7 @@ const ITEM_TYPES: ContextItemType[] = [
   "email",
 ];
 
-type IncomingItem = { itemType?: unknown; itemId?: unknown };
+type IncomingItem = { itemType?: unknown; itemId?: unknown; dealId?: unknown };
 type Body = { dealId?: unknown; included?: unknown; items?: unknown };
 
 // Soft-include/exclude ingested items from an account's Account-AI context.
@@ -36,10 +36,15 @@ export async function POST(request: Request) {
 
   const rawItems = Array.isArray(body.items) ? (body.items as IncomingItem[]) : [];
   const items = rawItems
-    .map((item) => ({
-      itemType: sanitizeField(item?.itemType, 32) as ContextItemType,
-      itemId: sanitizeField(item?.itemId, 64),
-    }))
+    .map((item) => {
+      const owning = sanitizeField(item?.dealId, 64);
+      return {
+        itemType: sanitizeField(item?.itemType, 32) as ContextItemType,
+        itemId: sanitizeField(item?.itemId, 64),
+        // Falls back to the account's default deal when an item omits its owner.
+        dealId: owning.length > 0 ? owning : dealId,
+      };
+    })
     .filter((item) => ITEM_TYPES.includes(item.itemType) && item.itemId.length > 0)
     .slice(0, 500);
 

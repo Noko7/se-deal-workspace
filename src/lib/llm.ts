@@ -86,9 +86,20 @@ function parseBoolMaybe(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-// Effective runtime config: env vars first, DB-backed Integrations credentials
-// as fallback.
-export async function getResolvedLlmConfig(): Promise<LlmConfig | null> {
+// Short-lived cache for the resolved config. Under a concurrent multi-user
+// load the chat, health badge, and note formatter all resolve credentials on
+// every request; without this each one hits the DB. A few seconds of staleness
+// is fine (credential edits take effect on the next tick) and it collapses many
+// duplicate DB reads into one. Call invalidateLlmConfigCache() after a save to
+// pick up changes immediately.
+const CONFIG_CACHE_TTL_MS = 5_000;
+let configCache: { value: LlmConfig | null; at: number } | null = null;
+
+export function invalidateLlmConfigCache(): void {
+  configCache = null;
+}
+
+async function resolveLlmConfigUncached(): Promise<LlmConfig | null> {
   const env = getLlmConfig();
   const stored = await getLlmCredentialResolved();
 
@@ -103,6 +114,18 @@ export async function getResolvedLlmConfig(): Promise<LlmConfig | null> {
     timeoutMs: env?.timeoutMs ?? stored?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     insecureTls: insecureEnv ?? stored?.insecureTls ?? false,
   };
+}
+
+// Effective runtime config: env vars first, DB-backed Integrations credentials
+// as fallback. Memoized for a few seconds (see CONFIG_CACHE_TTL_MS).
+export async function getResolvedLlmConfig(): Promise<LlmConfig | null> {
+  const nowTs = Date.now();
+  if (configCache && nowTs - configCache.at < CONFIG_CACHE_TTL_MS) {
+    return configCache.value;
+  }
+  const value = await resolveLlmConfigUncached();
+  configCache = { value, at: nowTs };
+  return value;
 }
 
 // The default system prompt for a given note kind, overridable via env. The UI
@@ -221,13 +244,15 @@ export async function getLlmStatus(): Promise<LlmStatus> {
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 // Run a multi-turn chat against the resolved LLM. Throws when the LLM is not
-// configured so callers can return a clear "not configured" response.
-export async function runChat(messages: ChatMessage[]): Promise<string> {
-  const config = await getResolvedLlmConfig();
-  if (!config) {
+// configured so callers can return a clear "not configured" response. Callers
+// that already resolved the config (e.g. the chat route) can pass it in to
+// avoid a second lookup.
+export async function runChat(messages: ChatMessage[], config?: LlmConfig | null): Promise<string> {
+  const resolved = config ?? (await getResolvedLlmConfig());
+  if (!resolved) {
     throw new Error("LLM is not configured. Set LLM_BASE_URL or configure it on the Integrations page.");
   }
-  return chatComplete(config, messages);
+  return chatComplete(resolved, messages);
 }
 
 async function chatComplete(config: LlmConfig, messages: ChatMessage[]): Promise<string> {

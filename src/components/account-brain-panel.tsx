@@ -11,6 +11,7 @@ import {
   NotebookPen,
   Plus,
   Sparkles,
+  UploadCloud,
   Users,
   Video,
   X,
@@ -242,11 +243,39 @@ export function AccountBrainPanel({
   const [includedMap, setIncludedMap] = useState<Record<string, boolean>>(seed);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
-  const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(summary.sections.map((s) => s.key)),
-  );
+  // Start with every source section collapsed so opening the brain reads clean;
+  // the user expands only what they want to inspect.
+  const [openSections, setOpenSections] = useState<Set<string>>(() => new Set<string>());
   const [error, setError] = useState<string | null>(null);
-  const [kind, setKind] = useState<"note" | "asset">("note");
+  // Drag-and-drop upload state for the "add data" dropzone.
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFiles = async (files: File[]) => {
+    if (files.length === 0 || uploading) return;
+    setUploadMsg(null);
+    setUploading(true);
+    try {
+      let ok = 0;
+      for (const file of files) {
+        const form = new FormData();
+        form.append("dealId", dealId);
+        form.append("file", file);
+        const res = await fetch("/api/account-brain/upload", { method: "POST", body: form });
+        const data = (await res.json()) as { ok: boolean; error?: string };
+        if (!data.ok) throw new Error(data.error ?? "Upload failed.");
+        ok += 1;
+      }
+      setUploadMsg(`Added ${ok} ${ok === 1 ? "file" : "files"} to the brain. Refreshing…`);
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e) {
+      setUploadMsg(e instanceof Error ? e.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // Local state is seeded from props at mount. The workspace passes key={dealId}
   // so switching accounts remounts this panel with a fresh, correct baseline.
@@ -289,7 +318,9 @@ export function AccountBrainPanel({
         body: JSON.stringify({
           dealId,
           included,
-          items: items.map((i) => ({ itemType: i.itemType, itemId: i.id })),
+          // Each item carries its owning opportunity so exclusions persist
+          // against the right deal (an account spans several opps).
+          items: items.map((i) => ({ itemType: i.itemType, itemId: i.id, dealId: i.dealId })),
         }),
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
@@ -337,10 +368,6 @@ export function AccountBrainPanel({
       else next.add(key);
       return next;
     });
-
-  const meetingOptions = summary.sections
-    .find((s) => s.key === "transcript")
-    ?.items.map((i) => ({ id: i.id, label: i.title })) ?? [];
 
   return (
     <>
@@ -486,64 +513,72 @@ export function AccountBrainPanel({
             <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-charcoal-500">
               <Plus className="h-3.5 w-3.5 text-iris-500" /> Add data to this account&apos;s brain
             </p>
-            <form action={ingestAccountDataAction} className="space-y-2">
+
+            {/* Drag-and-drop: the primary way to add data. */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!dragOver) setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                void uploadFiles(Array.from(e.dataTransfer.files));
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400 ${
+                dragOver
+                  ? "border-iris-400 bg-iris-50"
+                  : "border-charcoal-300 bg-white hover:border-iris-300 hover:bg-iris-50/40"
+              }`}
+            >
+              <UploadCloud className={`h-6 w-6 ${dragOver ? "text-iris-600" : "text-charcoal-400"}`} />
+              <p className="text-sm font-medium text-charcoal-700">
+                {uploading ? "Uploading…" : "Drag & drop files here"}
+              </p>
+              <p className="text-[11px] text-charcoal-500">
+                Decks, collector output, RVTools, PDFs, notes — or click to browse
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void uploadFiles(Array.from(e.target.files ?? []));
+                  e.target.value = "";
+                }}
+              />
+            </div>
+            {uploadMsg ? <p className="mt-2 text-[11px] text-charcoal-500">{uploadMsg}</p> : null}
+
+            {/* Or paste a quick note. */}
+            <form action={ingestAccountDataAction} className="mt-3 space-y-2">
               <input type="hidden" name="dealId" value={dealId} />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  name="kind"
-                  value={kind}
-                  onChange={(e) => setKind(e.target.value as "note" | "asset")}
-                  className="text-sm"
-                >
-                  <option value="note">Note</option>
-                  <option value="asset">Document / asset</option>
-                </select>
-                <select name="meetingId" defaultValue="" className="text-sm">
-                  <option value="">Overall brain (account-level)</option>
-                  {meetingOptions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {kind === "note" ? (
-                <>
-                  <select name="role" defaultValue="SE" className="w-full text-sm">
-                    <option value="SE">SE - Systems Engineer</option>
-                    <option value="AE">AE - Account Executive</option>
-                    <option value="SAM">SAM - Subscription Account Manager</option>
-                  </select>
-                  <textarea
-                    name="body"
-                    rows={3}
-                    required
-                    placeholder="Paste a Zoom summary, discovery note, or context for the Account-AI to learn."
-                    className="w-full text-sm"
-                  />
-                </>
-              ) : (
-                <>
-                  <select name="type" defaultValue="TEXT_BRIEF" className="w-full text-sm">
-                    <option value="PRESENTATION">Presentation</option>
-                    <option value="WHITEBOARD">Whiteboard</option>
-                    <option value="COLLECTOR">Collector</option>
-                    <option value="RV_TOOL">RV Tool</option>
-                    <option value="ZIP_BUNDLE">Zip Bundle</option>
-                    <option value="TEXT_BRIEF">Text Brief</option>
-                    <option value="QBR_REPORT">QBR Report</option>
-                  </select>
-                  <input name="title" required placeholder="Title (e.g. Acme Architecture Deck)" className="w-full text-sm" />
-                  <input name="sourceTool" placeholder="Source tool (e.g. PowerPoint)" className="w-full text-sm" />
-                  <input name="uri" required placeholder="https:// or file:// location" className="w-full text-sm" />
-                  <input name="previewImageUri" placeholder="Preview image URL (optional)" className="w-full text-sm" />
-                </>
-              )}
-
+              <input type="hidden" name="kind" value="note" />
+              <input type="hidden" name="role" value="SE" />
+              <textarea
+                name="body"
+                rows={2}
+                required
+                placeholder="…or paste a quick note (Zoom summary, discovery detail) for the AI to learn."
+                className="w-full text-sm"
+              />
               <div className="flex justify-end">
                 <Button type="submit" className="px-3 py-1.5 text-xs">
-                  Ingest into brain
+                  Add note
                 </Button>
               </div>
             </form>

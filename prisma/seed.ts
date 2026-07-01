@@ -160,10 +160,38 @@ async function main() {
       partners: "CDW",
       useCase: "Consolidate three aging vSphere clusters and add async DR before the datacenter runs out of space.",
       currentEnvironment: "3-node vSphere 7 cluster, ~180 cores, all-flash, storage sustained above 80 percent. No new rack space this quarter.",
-      whyNow: "Storage is nearly full and the VMware support contract renews in about five months.",
-      whyNutanix: "Denser nodes reclaim rack space and a single platform simplifies operations versus a like-for-like VMware refresh.",
-      technicalDecisionMaker: "Dana Whitfield",
-      nextStepsToClose: "1) Complete discovery summary 2) Present sizing at QBR 3) Align on early renewal bundle",
+      whyNow:
+        "Three aging vSphere 7 clusters (~180 cores, all-flash) are sustained above 80% storage utilization with no new rack space approved this quarter. The Broadcom/VMware support contract renews in roughly five months and the renewal quote is expected to jump sharply under the new per-core subscription model. Acme wants to consolidate onto a denser platform and add async DR before the primary datacenter runs out of space. Planning a phased approach: refresh the Chicago datacenter first with a 3-node cluster, add a 2-node cluster at the Dallas DR site, then fold in the remaining workloads once phase 1 is validated. Capital for phase 1 is likely this quarter; the broader refresh depends on next FY budget.",
+      whyNutanix:
+        "Denser nodes reclaim rack space and a single platform (compute + storage + native async DR) removes the separate replication appliance and simplifies operations versus a like-for-like VMware refresh. Dana Whitfield, Director of Infrastructure, is the technical decision maker and is motivated by getting ahead of the growing VMware renewal cost and reducing the operational load on a small ops team. Values Prism Central as one management plane across both sites.",
+      technicalDecisionMaker: "Dana Whitfield (Director of Infrastructure)",
+      nextStepsToClose:
+        [
+          "Next Steps to Close",
+          "Jun 24, 2026 11:15 AM LS: Discovery kickoff onsite in Chicago. Confirmed the three vSphere clusters and the 80%+ storage wall. Dana wants consolidation plus async DR on one platform. Requested a Nutanix Collector run and RVTools export to build an initial sizing profile. Scheduled the QBR to present findings.",
+          "",
+          "Jun 10, 2026 2:00 PM LS: Intro call following a CDW referral. Acme is facing a large VMware renewal in ~5 months and is out of rack space. Agreed to run a discovery workshop before the QBR.",
+          "",
+          "Next Steps Last Updated",
+          "6/24/2026 11:15 AM",
+          "",
+          "Open next steps:",
+          "- Complete the Collector/RVTools analysis and right-size the consolidation",
+          "- Present sizing and a phased async-DR plan at the QBR",
+          "- Align with CDW on an early-renewal bundle to counter the Broadcom increase",
+        ].join("\n"),
+      outcome:
+        [
+          "Outcome: Consolidate three aging vSphere clusters onto a denser Nutanix platform and add native async DR before running out of datacenter space; retire the like-for-like VMware refresh path.",
+          "",
+          "Notes:",
+          "Jun 24, 2026 LS - Currently running a 3-node vSphere 7 cluster (~180 cores, all-flash) at Chicago HQ with no automated DR to the Dallas site today. Failover is manual and has not been tested this year.",
+          "",
+          "Jun 18, 2026 MW - Storage alerts firing weekly above 80%. No budget approved for additional SAN shelves; leadership prefers a platform change over buying more storage.",
+          "",
+          "Done:",
+          "- Kick off discovery and confirm current-state inventory",
+        ].join("\n"),
     },
   });
 
@@ -194,10 +222,44 @@ async function main() {
       partners: "WWT",
       useCase: "Modernize disaster recovery for the core banking tier with sub-15-minute RPO across two sites.",
       currentEnvironment: "Dual-site vSphere estate, ~640 cores, array-based replication nearing end of support. RPO currently around 30 minutes.",
-      whyNow: "DR modernization budget is approved for this fiscal year and the decision committee meets in two weeks.",
-      whyNutanix: "Native async DR and a single management plane reduce RPO and remove a separate replication appliance.",
-      technicalDecisionMaker: "Robert Langley",
-      nextStepsToClose: "1) Validate replication targets 2) Confirm WAN bandwidth 3) Present to decision committee",
+      whyNow:
+        "Dual-site vSphere estate (~640 cores) relies on array-based replication that is nearing end of support, and current RPO for the core banking tier sits around 30 minutes. Leadership has approved DR-modernization budget for this fiscal year and the decision committee meets in two weeks, so timing is tight. Beta wants sub-15-minute RPO and tested, one-click failover for tier-1 systems across both sites. Planning a 4-node production cluster at the primary datacenter and a 3-node cluster at the DR site sized for the protected set, with the option to expand into files/objects later. Budget is committed for this FY.",
+      whyNutanix:
+        "Native async DR and NearSync deliver the sub-15-minute RPO without a separate replication appliance, and a single management plane reduces operational overhead. Immutable snapshots address the security team's ransomware concern. Robert Langley, VP of Infrastructure, is the technical decision maker; he wants to retire the aging array-based replication and prove tested failover to satisfy auditors. Prefers native Recovery Plans over the incumbent VCF path.",
+      technicalDecisionMaker: "Robert Langley (VP of Infrastructure)",
+      technicalCloseDate: addDays(now, 9),
+      nextStepsToClose:
+        [
+          "Next Steps to Close",
+          "Jun 20, 2026 4:30 PM JK: Sync'd with WWT. Sent the updated DR reference architecture and BOM for the 4-node/3-node design. Security asked for the immutable-snapshot enforcement write-up before endorsing. Committee readout scheduled.",
+          "",
+          "May 28, 2026 1:15 PM JK: Design review comparing sync vs. async and NearSync for the sub-15-minute tier. Confirmed the tier-1 app list with the backup lead; the remaining dependency is WAN bandwidth between sites.",
+          "",
+          "Apr 30, 2026 10:30 AM JK: Delivered the async DR design and walked the team through native Protection Policies and one-click test failover. 6 attendees from infrastructure, security, and DBA. Tasked to confirm the WAN pipe and gather tier-1 backup windows.",
+          "",
+          "Mar 12, 2026 9:00 AM JK: Discovery on the dual-site estate and the end-of-support array replication. RPO target set at under 15 minutes for core banking. Requested a Collector run and the current replication topology.",
+          "",
+          "Next Steps Last Updated",
+          "6/20/2026 4:30 PM",
+          "",
+          "Open next steps:",
+          "- Confirm WAN bandwidth to finalize NearSync feasibility for the sub-15-minute tier",
+          "- Deliver the immutable-snapshot / ransomware write-up to the security team",
+          "- Present the DR modernization plan to the decision committee",
+        ].join("\n"),
+      outcome:
+        [
+          "Outcome: Modernize disaster recovery for the core banking tier to sub-15-minute RPO with tested one-click failover, retiring the end-of-support array-based replication.",
+          "",
+          "Notes:",
+          "Jun 20, 2026 JK - Dual-site vSphere (~640 cores). Array-based replication is out of support next year; RPO today is ~30 minutes and failover has never been fully tested end to end.",
+          "",
+          "May 15, 2026 MW - Security's top concern is an immutable / air-gapped recovery copy; nightly Veeam to a dedup appliance is not sufficient. Snapshot immutability is the gate for their sign-off.",
+          "",
+          "Done:",
+          "- Run Nutanix Collector & analyze the replication topology",
+          "- Deliver the DR architecture deep dive and native failover demo",
+        ].join("\n"),
     },
   });
 
@@ -228,15 +290,172 @@ async function main() {
       partners: "Presidio",
       useCase: "Expand clinical VDI to 2,000 seats with validated density and pass security segmentation review.",
       currentEnvironment: "POC cluster validated for VDI density with headroom. Production is Citrix on vSphere, ~2,000 desktops planned.",
-      whyNow: "Current term ends soon and validation success unlocks a multi-year expansion.",
-      whyNutanix: "Validated VDI density with headroom and simpler operations than the incumbent Citrix-on-VMware stack.",
-      technicalDecisionMaker: "Carlos Mendoza",
-      nextStepsToClose: "1) Security sign-off on segmentation 2) Confirm POC success criteria 3) Finalize expansion order",
+      whyNow:
+        "Clinical VDI demand is outpacing the current Citrix-on-vSphere environment and the Citrix term ends soon; the plan is to grow to roughly 2,000 clinical desktops. Recent licensing changes make the incumbent stack materially more expensive. The POC cluster has validated VDI density with headroom, and validation success unlocks a multi-year expansion. Phase 1 lands the initial clinical pool on EUC on AHV; the remaining seats follow in waves once the security segmentation review passes. Order is expected this quarter contingent on security sign-off.",
+      whyNutanix:
+        "EUC on AHV delivers validated VDI density with headroom and removes the separate hypervisor and broker licensing overhead of the Citrix-on-VMware stack, with simpler day-2 operations. Carlos Mendoza, Director of End-User Computing, is the technical decision maker and is focused on predictable login-storm performance and a clean network-segmentation story for the clinical VLANs. Security sign-off on Flow segmentation is the gating item.",
+      technicalDecisionMaker: "Carlos Mendoza (Director of End-User Computing)",
+      technicalCloseDate: addDays(now, 5),
+      nextStepsToClose:
+        [
+          "Next Steps to Close",
+          "Jun 26, 2026 11:15 AM PN: Sync'd with Presidio. POC success criteria met; BOM attached and X-Ray results shared. Waiting on the security team's segmentation sign-off, which is the only remaining gate before the expansion order. Finalizing the multi-year quote.",
+          "",
+          "Jun 05, 2026 3:45 PM PN: Delivered the Flow Network Security segmentation design for the clinical VLANs to the security architect. Ran X-Ray to validate density and login-storm behavior at target seat counts.",
+          "",
+          "May 08, 2026 1:15 PM PN: POC readout - VDI density hit target with headroom on the validation cluster. Sized the initial clinical pool and the golden-image approach. 7 attendees across EUC, security, and clinical ops.",
+          "",
+          "Apr 02, 2026 10:30 AM PN: Stood up the POC cluster and imported representative desktop pools. Confirmed FSLogix profiles carry over. Tasked to produce the segmentation design before security will engage.",
+          "",
+          "Feb 20, 2026 9:00 AM PN: Discovery on the Citrix-on-vSphere estate (~2,000 desktops planned) and the licensing changes. Agreed to a POC focused on clinical VDI density and login-storm handling.",
+          "",
+          "Next Steps Last Updated",
+          "6/26/2026 11:15 AM",
+          "",
+          "Open next steps:",
+          "- Obtain security sign-off on the Flow segmentation design (final gate)",
+          "- Confirm POC success-criteria acceptance in writing",
+          "- Finalize the multi-year expansion order with Presidio",
+        ].join("\n"),
+      outcome:
+        [
+          "Outcome: Expand clinical VDI to ~2,000 seats on Nutanix EUC (AHV), displacing the Citrix-on-VMware stack, once the security segmentation review passes.",
+          "",
+          "Notes:",
+          "Jun 05, 2026 PN - POC validated density with headroom; login-storm behavior held at target under X-Ray. Persistent-desktop migration would follow the initial clinical pool in waves.",
+          "",
+          "Mar 18, 2026 MW - Security flagged network segmentation for the clinical VLANs as the primary gate. FSLogix profile management stays as-is to reduce migration risk.",
+          "",
+          "Done:",
+          "- Run Nutanix Collector & analyze RVTools",
+          "- Deliver architectural deep dive and EUC/AHV demo",
+          "- Stand up the POC cluster and validate density with X-Ray",
+          "- Generate the initial BOM and budgetary quote",
+        ].join("\n"),
       intendToUseForNc2: false,
       bomAttached: true,
       xrayUsed: true,
     },
   });
+
+  // Additional opportunities for the three featured accounts so each shows a
+  // multi-opp history (old closed-won + current expansion) in the Account-AI
+  // brain. Meetings/notes stay on the primary opps above.
+  const featuredSiblings = [
+    {
+      accountName: "Acme Manufacturing",
+      owner: "Lizi Singletary",
+      opps: [
+        {
+          name: "Acme Initial NCI Footprint",
+          stage: "Closed Won",
+          amount: 180000,
+          technicalCloseStatus: "100",
+          closeDate: new Date(2021, 4, 18),
+          isClosed: true,
+          forecastCategory: "Closed",
+          nextAction: "Closed - in production",
+          whyNow: "First Nutanix purchase that replaced a single aging vSphere cluster at Chicago HQ; in production since 2021.",
+          outcome: "Outcome: Won. Deployed a 4-node NCI Pro cluster in 2021; this is the reference footprint the current consolidation builds on.",
+        },
+        {
+          name: "Acme Files & Objects Expansion FY26",
+          stage: "Discovery",
+          amount: 240000,
+          technicalCloseStatus: "25",
+          closeDate: new Date(2026, 9, 30),
+          isClosed: false,
+          forecastCategory: "Pipeline",
+          nextAction: "Scope unstructured-data growth for Files/Objects",
+          whyNow: "Manufacturing plant data and CAD shares are outgrowing the legacy NAS. Evaluating Nutanix Files/Objects on the existing cluster after the core consolidation lands.",
+          outcome: "Outcome: Consolidate unstructured data onto Nutanix Unified Storage alongside the consolidated compute.\n\nNext steps:\n- Size Files/Objects for 24-month growth\n- Confirm SMB/NFS and quota requirements with the storage team",
+        },
+      ],
+    },
+    {
+      accountName: "Beta Financial",
+      owner: "Jordan Kim",
+      opps: [
+        {
+          name: "Beta Initial Core Banking Cluster",
+          stage: "Closed Won",
+          amount: 520000,
+          technicalCloseStatus: "100",
+          closeDate: new Date(2020, 10, 3),
+          isClosed: true,
+          forecastCategory: "Closed",
+          nextAction: "Closed - in production",
+          whyNow: "Original core-banking virtualization purchase; live across both datacenters since 2020.",
+          outcome: "Outcome: Won. Deployed dual-site NCI Ultimate clusters in 2020; the DR modernization opp extends this footprint.",
+        },
+        {
+          name: "Beta NDB Consolidation FY26",
+          stage: "Design",
+          amount: 310000,
+          technicalCloseStatus: "50",
+          closeDate: new Date(2026, 7, 14),
+          isClosed: false,
+          forecastCategory: "Best Case",
+          nextAction: "Run NDB demo against a representative SQL workload",
+          whyNow: "Database sprawl across the core-banking estate is straining the DBA team. Evaluating NDB to automate provisioning and patching on the existing Nutanix platform.",
+          outcome: "Outcome: Consolidate database provisioning onto NDB.\n\nNext steps:\n- Deliver NDB demo to the DBA team\n- Confirm Oracle licensing placement",
+        },
+      ],
+    },
+    {
+      accountName: "Gamma Healthcare",
+      owner: "Priya Nadar",
+      opps: [
+        {
+          name: "Gamma Initial VDI Pilot",
+          stage: "Closed Won",
+          amount: 150000,
+          technicalCloseStatus: "100",
+          closeDate: new Date(2022, 2, 22),
+          isClosed: true,
+          forecastCategory: "Closed",
+          nextAction: "Closed - in production",
+          whyNow: "First EUC pilot that proved clinical VDI on Nutanix; live since 2022 and the basis for the current 2,000-seat expansion.",
+          outcome: "Outcome: Won. Deployed the initial 3-node EUC pilot in 2022; validated the density story the expansion relies on.",
+        },
+        {
+          name: "Gamma Clinical Files Expansion FY26",
+          stage: "Discovery",
+          amount: 130000,
+          technicalCloseStatus: "-",
+          closeDate: new Date(2026, 11, 15),
+          isClosed: false,
+          forecastCategory: "Pipeline",
+          nextAction: "Discovery on clinical imaging storage growth",
+          whyNow: "Clinical imaging archives are growing quickly. Early discovery on Nutanix Files for the imaging shares once the VDI expansion closes.",
+          outcome: null,
+        },
+      ],
+    },
+  ];
+  for (const account of featuredSiblings) {
+    for (const opp of account.opps) {
+      await prisma.deal.create({
+        data: {
+          name: opp.name,
+          accountName: account.accountName,
+          stage: opp.stage,
+          owner: account.owner,
+          nextAction: opp.nextAction,
+          latestSignal: null,
+          amount: opp.amount,
+          acvAmount: Math.round(opp.amount / 3 / 1000) * 1000,
+          servicesAcv: Math.round((opp.amount * 0.08) / 1000) * 1000,
+          technicalCloseStatus: opp.technicalCloseStatus,
+          closeDate: opp.closeDate,
+          isClosed: opp.isClosed,
+          forecastCategory: opp.forecastCategory,
+          whyNow: opp.whyNow,
+          outcome: opp.outcome,
+        },
+      });
+    }
+  }
 
   // Mon 9:00 - virtual (Zoom). Includes an email-only attendee -> "(maybe)" name.
   const acmeMeeting = await prisma.meeting.create({
@@ -1183,6 +1402,254 @@ async function main() {
     "Willowbrook Health System": 1,
   };
 
+  // --- Realistic Salesforce-style opportunity notes ------------------------
+  // Fills the existing narrative fields (whyNow / whyNutanix / nextStepsToClose
+  // / outcome / technicalDecisionMaker / technicalCloseDate) with rich, dated
+  // SE/AE notes shaped like real Salesforce opp notes, so Account-AI can answer
+  // "get me up to speed on this opportunity" from ingested text alone. No new
+  // fields are introduced. Deterministic per index so the demo is stable. Some
+  // opps are intentionally sparse or completely blank -- real reps don't always
+  // fill these in, and the AI must handle that without inventing content.
+  const stampMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const stampTimes = ["9:00 AM", "11:15 AM", "1:15 PM", "4:30 PM", "3:45 PM", "10:30 AM", "2:00 PM"];
+  const fmtStamp = (d: Date, time: string) =>
+    `${stampMonths[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()}${time ? ` ${time}` : ""}`;
+  const fmtStampShort = (d: Date, time: string) =>
+    `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${time}`;
+  const hqDrCities: [string, string][] = [
+    ["Chicago", "Dallas"], ["Atlanta", "Denver"], ["Columbus", "Phoenix"],
+    ["Charlotte", "Salt Lake City"], ["Minneapolis", "Portland"], ["Newark", "Kansas City"],
+    ["Tampa", "Reno"], ["Boston", "Austin"], ["Seattle", "Nashville"], ["Detroit", "Raleigh"],
+  ];
+  const tdmTitles = [
+    "VP of Infrastructure", "Director of IT Infrastructure", "Head of Platform Engineering",
+    "Senior Director, Datacenter Operations", "VP of Technology", "Director of Cloud & Infrastructure",
+  ];
+  const nodePlans = [
+    "a 3-node cluster at the primary datacenter and a 2-node cluster at DR",
+    "a 4-node production cluster at HQ with a 3-node DR cluster at the co-location site",
+    "a single 3-node pilot cluster before expanding to two additional sites",
+    "a 6-node core cluster and a 3-node cluster at the DR colo",
+  ];
+  const nodeShorts = ["3-node/2-node", "4-node/3-node", "3-node pilot", "6-node/3-node"];
+  const phase2Plans = [
+    "then scale to 4 regional distribution hubs as capital frees up",
+    "then extend to the branch and edge sites in a second wave",
+    "then fold in the remaining production estate once phase 1 is validated",
+    "then add a third site for full active/active DR",
+  ];
+  const budgetTiming = [
+    "Depending on final discounting, some spend may land in the current quarter, but the bulk likely pushes into the new fiscal year.",
+    "Phase 1 is funded from remaining capital this quarter; phase 2 is tied to next FY budget approval.",
+    "Capital is approved for phase 1; the expansion is contingent on the FY planning cycle that starts next quarter.",
+    "Finance has earmarked the initial spend; the larger rollout depends on the annual budget cycle.",
+  ];
+  const secondaryInitials = ["MW", "JS", "RK", "AL", "DP", "SG"];
+  const noteInitials = (name: string) =>
+    name.split(/\s+/).map((p) => p[0]?.toUpperCase() ?? "").join("").slice(0, 2) || "TR";
+
+  type OppNotes = {
+    whyNow: string | null;
+    whyNutanix: string | null;
+    nextStepsToClose: string | null;
+    outcome: string | null;
+    technicalDecisionMaker: string | null;
+    technicalCloseDate: Date | null;
+  };
+
+  const buildOppNotes = (
+    i: number,
+    arch: Archetype,
+    stage: string,
+    closeDate: Date,
+    owner: string,
+    partnerName: string,
+  ): OppNotes => {
+    const tdmName = `${contactFirst[(i + 1) % contactFirst.length]} ${contactLast[(i + 2) % contactLast.length]}`;
+    const tdmTitle = tdmTitles[i % tdmTitles.length];
+    const tdm = `${tdmName} (${tdmTitle})`;
+    const tdmFirst = tdmName.split(" ")[0];
+
+    // ~9% of opps are completely blank (rep never filled them in).
+    if (i % 11 === 4) {
+      return { whyNow: null, whyNutanix: null, nextStepsToClose: null, outcome: null, technicalDecisionMaker: null, technicalCloseDate: null };
+    }
+
+    const incumbent = arch.incumbentVendor;
+    const isEUC = arch.products.some((p) => /EUC/i.test(p)) || /Horizon|Citrix/i.test(incumbent);
+    const isNAS = /NAS/i.test(incumbent);
+    const isGPU = /GPU/i.test(incumbent);
+    const isHyperV = /Hyper-V/i.test(incumbent);
+    const isDR = arch.tags.some((t) => /DR|replication/i.test(t));
+    const isDatabase = arch.tags.some((t) => /database/i.test(t));
+    const vmwareExit = /VMware|Broadcom|Dell \+ VMware/i.test(incumbent) && !isEUC;
+
+    const demoName = isEUC ? "EUC on AHV" : isNAS ? "Files/Objects" : isGPU ? "NAI/NKP" : "Prism/AHV";
+    const targetPhrase = isEUC
+      ? "migrate desktops to Nutanix EUC on AHV"
+      : isNAS
+        ? "consolidate unstructured data onto Nutanix Unified Storage"
+        : isGPU
+          ? "stand up a private AI platform on Nutanix (NAI + NKP)"
+          : isHyperV
+            ? "standardize off Hyper-V onto Nutanix AHV"
+            : "migrate from VMware to Nutanix AHV";
+
+    const cities = hqDrCities[i % hqDrCities.length];
+    const vmTotal = 250 + ((i * 37) % 700);
+    const vmCore = 80 + ((i * 13) % 150);
+    const attendees = 5 + (i % 6);
+    const trainingSeats = 2 + (i % 4);
+    const concessionPct = 3 + (i % 4);
+    const renMonth = ["September", "October", "December", "March", "June"][i % 5];
+    const seInit = noteInitials(owner);
+    const partner = partnerName && partnerName !== "-" ? partnerName : "the partner";
+
+    // ---- Why Now? -----------------------------------------------------------
+    const compellingEvent = isNAS
+      ? "Primary NAS is nearly out of capacity and reaches end-of-support this year, forcing a storage platform decision."
+      : isGPU
+        ? "Cloud GPU spend is climbing month over month and new data-governance requirements are pushing model inference on-prem."
+        : isHyperV
+          ? "Hyper-V and legacy vSphere licensing is up for review in the current budget cycle, and the ops team wants to standardize on one platform."
+          : isEUC
+            ? `Recent ${/Horizon/i.test(incumbent) ? "Horizon" : "Citrix"} licensing changes have made the current VDI stack materially more expensive just as seat counts are growing.`
+            : `Facing a steep increase on the VMware renewal under Broadcom's per-core subscription model, with the contract up in ${renMonth}. Aging hardware in the ${cities[0]} datacenter is also reaching end-of-support.`;
+    const whyNow = [
+      compellingEvent,
+      arch.useCase,
+      `Planning a phased rollout, starting with ${nodePlans[i % nodePlans.length]}, ${phase2Plans[i % phase2Plans.length]}.`,
+      budgetTiming[i % budgetTiming.length],
+    ].join(" ");
+
+    // ---- Why Nutanix? -------------------------------------------------------
+    const motivation = vmwareExit
+      ? 'has prior hands-on experience with Nutanix AHV and is a vocal advocate for eliminating the "VMware tax"'
+      : isEUC
+        ? "wants to collapse the separate hypervisor and broker licensing and simplify desktop operations"
+        : isGPU
+          ? "wants governed, on-prem GPU capacity without the unpredictable cloud bill"
+          : isNAS
+            ? "wants unified files and objects on the same platform as compute rather than a standalone storage silo"
+            : "is prioritizing operational simplicity and a single management plane for a lean infrastructure team";
+    const whyNutanix = `${arch.whyNutanix} ${tdmName}, ${tdmTitle}, ${motivation}. They value Prism Central as one pane of glass across sites.`;
+
+    // ---- dated Next Steps to Close log (reverse chronological) --------------
+    const base = closeDate.getTime() < now.getTime() ? closeDate : now;
+    const dateBack = (days: number) => addDays(base, -days);
+    const workload = isEUC
+      ? "VDI seats and golden images"
+      : isNAS
+        ? "unstructured-data shares"
+        : isGPU
+          ? "inference workloads"
+          : isDatabase
+            ? "tier-1 SQL databases and ERP"
+            : "core production VMs";
+    const phase2Scope = isEUC ? "the persistent desktop estate" : isNAS ? "the archive tier" : "the legacy file servers and dev/test";
+    const deepDiveTask = isEUC
+      ? "network segmentation for the VDI VLANs"
+      : isGPU
+        ? "the GPU node-pool and NKP cluster design"
+        : isNAS
+          ? "Files/Objects sizing for projected 24-month growth"
+          : isDR
+            ? "the async replication targets and WAN bandwidth"
+            : "out-of-band management and microsegmentation requirements";
+
+    const milestones: { days: number; time: string; body: string }[] = [
+      {
+        days: 195,
+        time: stampTimes[i % stampTimes.length],
+        body: `${seInit}: Initial discovery call with ${tdmName}. They want to move away from traditional 3-tier architecture; their storage admin is retiring and nobody wants to own the ${isNAS ? "legacy NAS" : "SAN"}. Requested a Nutanix Collector run to build an initial sizing profile and scheduled a broader engineering overview.`,
+      },
+      {
+        days: 141,
+        time: stampTimes[(i + 2) % stampTimes.length],
+        body: `${seInit}: Customer ran Nutanix Collector; total footprint is roughly ${vmTotal} VMs, but ${tdmFirst} asked us to focus on the core ${vmCore} production VMs for the initial push. ${attendees} members of the infrastructure, security, and database teams attended the architectural deep dive and ${demoName} demo. Tasked to map ${deepDiveTask}.`,
+      },
+      {
+        days: 92,
+        time: stampTimes[(i + 4) % stampTimes.length],
+        body: `${seInit}: Sent sizing bill of materials (BOM) and budgetary quote to ${partner}. Sized strictly for the tier-1 ${workload}, leaving ${phase2Scope} for Phase 2 to stay within the immediate budget cap. Included ${trainingSeats} seats of Nutanix University training and standard deployment services.`,
+      },
+      {
+        days: 48,
+        time: stampTimes[(i + 1) % stampTimes.length],
+        body: `${seInit}: Revised the quote and BOM per the customer's request; adjusted node count and reviewed the ${arch.products[0]} edition with the AE. Walked ${tdmFirst}'s team through the migration approach using Nutanix Move.`,
+      },
+      {
+        days: 8,
+        time: stampTimes[(i + 3) % stampTimes.length],
+        body: `${seInit}: Sync'd with ${partner}. The customer's legal team is reviewing our EULA and finance greenlit the budget allocation, but the partner requested an additional ${concessionPct}% concession on professional services to close before their internal deadline. Will sync with the Account Executive today.`,
+      },
+    ];
+    const count = stage === "Discovery" ? 2 : stage === "Design" ? 4 : 5;
+    const dated = milestones.slice(0, count).map((m) => ({ ...m, d: dateBack(m.days) }));
+    const log = dated
+      .slice()
+      .reverse()
+      .map((m) => `${fmtStamp(m.d, m.time)} ${m.body}`)
+      .join("\n\n");
+    const lastUpdated = dated[dated.length - 1];
+    const openSteps =
+      stage === "Validation"
+        ? ["Finalize the Professional Services SOW", "Finalize pricing concessions with the Regional Director", "Deliver the final executive proposal to the CFO"]
+        : stage === "Design"
+          ? ["Finalize the reference architecture and BOM", isDR ? "Confirm DR/replication targets and WAN bandwidth" : "Confirm sizing with the technical team", "Schedule the executive readout"]
+          : ["Complete the Collector run and analyze the output", "Schedule the architectural deep dive", "Build the initial sizing and budgetary quote"];
+    const nextStepsToClose = [
+      "Next Steps to Close",
+      log,
+      "",
+      "Next Steps Last Updated",
+      fmtStampShort(lastUpdated.d, lastUpdated.time),
+      "",
+      "Open next steps:",
+      ...openSteps.map((s) => `- ${s}`),
+    ].join("\n");
+
+    // ---- Outcome block (Nutanix Recent Notes + Done checklist) -------------
+    const outcomeLine = `${targetPhrase[0].toUpperCase()}${targetPhrase.slice(1)} while retiring the ${incumbent} estate.`;
+    const envNote = `${fmtStamp(dateBack(180), "")} ${secondaryInitials[i % secondaryInitials.length]} - Currently running ${arch.currentEnvironment} across ${cities[0]} HQ and ${cities[1]} DR. ${isDR ? "DR orchestration is largely manual and rarely tested." : "No automated DR orchestration today; failover is manual and untested."}`;
+    const concern = isDatabase
+      ? "SQL Server performance on HCI"
+      : isEUC
+        ? "login-storm and GPU-accelerated desktop performance"
+        : isGPU
+          ? "GPU scheduling and multi-tenant isolation"
+          : isDR
+            ? "RPO/RTO targets for the tier-1 applications"
+            : "mixed-workload performance and resiliency";
+    const workshopNote = `${fmtStamp(dateBack(120), "")} - Onsite workshop with the ${isDatabase ? "database" : "infrastructure"} team. Addressed ${concern}; provided validated benchmarks and engineering whitepapers. The team was reassured and tentatively signed off on the architecture.`;
+    const doneAll = [
+      "Run Nutanix Collector & analyze RVTools",
+      `Deliver architectural deep dive and ${demoName} demo`,
+      `Generate initial ${nodeShorts[i % nodeShorts.length]} BOM and budgetary quote`,
+    ];
+    const doneCount = stage === "Discovery" ? 1 : stage === "Design" ? 2 : 3;
+    const outcome = [
+      `Outcome: ${outcomeLine}`,
+      "",
+      "Notes:",
+      envNote,
+      "",
+      workshopNote,
+      "",
+      "Done:",
+      ...doneAll.slice(0, doneCount).map((step) => `- ${step}`),
+    ].join("\n");
+
+    const technicalCloseDate = stage === "Discovery" ? null : closeDate;
+
+    // ~15% sparse: rep only jotted a Why Now and the decision maker.
+    if (i % 7 === 5) {
+      return { whyNow, whyNutanix: null, nextStepsToClose: null, outcome: null, technicalDecisionMaker: tdm, technicalCloseDate: null };
+    }
+
+    return { whyNow, whyNutanix, nextStepsToClose, outcome, technicalDecisionMaker: tdm, technicalCloseDate };
+  };
+
   for (let i = 0; i < fakeCompanies.length; i++) {
     const company = fakeCompanies[i];
     const stage = stageCycle[i % stageCycle.length];
@@ -1222,6 +1689,9 @@ async function main() {
             ? "Best Case"
             : "Pipeline";
 
+    const partnerName = ["CDW", "WWT", "Presidio", "Insight", "SHI", "-"][i % 6];
+    const oppNotes = buildOppNotes(i, arch, stage, closeDate, owner, partnerName);
+
     const deal = await prisma.deal.create({
       data: {
         name: dealName,
@@ -1247,20 +1717,145 @@ async function main() {
         portfolio: JSON.stringify(arch.portfolio),
         products: JSON.stringify(arch.products),
         tags: JSON.stringify(arch.tags),
-        partners: ["CDW", "WWT", "Presidio", "Insight", "SHI", "-"][i % 6],
+        partners: partnerName,
         useCase: arch.useCase,
         currentEnvironment: arch.currentEnvironment,
-        whyNow: arch.whyNow,
-        whyNutanix: arch.whyNutanix,
-        outcome: `${stage} stage: ${arch.se}`,
-        nextStepsToClose: `1) ${nextActionsByStage[stage][i % 3]} 2) ${nextActionsByStage[stage][(i + 1) % 3]} 3) Align account team on close plan`,
-        technicalDecisionMaker: `${contactFirst[(i + 1) % contactFirst.length]} ${contactLast[(i + 2) % contactLast.length]}`,
+        whyNow: oppNotes.whyNow,
+        whyNutanix: oppNotes.whyNutanix,
+        outcome: oppNotes.outcome,
+        nextStepsToClose: oppNotes.nextStepsToClose,
+        technicalDecisionMaker: oppNotes.technicalDecisionMaker,
+        technicalCloseDate: oppNotes.technicalCloseDate,
         intendToUseForNc2: arch.portfolio.includes("NC2"),
         bomAttached: technicalCloseStatus === "99" || technicalCloseStatus === "100",
         xrayUsed: stage === "Validation",
         aiOptOut: aiOptedOutCompanies.has(company),
       },
     });
+
+    // --- Additional opportunities on the SAME account --------------------
+    // Real accounts carry several opps across years: an old closed-won that
+    // seeded the footprint and current expansion/renewal plays. Dates span
+    // 2020..now and each carries its own SFDC stage + technical close status,
+    // so the Account-AI brain can list and toggle them independently. These are
+    // standalone Deal rows sharing accountName (meetings/notes stay on the
+    // primary opp above).
+    const historicalYear = 2020 + (i % 4);
+    const expStage = stageCycle[(i + 1) % stageCycle.length];
+    const expClose = addDays(now, 20 + (i % 5) * 40);
+    const expNotes = buildOppNotes(i + 1000, arch, expStage, expClose, owner, partnerName);
+    type SiblingOpp = {
+      name: string;
+      stage: string;
+      nextAction: string;
+      latestSignal: string | null;
+      amount: number;
+      technicalCloseStatus: string;
+      closeDate: Date;
+      isClosed: boolean;
+      forecastCategory: string;
+      whyNow: string | null;
+      whyNutanix: string | null;
+      outcome: string | null;
+      nextStepsToClose: string | null;
+      technicalDecisionMaker: string | null;
+      technicalCloseDate: Date | null;
+    };
+    const siblingDeals: SiblingOpp[] = [
+      {
+        name: `${firstWord} Initial ${arch.portfolio[0] ?? "NCI"} Footprint`,
+        stage: "Closed Won",
+        nextAction: "Closed - in production",
+        latestSignal: null,
+        amount: 40000 + (i % 10) * 15000,
+        technicalCloseStatus: "100",
+        closeDate: new Date(historicalYear, (i * 5) % 12, 8 + (i % 18)),
+        isClosed: true,
+        forecastCategory: "Closed",
+        whyNow: `Original purchase that replaced the first aging ${arch.incumbentVendor} cluster; in production since ${historicalYear}.`,
+        whyNutanix: null,
+        outcome: `Outcome: Won. Deployed the initial ${nodeShorts[i % nodeShorts.length]} cluster in ${historicalYear}; this is the reference footprint later expansions build on.`,
+        nextStepsToClose: null,
+        technicalDecisionMaker: oppNotes.technicalDecisionMaker,
+        technicalCloseDate: null,
+      },
+      {
+        name: `${firstWord} ${arch.portfolio.includes("NC2") ? "Cloud DR" : arch.portfolio.includes("EUC") ? "EUC" : "Platform"} Expansion FY26`,
+        stage: expStage,
+        nextAction: nextActionsByStage[expStage][i % 3],
+        latestSignal: arch.signal,
+        amount: 90000 + (i % 12) * 25000,
+        technicalCloseStatus: ["-", "25", "50", "75", "99"][i % 5],
+        closeDate: expClose,
+        isClosed: false,
+        forecastCategory: expStage === "Validation" ? "Commit" : expStage === "Design" ? "Best Case" : "Pipeline",
+        whyNow: expNotes.whyNow,
+        whyNutanix: expNotes.whyNutanix,
+        outcome: expNotes.outcome,
+        nextStepsToClose: expNotes.nextStepsToClose,
+        technicalDecisionMaker: expNotes.technicalDecisionMaker,
+        technicalCloseDate: expNotes.technicalCloseDate,
+      },
+    ];
+    // A third of accounts also carry a closed-lost from a prior cycle.
+    if (i % 3 === 0) {
+      const lostYear = 2021 + (i % 3);
+      siblingDeals.push({
+        name: `${firstWord} ${arch.portfolio.includes("NUS (Files/Objects/Volumes)") ? "Storage" : "DR"} Refresh (Lost)`,
+        stage: "Closed Lost",
+        nextAction: "Closed lost - revisit at next refresh",
+        latestSignal: null,
+        amount: 55000 + (i % 8) * 12000,
+        technicalCloseStatus: "0",
+        closeDate: new Date(lostYear, (i * 7) % 12, 5 + (i % 20)),
+        isClosed: true,
+        forecastCategory: "Omitted",
+        whyNow: `Earlier ${arch.primaryCompetitor} evaluation; lost on price/timing in ${lostYear}. Worth revisiting at the next hardware refresh.`,
+        whyNutanix: null,
+        outcome: `Outcome: Lost to ${arch.primaryCompetitor}. Budget pulled mid-cycle; the relationship stayed intact for a future re-engagement.`,
+        nextStepsToClose: null,
+        technicalDecisionMaker: null,
+        technicalCloseDate: null,
+      });
+    }
+    for (const s of siblingDeals) {
+      await prisma.deal.create({
+        data: {
+          name: s.name,
+          accountName: company,
+          stage: s.stage,
+          owner,
+          nextAction: s.nextAction,
+          latestSignal: s.latestSignal,
+          amount: s.amount,
+          acvAmount: Math.round(s.amount / 3 / 1000) * 1000,
+          servicesAcv: Math.round((s.amount * 0.08) / 1000) * 1000,
+          technicalCloseStatus: s.technicalCloseStatus,
+          closeDate: s.closeDate,
+          isClosed: s.isClosed,
+          forecastCategory: s.forecastCategory,
+          industry: arch.industry,
+          employees: 500 + ((i * 137) % 9500),
+          region: regions[i % regions.length],
+          incumbentVendor: arch.incumbentVendor,
+          primaryCompetitor: arch.primaryCompetitor,
+          hypervisor: arch.hypervisor,
+          portfolio: JSON.stringify(arch.portfolio),
+          products: JSON.stringify(arch.products),
+          tags: JSON.stringify(arch.tags),
+          partners: partnerName,
+          useCase: arch.useCase,
+          whyNow: s.whyNow,
+          whyNutanix: s.whyNutanix,
+          outcome: s.outcome,
+          nextStepsToClose: s.nextStepsToClose,
+          technicalDecisionMaker: s.technicalDecisionMaker,
+          technicalCloseDate: s.technicalCloseDate,
+          intendToUseForNc2: arch.portfolio.includes("NC2"),
+          aiOptOut: aiOptedOutCompanies.has(company),
+        },
+      });
+    }
 
     // Spread three meetings per account across business hours and weekdays over
     // the surrounding weeks so the calendar is densely (but realistically) full.

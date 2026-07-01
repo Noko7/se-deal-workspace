@@ -127,71 +127,113 @@ export async function getAccountsOverview() {
     },
   });
 
-  return deals.map((deal) => {
-    const presentationCount = deal.assets.filter((asset) => asset.type === "PRESENTATION").length;
-    const whiteboardCount = deal.assets.filter((asset) => asset.type === "WHITEBOARD").length;
-    const upcoming = deal.meetings
+  // One row per account (accounts carry several opportunities). The "primary"
+  // opp is the active anchor: most meetings, preferring open deals, then most
+  // recently updated. Counts aggregate across all of the account's opps.
+  const byAccount = new Map<string, typeof deals>();
+  for (const deal of deals) {
+    const list = byAccount.get(deal.accountName) ?? [];
+    list.push(deal);
+    byAccount.set(deal.accountName, list);
+  }
+
+  const rows = [...byAccount.values()].map((group) => {
+    const primary = [...group].sort((a, b) => {
+      if (b.meetings.length !== a.meetings.length) return b.meetings.length - a.meetings.length;
+      if (a.isClosed !== b.isClosed) return a.isClosed ? 1 : -1;
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    })[0];
+
+    const allMeetings = group.flatMap((d) => d.meetings);
+    const allNotes = group.flatMap((d) => d.notes);
+    const allAssets = group.flatMap((d) => d.assets);
+    const presentationCount = allAssets.filter((asset) => asset.type === "PRESENTATION").length;
+    const whiteboardCount = allAssets.filter((asset) => asset.type === "WHITEBOARD").length;
+    const upcoming = allMeetings
       .map((meeting) => meeting.startTime)
       .filter((start) => start >= now)
       .sort((a, b) => a.getTime() - b.getTime());
     const activityCandidates = [
-      deal.updatedAt,
-      ...deal.notes.map((note) => note.createdAt),
-      ...deal.meetings.map((meeting) => meeting.startTime).filter((start) => start < now),
+      primary.updatedAt,
+      ...allNotes.map((note) => note.createdAt),
+      ...allMeetings.map((meeting) => meeting.startTime).filter((start) => start < now),
     ];
     const lastActivityAt = activityCandidates.reduce(
       (latest, current) => (current > latest ? current : latest),
-      deal.updatedAt,
+      primary.updatedAt,
     );
 
     return {
-      id: deal.id,
-      name: deal.name,
-      accountName: deal.accountName,
-      stage: deal.stage,
-      owner: deal.owner,
-      nextAction: deal.nextAction,
-      latestSignal: deal.latestSignal,
-      aiOptOut: deal.aiOptOut,
-      meetingCount: deal.meetings.length,
+      id: primary.id,
+      name: primary.name,
+      accountName: primary.accountName,
+      stage: primary.stage,
+      owner: primary.owner,
+      nextAction: primary.nextAction,
+      latestSignal: primary.latestSignal,
+      aiOptOut: group.some((d) => d.aiOptOut),
+      opportunityCount: group.length,
+      meetingCount: allMeetings.length,
       upcomingMeetingCount: upcoming.length,
-      noteCount: deal.notes.length,
-      assetCount: deal.assets.length,
+      noteCount: allNotes.length,
+      assetCount: allAssets.length,
       presentationCount,
       whiteboardCount,
       nextMeetingAt: upcoming[0]?.toISOString() ?? null,
       lastActivityAt: lastActivityAt.toISOString(),
     };
   });
+
+  return rows.sort(
+    (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
+  );
 }
+
+const ACCOUNT_DETAIL_INCLUDE = {
+  meetings: {
+    orderBy: { startTime: "desc" as const },
+    include: {
+      assets: { orderBy: { createdAt: "desc" as const } },
+      notes: { orderBy: { createdAt: "desc" as const } },
+    },
+  },
+  assets: { orderBy: { createdAt: "desc" as const } },
+  notes: {
+    orderBy: { createdAt: "desc" as const },
+    include: { meeting: { select: { id: true, subject: true } } },
+  },
+  emails: { orderBy: { receivedAt: "desc" as const } },
+  context: { orderBy: { updatedAt: "desc" as const } },
+  recommendations: { orderBy: { createdAt: "desc" as const } },
+  contacts: { orderBy: { createdAt: "asc" as const } },
+  transcripts: {
+    orderBy: { autoIngestedAt: "desc" as const },
+    include: { meeting: { select: { id: true, subject: true, startTime: true } } },
+  },
+  salesforceTasks: { orderBy: { createdAt: "desc" as const } },
+  aiContextExclusions: true,
+} as const;
 
 export async function getAccountDetail(dealId: string) {
   return prisma.deal.findUnique({
     where: { id: dealId },
-    include: {
-      meetings: {
-        orderBy: { startTime: "desc" },
-        include: {
-          assets: { orderBy: { createdAt: "desc" } },
-          notes: { orderBy: { createdAt: "desc" } },
-        },
-      },
-      assets: { orderBy: { createdAt: "desc" } },
-      notes: {
-        orderBy: { createdAt: "desc" },
-        include: { meeting: { select: { id: true, subject: true } } },
-      },
-      emails: { orderBy: { receivedAt: "desc" } },
-      context: { orderBy: { updatedAt: "desc" } },
-      recommendations: { orderBy: { createdAt: "desc" } },
-      contacts: { orderBy: { createdAt: "asc" } },
-      transcripts: {
-        orderBy: { autoIngestedAt: "desc" },
-        include: { meeting: { select: { id: true, subject: true, startTime: true } } },
-      },
-      salesforceTasks: { orderBy: { createdAt: "desc" } },
-      aiContextExclusions: true,
-    },
+    include: ACCOUNT_DETAIL_INCLUDE,
+  });
+}
+
+export type AccountDetailDeal = NonNullable<Awaited<ReturnType<typeof getAccountDetail>>>;
+
+/**
+ * Load every opportunity (Deal) that belongs to an account, each with the full
+ * detail include. Open opps first, then most recent close date, so the anchor
+ * opp leads. Powers the account-wide Account-AI brain (multiple opps per
+ * account) rather than a single-deal view.
+ */
+export async function getAccountDealsByAccountName(accountName: string): Promise<AccountDetailDeal[]> {
+  return prisma.deal.findMany({
+    where: { accountName },
+    orderBy: [{ isClosed: "asc" }, { closeDate: "desc" }],
+    include: ACCOUNT_DETAIL_INCLUDE,
   });
 }
 
@@ -205,39 +247,45 @@ export type ContextItemType =
   | "email";
 
 export type ContextInclusionInput = {
+  /** Default owning deal, used for items that do not carry their own dealId. */
   dealId: string;
-  items: { itemType: ContextItemType; itemId: string }[];
+  // Each item can belong to a different opportunity on the account, so it may
+  // carry its own owning dealId (exclusions are stored per owning deal).
+  items: { itemType: ContextItemType; itemId: string; dealId?: string }[];
   included: boolean;
 };
 
 /**
  * Soft-include/exclude ingested items from an account's Account-AI context.
  * Excluding writes an AiContextExclusion row; including deletes it. Nothing is
- * ever removed from the underlying platform records. Idempotent.
+ * ever removed from the underlying platform records. Idempotent. Items are
+ * grouped by their owning opportunity so an account spanning multiple opps
+ * persists each exclusion against the right deal.
  */
 export async function setContextInclusion(input: ContextInclusionInput) {
-  const { dealId, items, included } = input;
-  if (!dealId || items.length === 0) return;
-  if (included) {
-    // Included again -> drop the exclusion rows.
+  const { dealId: defaultDealId, items, included } = input;
+  if (items.length === 0) return;
+
+  const byDeal = new Map<string, { itemType: ContextItemType; itemId: string }[]>();
+  for (const item of items) {
+    const owner = item.dealId || defaultDealId;
+    if (!owner) continue;
+    const list = byDeal.get(owner) ?? [];
+    list.push({ itemType: item.itemType, itemId: item.itemId });
+    byDeal.set(owner, list);
+  }
+
+  for (const [owner, group] of byDeal) {
+    // Always clear existing rows first so this stays idempotent without relying
+    // on SQLite skipDuplicates.
     await prisma.aiContextExclusion.deleteMany({
-      where: {
-        dealId,
-        OR: items.map((i) => ({ itemType: i.itemType, itemId: i.itemId })),
-      },
+      where: { dealId: owner, OR: group.map((i) => ({ itemType: i.itemType, itemId: i.itemId })) },
     });
-  } else {
-    // Excluded -> (re)create an exclusion row per item. Clear any existing rows
-    // first so this stays idempotent without relying on SQLite skipDuplicates.
-    await prisma.aiContextExclusion.deleteMany({
-      where: {
-        dealId,
-        OR: items.map((i) => ({ itemType: i.itemType, itemId: i.itemId })),
-      },
-    });
-    await prisma.aiContextExclusion.createMany({
-      data: items.map((i) => ({ dealId, itemType: i.itemType, itemId: i.itemId })),
-    });
+    if (!included) {
+      await prisma.aiContextExclusion.createMany({
+        data: group.map((i) => ({ dealId: owner, itemType: i.itemType, itemId: i.itemId })),
+      });
+    }
   }
 }
 
@@ -300,15 +348,43 @@ export async function getMeetingOptions(): Promise<MeetingOption[]> {
 export async function getAccountOptions(): Promise<AccountOption[]> {
   const deals = await prisma.deal.findMany({
     orderBy: [{ accountName: "asc" }, { name: "asc" }],
-    select: { id: true, accountName: true, name: true, owner: true, aiOptOut: true },
+    select: {
+      id: true,
+      accountName: true,
+      name: true,
+      owner: true,
+      aiOptOut: true,
+      isClosed: true,
+      updatedAt: true,
+      _count: { select: { meetings: true } },
+    },
   });
-  return deals.map((deal) => ({
-    dealId: deal.id,
-    accountName: deal.accountName,
-    dealName: deal.name,
-    owner: deal.owner,
-    aiOptOut: deal.aiOptOut,
-  }));
+
+  // One option per account; the primary opp (most meetings, prefer open, then
+  // most recent) is the entry point that the AI expands to the whole account.
+  const byAccount = new Map<string, typeof deals>();
+  for (const deal of deals) {
+    const list = byAccount.get(deal.accountName) ?? [];
+    list.push(deal);
+    byAccount.set(deal.accountName, list);
+  }
+
+  return [...byAccount.values()]
+    .map((group) => {
+      const primary = [...group].sort((a, b) => {
+        if (b._count.meetings !== a._count.meetings) return b._count.meetings - a._count.meetings;
+        if (a.isClosed !== b.isClosed) return a.isClosed ? 1 : -1;
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      })[0];
+      return {
+        dealId: primary.id,
+        accountName: primary.accountName,
+        dealName: primary.name,
+        owner: primary.owner,
+        aiOptOut: group.some((d) => d.aiOptOut),
+      };
+    })
+    .sort((a, b) => a.accountName.localeCompare(b.accountName));
 }
 
 // Attach a (formatted) note to a meeting. The note is automatically associated

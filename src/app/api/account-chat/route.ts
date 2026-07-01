@@ -5,7 +5,7 @@ import {
   buildAccountKnowledgeBase,
   buildAllAccountsKnowledgeBase,
 } from "@/lib/account-ai";
-import { isLlmConfiguredResolved, runChat, type ChatMessage } from "@/lib/llm";
+import { getResolvedLlmConfig, runChat, type ChatMessage } from "@/lib/llm";
 import { sanitizeField, sanitizeNotes } from "@/lib/sanitize";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +54,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No user message provided." }, { status: 400 });
   }
 
-  if (!(await isLlmConfiguredResolved())) {
+  // Resolve the LLM config once and reuse it for the completion below, so a
+  // single request never resolves credentials (and hits the DB) twice.
+  const llmConfig = await getResolvedLlmConfig();
+  if (!llmConfig) {
     return NextResponse.json(
       {
         ok: false,
@@ -117,7 +120,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const reply = await runChat(messages);
+    const reply = await runChat(messages, llmConfig);
     return NextResponse.json({ ok: true, reply });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 502 });

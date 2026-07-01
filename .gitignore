@@ -50,3 +50,5 @@ next-env.d.ts
 # local sqlite databases
 /dev.db
 /prisma/dev.db
+/prisma/dev.db-shm
+/prisma/dev.db-wal

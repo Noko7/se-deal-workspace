@@ -16,6 +16,7 @@ import {
   clearLlmCredentialApiKey,
 } from "./data";
 import { integrationAdapters } from "./adapters";
+import { invalidateLlmConfigCache } from "./llm";
 import { upsertZoomConfig } from "./zoom";
 import { createSalesforceTask } from "./salesforce";
 import { updateOpportunity } from "./opportunity-detail";
@@ -206,6 +207,7 @@ export async function saveLlmCredentialsAction(formData: FormData) {
     updatedBy: "se.workspace@nutanix.com",
   });
 
+  invalidateLlmConfigCache();
   revalidatePath("/integrations");
 }
 
@@ -314,5 +316,6 @@ export async function clearLlmApiKeyAction() {
   } catch {
     // Ignore if credentials row has not been created yet.
   }
+  invalidateLlmConfigCache();
   revalidatePath("/integrations");
 }

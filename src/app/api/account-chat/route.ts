@@ -79,6 +79,16 @@ export async function POST(request: Request) {
     if (!kb) {
       return NextResponse.json({ ok: false, error: "Account not found." }, { status: 404 });
     }
+    if (kb.summary.aiOptOut) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "This account has opted out of AI usage at Nutanix. Account-AI is disabled for it, so I can't chat about this account.",
+        },
+        { status: 403 },
+      );
+    }
     systemPrompt = ACCOUNT_AI_SYSTEM_PROMPT;
     contextLabel = "ACCOUNT KNOWLEDGE BASE (the only data you may rely on)";
     contextText = kb.contextText;

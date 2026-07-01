@@ -152,6 +152,7 @@ export async function getAccountsOverview() {
       owner: deal.owner,
       nextAction: deal.nextAction,
       latestSignal: deal.latestSignal,
+      aiOptOut: deal.aiOptOut,
       meetingCount: deal.meetings.length,
       upcomingMeetingCount: upcoming.length,
       noteCount: deal.notes.length,
@@ -189,8 +190,55 @@ export async function getAccountDetail(dealId: string) {
         include: { meeting: { select: { id: true, subject: true, startTime: true } } },
       },
       salesforceTasks: { orderBy: { createdAt: "desc" } },
+      aiContextExclusions: true,
     },
   });
+}
+
+export type ContextItemType =
+  | "opportunity"
+  | "contact"
+  | "note"
+  | "transcript"
+  | "task"
+  | "asset"
+  | "email";
+
+export type ContextInclusionInput = {
+  dealId: string;
+  items: { itemType: ContextItemType; itemId: string }[];
+  included: boolean;
+};
+
+/**
+ * Soft-include/exclude ingested items from an account's Account-AI context.
+ * Excluding writes an AiContextExclusion row; including deletes it. Nothing is
+ * ever removed from the underlying platform records. Idempotent.
+ */
+export async function setContextInclusion(input: ContextInclusionInput) {
+  const { dealId, items, included } = input;
+  if (!dealId || items.length === 0) return;
+  if (included) {
+    // Included again -> drop the exclusion rows.
+    await prisma.aiContextExclusion.deleteMany({
+      where: {
+        dealId,
+        OR: items.map((i) => ({ itemType: i.itemType, itemId: i.itemId })),
+      },
+    });
+  } else {
+    // Excluded -> (re)create an exclusion row per item. Clear any existing rows
+    // first so this stays idempotent without relying on SQLite skipDuplicates.
+    await prisma.aiContextExclusion.deleteMany({
+      where: {
+        dealId,
+        OR: items.map((i) => ({ itemType: i.itemType, itemId: i.itemId })),
+      },
+    });
+    await prisma.aiContextExclusion.createMany({
+      data: items.map((i) => ({ dealId, itemType: i.itemType, itemId: i.itemId })),
+    });
+  }
 }
 
 export async function createNote(input: {
@@ -224,6 +272,7 @@ export type AccountOption = {
   accountName: string;
   dealName: string;
   owner: string;
+  aiOptOut: boolean;
 };
 
 // Flat list of meetings (with their account) for the Note Formatter's
@@ -251,13 +300,14 @@ export async function getMeetingOptions(): Promise<MeetingOption[]> {
 export async function getAccountOptions(): Promise<AccountOption[]> {
   const deals = await prisma.deal.findMany({
     orderBy: [{ accountName: "asc" }, { name: "asc" }],
-    select: { id: true, accountName: true, name: true, owner: true },
+    select: { id: true, accountName: true, name: true, owner: true, aiOptOut: true },
   });
   return deals.map((deal) => ({
     dealId: deal.id,
     accountName: deal.accountName,
     dealName: deal.name,
     owner: deal.owner,
+    aiOptOut: deal.aiOptOut,
   }));
 }
 

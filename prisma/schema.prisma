@@ -111,6 +111,10 @@ model Deal {
   // Free-text technical framing used by the SE across the cycle.
   useCase             String?
   currentEnvironment  String?
+  // Governance: when true, the customer has opted out of AI usage at Nutanix.
+  // Account-AI must not chat about or ingest context for opted-out accounts;
+  // they remain visible in the tool but locked.
+  aiOptOut            Boolean               @default(false)
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   meetings            Meeting[]
@@ -125,6 +129,26 @@ model Deal {
   transcripts         MeetingTranscript[]
   salesforceTasks     SalesforceTask[]
   contacts            Contact[]
+  aiContextExclusions AiContextExclusion[]
+}
+
+// A soft exclusion of one ingested item from an account's Account-AI context.
+// Removing an item from context never deletes it from the platform; it just
+// keeps that item out of the LLM knowledge base. One row per (deal, item).
+model AiContextExclusion {
+  id        String   @id @default(cuid())
+  dealId    String
+  // Logical source bucket: "opportunity" | "contact" | "note" | "transcript" |
+  // "task" | "asset" | "email".
+  itemType  String
+  // The underlying record id (or a synthetic id for singletons like the
+  // opportunity-detail block).
+  itemId    String
+  createdAt DateTime @default(now())
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, itemType, itemId])
+  @@index([dealId])
 }
 
 // A person on the customer's buying committee. Maps to the standard Salesforce

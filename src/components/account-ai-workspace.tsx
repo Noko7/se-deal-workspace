@@ -19,6 +19,7 @@ export type AccountOption = {
   owner: string;
   nextAction: string;
   latestSignal: string | null;
+  aiOptOut: boolean;
 };
 
 type Scope = "all" | string;
@@ -100,6 +101,7 @@ export function AccountAiWorkspace({
   );
 
   const isAll = selected === "all";
+  const locked = Boolean(selectedAccount?.aiOptOut);
 
   const { description, suggestions, placeholder } = useMemo(() => {
     if (isAll) {
@@ -154,6 +156,7 @@ export function AccountAiWorkspace({
                 {selectedAccount ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-charcoal-600">
                     <StatusPill tone="info">{selectedAccount.stage}</StatusPill>
+                    {selectedAccount.aiOptOut ? <StatusPill tone="warning">AI opted out</StatusPill> : null}
                     <span>
                       <span className="font-semibold text-charcoal-800">Next:</span> {selectedAccount.nextAction}
                     </span>
@@ -210,6 +213,7 @@ export function AccountAiWorkspace({
             suggestions={suggestions}
             showBrain={!isAll}
             allowUploads={!isAll}
+            locked={locked}
             accountLabel={selectedAccount?.accountName}
             onScopeRevert={setSelected}
             onBrainOpen={() => setBrainOpen(true)}
@@ -248,6 +252,7 @@ export function AccountAiWorkspace({
 
       {!isAll && brainSummary ? (
         <AccountBrainPanel
+          key={selected}
           open={brainOpen}
           onClose={() => setBrainOpen(false)}
           summary={brainSummary}

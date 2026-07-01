@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, Plus, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Lock, Plus, Send, Sparkles, User, X } from "lucide-react";
 import { ingestAccountDataAction } from "@/lib/actions";
+import { BrainIcon } from "@/components/brain-ui";
 
 type Attachment = { id: string; name: string; url: string };
 type ChatTurn = { role: "user" | "assistant"; content: string; images?: string[] };
@@ -20,6 +21,7 @@ export function AccountChat({
   allowUploads = true,
   accountLabel,
   onScopeRevert,
+  locked = false,
 }: {
   /** "all" for the portfolio, or a dealId for a single account. Drives history + posting. */
   scope: string;
@@ -40,6 +42,8 @@ export function AccountChat({
   accountLabel?: string;
   /** Revert the active scope (used to cancel a switch that would drop uploads). */
   onScopeRevert?: (scope: string) => void;
+  /** When true the selected account opted out of AI; chat + uploads are disabled. */
+  locked?: boolean;
 }) {
   const storageKey = `account-chat:${scope}`;
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -121,7 +125,7 @@ export function AccountChat({
 
   // Entry point from the composer: if files are attached, ask first.
   const requestSend = (text: string) => {
-    if (!text.trim() || loading) return;
+    if (locked || !text.trim() || loading) return;
     if (allowUploads && attachments.length > 0) {
       setPendingText(text);
       return;
@@ -217,7 +221,20 @@ export function AccountChat({
             Clear chat
           </button>
         ) : null}
-        {turns.length === 0 ? (
+        {locked ? (
+          <div className="mx-auto max-w-md py-10 text-center">
+            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+              <Lock className="h-6 w-6" />
+            </span>
+            <p className="mt-3 text-sm font-semibold text-charcoal-800">
+              {accountLabel ?? "This account"} has opted out of AI usage
+            </p>
+            <p className="mt-1 text-sm text-charcoal-500">
+              Nutanix honors this account&apos;s AI opt-out, so Account-AI is disabled here and none of their data is
+              sent to the model. Pick another account to keep working.
+            </p>
+          </div>
+        ) : turns.length === 0 ? (
           <div className="mx-auto max-w-xl py-8 text-center">
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-iris-100 text-iris-600">
               <Bot className="h-6 w-6" />
@@ -312,7 +329,7 @@ export function AccountChat({
         ) : null}
 
         <div className="flex items-end gap-2">
-          {allowUploads ? (
+          {allowUploads && !locked ? (
             <>
               <input
                 ref={fileRef}
@@ -356,15 +373,16 @@ export function AccountChat({
                 }
               }}
               rows={1}
-              placeholder={placeholder}
-              className="max-h-32 min-h-[24px] flex-1 resize-none border-0 bg-transparent p-0 text-sm focus:outline-none focus:ring-0"
+              disabled={locked}
+              placeholder={locked ? "Account-AI is disabled for this account" : placeholder}
+              className="max-h-32 min-h-[24px] flex-1 resize-none border-0 bg-transparent p-0 text-sm focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
             />
           </div>
 
           <button
             type="button"
             onClick={() => requestSend(input)}
-            disabled={loading || !input.trim()}
+            disabled={locked || loading || !input.trim()}
             aria-label="Send"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-iris-500 text-white transition hover:bg-iris-600 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -377,11 +395,9 @@ export function AccountChat({
               onClick={onBrainOpen}
               aria-label="Open Account-AI brain"
               title="View ingested knowledge base"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-iris-200 bg-iris-50 transition hover:bg-iris-100"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-iris-200 bg-white transition hover:bg-iris-50"
             >
-              <span className="text-lg leading-none" aria-hidden="true">
-                🧠
-              </span>
+              <BrainIcon size="sm" />
             </button>
           ) : null}
         </div>
@@ -396,9 +412,7 @@ export function AccountChat({
         >
           <div className="w-full max-w-md rounded-xl border border-charcoal-200 bg-white p-5 shadow-2xl">
             <div className="flex items-start gap-3">
-              <span className="text-2xl leading-none" aria-hidden="true">
-                🧠
-              </span>
+              <BrainIcon size="md" />
               <div>
                 <h3 className="text-sm font-semibold text-charcoal-900">
                   Heads up — this goes into {accountLabel ? `${accountLabel}'s` : "this account's"} brain
@@ -443,9 +457,7 @@ export function AccountChat({
         >
           <div className="w-full max-w-md rounded-xl border border-charcoal-200 bg-white p-5 shadow-2xl">
             <div className="flex items-start gap-3">
-              <span className="text-2xl leading-none" aria-hidden="true">
-                🧠
-              </span>
+              <BrainIcon size="md" />
               <div>
                 <h3 className="text-sm font-semibold text-charcoal-900">Your upload will be removed</h3>
                 <p className="mt-1 text-sm text-charcoal-600">

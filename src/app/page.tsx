@@ -33,6 +33,7 @@ export default async function AccountAiHomePage({
     owner: se,
     nextAction: account.nextAction,
     latestSignal: account.latestSignal,
+    aiOptOut: account.aiOptOut,
   }));
 
   const calendarMeetings = meetings.map(toCalendarMeeting);

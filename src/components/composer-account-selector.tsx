@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Lock } from "lucide-react";
 import type { AccountOption } from "@/components/account-ai-workspace";
 
 type Scope = "all" | string;
-type Row = { value: Scope; label: string; sub: string };
+type Row = { value: Scope; label: string; sub: string; optedOut: boolean };
 
 export function ComposerAccountSelector({
   accounts,
@@ -23,11 +23,12 @@ export function ComposerAccountSelector({
   const label = selected === "all" ? "My Accounts" : accounts.find((a) => a.id === selected)?.accountName ?? "Account";
 
   const rows = useMemo<Row[]>(() => {
-    const all: Row = { value: "all", label: "My Accounts", sub: "all accounts" };
+    const all: Row = { value: "all", label: "My Accounts", sub: "all accounts", optedOut: false };
     const mapped: Row[] = accounts.map((a) => ({
       value: a.id,
       label: a.accountName,
       sub: `${a.dealName} · ${a.stage}`,
+      optedOut: a.aiOptOut,
     }));
     const q = query.trim().toLowerCase();
     if (!q) return [all, ...mapped];
@@ -78,7 +79,14 @@ export function ComposerAccountSelector({
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-charcoal-900">{row.label}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-charcoal-900">{row.label}</span>
+                          {row.optedOut ? (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                              <Lock className="h-2.5 w-2.5" /> AI off
+                            </span>
+                          ) : null}
+                        </span>
                         <span className="block truncate text-xs text-charcoal-500">{row.sub}</span>
                       </span>
                       {active ? <Check className="h-4 w-4 shrink-0 text-iris-600" /> : null}

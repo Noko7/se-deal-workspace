@@ -4,50 +4,66 @@ import { prisma } from "@/lib/prisma";
 
 // --- Types shared by the brain panel and the chat route --------------------
 
-export type BrainAsset = {
+// Logical source bucket for a single ingested item. Mirrors ContextItemType in
+// data.ts (kept in sync).
+export type BrainItemType =
+  | "opportunity"
+  | "contact"
+  | "note"
+  | "transcript"
+  | "task"
+  | "asset"
+  | "email";
+
+// One toggleable piece of knowledge. `included` reflects whether it currently
+// feeds the LLM context (a soft exclusion never deletes the underlying record).
+export type BrainItem = {
+  itemType: BrainItemType;
   id: string;
-  type: string;
+  /** Primary label, e.g. a contact name or meeting subject. */
   title: string;
-  sourceTool: string;
-  previewImageUri: string | null;
-  createdAt: string;
-};
-
-export type BrainNote = {
-  id: string;
-  role: string;
-  author: string;
-  body: string;
-  createdAt: string;
-};
-
-/** A bucket of ingested data: either a specific meeting or the account itself. */
-export type BrainGroup = {
-  key: string;
-  label: string;
-  /** ISO meeting start, or null for the account-level bucket. */
+  /** Secondary line, e.g. role/disposition, author, or status. */
+  detail?: string;
+  /** Expandable long-form body (note text, transcript excerpt, etc.). */
+  body?: string;
+  /** Where it came from, shown as a badge: "Zoom", "Salesforce", "SE note"... */
+  source: string;
+  /** ISO date, or null. */
   date: string | null;
-  meetingId: string | null;
-  notes: BrainNote[];
-  assets: BrainAsset[];
+  included: boolean;
+};
+
+// A group of items of one type, rendered as a collapsible section in the brain.
+export type BrainSection = {
+  key: BrainItemType;
+  label: string;
+  description: string;
+  items: BrainItem[];
 };
 
 export type BrainSummary = {
   accountName: string;
   dealName: string;
+  /** When true the account opted out of AI; the brain is locked (read-only). */
+  aiOptOut: boolean;
   meetingCount: number;
   emailCount: number;
   noteCount: number;
   assetCount: number;
   contactCount: number;
   transcriptCount: number;
-  /** Asset counts grouped by type, e.g. { type: "PRESENTATION", count: 4 }. */
-  assetTypeCounts: { type: string; count: number }[];
+  taskCount: number;
+  /** Items currently feeding the context vs. total toggleable items. */
+  includedCount: number;
+  totalCount: number;
   /** A few derived high-level topics pulled from the notes/meetings. */
   topics: string[];
-  /** All ingested items, grouped by meeting (newest first) + an account bucket. */
-  groups: BrainGroup[];
+  /** Toggleable knowledge, grouped by source. */
+  sections: BrainSection[];
 };
+
+// Synthetic id for the single opportunity-detail block (it has no row id).
+export const OPPORTUNITY_ITEM_ID = "opportunity-detail";
 
 // The Account-AI persona for a SINGLE account. The knowledge bases never bleed
 // together (one account per chat). This prompt is written for a small (8B-class)
@@ -133,92 +149,7 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
   const deal = await getAccountDetail(dealId);
   if (!deal) return null;
 
-  const toAsset = (asset: {
-    id: string;
-    type: string;
-    title: string;
-    sourceTool: string;
-    previewImageUri: string | null;
-    createdAt: Date;
-  }): BrainAsset => ({
-    id: asset.id,
-    type: asset.type,
-    title: asset.title,
-    sourceTool: asset.sourceTool,
-    previewImageUri: asset.previewImageUri,
-    createdAt: asset.createdAt.toISOString(),
-  });
-
-  const toNote = (note: {
-    id: string;
-    role: string;
-    author: string;
-    body: string;
-    createdAt: Date;
-  }): BrainNote => ({
-    id: note.id,
-    role: note.role,
-    author: note.author,
-    body: note.body,
-    createdAt: note.createdAt.toISOString(),
-  });
-
-  // One group per meeting (newest first), then an account-level bucket for
-  // items that aren't tied to a specific meeting.
-  const groups: BrainGroup[] = deal.meetings.map((meeting) => ({
-    key: `meeting-${meeting.id}`,
-    label: meeting.subject,
-    date: meeting.startTime.toISOString(),
-    meetingId: meeting.id,
-    notes: meeting.notes.map(toNote),
-    assets: meeting.assets.map(toAsset),
-  }));
-
-  const accountNotes = deal.notes.filter((note) => !note.meetingId).map(toNote);
-  const accountAssets = deal.assets.filter((asset) => !asset.meetingId).map(toAsset);
-  groups.push({
-    key: "account-level",
-    label: "Account-level (no meeting)",
-    date: null,
-    meetingId: null,
-    notes: accountNotes,
-    assets: accountAssets,
-  });
-
-  const assetTypeMap = new Map<string, number>();
-  for (const asset of deal.assets) {
-    assetTypeMap.set(asset.type, (assetTypeMap.get(asset.type) ?? 0) + 1);
-  }
-  const assetTypeCounts = [...assetTypeMap.entries()]
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count);
-
-  const topics = extractTopics([
-    ...deal.notes.map((note) => note.body),
-    ...deal.meetings.map((meeting) => meeting.subject),
-    deal.nextAction,
-    deal.latestSignal ?? "",
-  ]);
-
-  const summary: BrainSummary = {
-    accountName: deal.accountName,
-    dealName: deal.name,
-    meetingCount: deal.meetings.length,
-    emailCount: deal.emails.length,
-    noteCount: deal.notes.length,
-    assetCount: deal.assets.length,
-    contactCount: deal.contacts.length,
-    transcriptCount: deal.transcripts.length,
-    assetTypeCounts,
-    topics,
-    groups,
-  };
-
-  // Build the LLM context. Keep it bounded so very chatty accounts don't blow
-  // past a small model's window; the most recent notes/meetings matter most and
-  // full transcripts are excerpted (not dumped) to protect the token budget.
-  const fmtDate = (d: Date) =>
-    new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
+  const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(d);
   const parseList = (value: string | null | undefined): string[] => {
     if (!value) return [];
     try {
@@ -233,17 +164,17 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     const clean = text.replace(/\s+/g, " ").trim();
     return clean.length > max ? `${clean.slice(0, max)}…` : clean;
   };
+  const firstLine = (text: string, max = 90) => {
+    const line = text.replace(/\s+/g, " ").trim();
+    return line.length > max ? `${line.slice(0, max)}…` : line;
+  };
 
-  const lines: string[] = [
-    `ACCOUNT: ${deal.accountName}`,
-    `OPPORTUNITY: ${deal.name} (stage: ${deal.stage}, owner: ${deal.owner})`,
-    `AMOUNT: $${deal.amount.toLocaleString()} | TECHNICAL CLOSE STATUS: ${deal.technicalCloseStatus} | CLOSED: ${deal.isClosed ? "yes" : "no"}`,
-    `NEXT ACTION: ${deal.nextAction}`,
-  ];
-  if (deal.latestSignal) lines.push(`LATEST SIGNAL: ${deal.latestSignal}`);
+  // Which items the user has soft-excluded from context. Excluded items still
+  // appear in the brain (so they can be re-added) but never feed the LLM.
+  const excluded = new Set(deal.aiContextExclusions.map((x) => `${x.itemType}:${x.itemId}`));
+  const isIncluded = (itemType: BrainItemType, id: string) => !excluded.has(`${itemType}:${id}`);
 
-  // Opportunity + account detail. Only emit fields that are actually populated
-  // so the model never sees blanks it might try to fill in.
+  // --- Opportunity-detail block (single toggleable item) -------------------
   const detail: string[] = [];
   const add = (label: string, value: string | number | boolean | null | undefined) => {
     if (value === null || value === undefined || value === "") return;
@@ -275,19 +206,215 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
   if (deal.technicalCloseDate) add("Technical close date", fmtDate(deal.technicalCloseDate));
   if (deal.intendToUseForNc2) add("Intends NC2", "yes");
   add("Channel notes", deal.channelNotes);
-  if (detail.length > 0) {
+
+  const opportunityItems: BrainItem[] = detail.length
+    ? [
+        {
+          itemType: "opportunity",
+          id: OPPORTUNITY_ITEM_ID,
+          title: "Opportunity & account detail",
+          detail: "Firmographics, framing, and close plan from Salesforce",
+          body: detail.join("\n"),
+          source: "Salesforce",
+          date: null,
+          included: isIncluded("opportunity", OPPORTUNITY_ITEM_ID),
+        },
+      ]
+    : [];
+
+  // --- Stakeholders (buying committee) -------------------------------------
+  const contactItems: BrainItem[] = deal.contacts.map((contact) => ({
+    itemType: "contact",
+    id: contact.id,
+    title: contact.name,
+    detail: [contact.title, `${contact.role}`, contact.disposition]
+      .filter(Boolean)
+      .join(" · "),
+    body: contact.notes ?? undefined,
+    source: "Salesforce",
+    date: null,
+    included: isIncluded("contact", contact.id),
+  }));
+
+  // --- Zoom transcripts (auto-imported) ------------------------------------
+  const transcriptItems: BrainItem[] = deal.transcripts.map((t) => {
+    const subject = t.meeting?.subject ?? "Meeting";
+    const when = t.meeting?.startTime ?? t.autoIngestedAt;
+    const bodyParts: string[] = [];
+    if (t.summary) bodyParts.push(`AI summary\n${t.summary}`);
+    if (t.notes) bodyParts.push(`Notes\n${t.notes}`);
+    if (t.transcript) bodyParts.push(`Transcript\n${t.transcript}`);
+    return {
+      itemType: "transcript",
+      id: t.id,
+      title: subject,
+      detail: `Auto-imported from Zoom · ${fmtDate(when)}`,
+      body: bodyParts.join("\n\n") || undefined,
+      source: "Zoom",
+      date: when.toISOString(),
+      included: isIncluded("transcript", t.id),
+    };
+  });
+
+  // --- Notes (SE / AE / SAM) -----------------------------------------------
+  const meetingSubjectById = new Map(deal.meetings.map((m) => [m.id, m.subject] as const));
+  const noteItems: BrainItem[] = deal.notes.map((note) => ({
+    itemType: "note",
+    id: note.id,
+    title: firstLine(note.body),
+    detail: [
+      `${note.role} · ${note.author}`,
+      note.meetingId ? meetingSubjectById.get(note.meetingId) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    body: note.body,
+    source: `${note.role} note`,
+    date: note.createdAt.toISOString(),
+    included: isIncluded("note", note.id),
+  }));
+
+  // --- Salesforce tasks (open only feed context, all shown) ----------------
+  const isOpenTask = (status: string) => status !== "Completed" && status !== "Deferred";
+  const taskItems: BrainItem[] = deal.salesforceTasks.map((task) => ({
+    itemType: "task",
+    id: task.id,
+    title: task.taskName,
+    detail: [task.status, task.dueDate ? `due ${fmtDate(task.dueDate)}` : null, task.assignee]
+      .filter(Boolean)
+      .join(" · "),
+    body: task.description ?? undefined,
+    source: "Salesforce",
+    date: task.dueDate ? task.dueDate.toISOString() : task.createdAt.toISOString(),
+    included: isIncluded("task", task.id),
+  }));
+
+  // --- Documents & assets ---------------------------------------------------
+  const assetItems: BrainItem[] = deal.assets.map((asset) => ({
+    itemType: "asset",
+    id: asset.id,
+    title: asset.title,
+    detail: `${asset.type.replaceAll("_", " ")} · ${asset.sourceTool}`,
+    source: asset.sourceTool || "Document",
+    date: asset.createdAt.toISOString(),
+    included: isIncluded("asset", asset.id),
+  }));
+
+  // --- Emails ---------------------------------------------------------------
+  const emailItems: BrainItem[] = deal.emails.map((email) => ({
+    itemType: "email",
+    id: email.id,
+    title: email.subject,
+    detail: `from ${email.from}`,
+    body: email.summary ?? excerpt(email.body, 400),
+    source: "Email",
+    date: email.receivedAt.toISOString(),
+    included: isIncluded("email", email.id),
+  }));
+
+  const sectionDefs: BrainSection[] = [
+    {
+      key: "opportunity",
+      label: "Opportunity",
+      description: "Salesforce firmographics, framing, and close plan",
+      items: opportunityItems,
+    },
+    {
+      key: "transcript",
+      label: "Zoom meetings",
+      description: "Auto-imported Zoom AI summaries and transcripts",
+      items: transcriptItems,
+    },
+    {
+      key: "note",
+      label: "Notes",
+      description: "SE / AE / SAM notes logged against this account",
+      items: noteItems,
+    },
+    {
+      key: "contact",
+      label: "Stakeholders",
+      description: "Buying committee and their dispositions",
+      items: contactItems,
+    },
+    {
+      key: "task",
+      label: "Salesforce tasks",
+      description: "Follow-up activities synced from Salesforce",
+      items: taskItems,
+    },
+    {
+      key: "asset",
+      label: "Documents",
+      description: "Decks, whiteboards, and uploaded assets",
+      items: assetItems,
+    },
+    {
+      key: "email",
+      label: "Emails",
+      description: "Threads assigned to this account",
+      items: emailItems,
+    },
+  ];
+  const sections = sectionDefs.filter((section) => section.items.length > 0);
+
+  const allItems = sections.flatMap((s) => s.items);
+  const includedCount = allItems.filter((i) => i.included).length;
+
+  const topics = extractTopics([
+    ...deal.notes.map((note) => note.body),
+    ...deal.meetings.map((meeting) => meeting.subject),
+    deal.nextAction,
+    deal.latestSignal ?? "",
+  ]);
+
+  const summary: BrainSummary = {
+    accountName: deal.accountName,
+    dealName: deal.name,
+    aiOptOut: deal.aiOptOut,
+    meetingCount: deal.meetings.length,
+    emailCount: deal.emails.length,
+    noteCount: deal.notes.length,
+    assetCount: deal.assets.length,
+    contactCount: deal.contacts.length,
+    transcriptCount: deal.transcripts.length,
+    taskCount: deal.salesforceTasks.filter((t) => isOpenTask(t.status)).length,
+    includedCount,
+    totalCount: allItems.length,
+    topics,
+    sections,
+  };
+
+  // Opted-out accounts get an empty context: Account-AI must not reason over
+  // their data at all. The chat route also blocks these before we get here.
+  if (deal.aiOptOut) {
+    return { contextText: "", summary };
+  }
+
+  // --- Build the LLM context from INCLUDED items only ----------------------
+  // Keep it bounded so very chatty accounts don't blow past a small model's
+  // window; transcripts are excerpted (not dumped) to protect the token budget.
+  const lines: string[] = [
+    `ACCOUNT: ${deal.accountName}`,
+    `OPPORTUNITY: ${deal.name} (stage: ${deal.stage}, owner: ${deal.owner})`,
+    `AMOUNT: $${deal.amount.toLocaleString()} | TECHNICAL CLOSE STATUS: ${deal.technicalCloseStatus} | CLOSED: ${deal.isClosed ? "yes" : "no"}`,
+    `NEXT ACTION: ${deal.nextAction}`,
+  ];
+  if (deal.latestSignal) lines.push(`LATEST SIGNAL: ${deal.latestSignal}`);
+
+  if (opportunityItems[0]?.included && detail.length > 0) {
     lines.push("", "OPPORTUNITY DETAIL:", ...detail);
   }
 
-  if (deal.contacts.length > 0) {
+  const includedContacts = deal.contacts.filter((c) => isIncluded("contact", c.id));
+  if (includedContacts.length > 0) {
     lines.push("", "STAKEHOLDERS (buying committee):");
-    for (const contact of deal.contacts) {
+    for (const contact of includedContacts) {
       const bits = [contact.name];
       if (contact.title) bits.push(contact.title);
       bits.push(`role: ${contact.role}`);
       bits.push(`disposition: ${contact.disposition}`);
-      const head = bits.join(" | ");
-      lines.push(`- ${head}${contact.notes ? ` — ${contact.notes}` : ""}`);
+      lines.push(`- ${bits.join(" | ")}${contact.notes ? ` — ${contact.notes}` : ""}`);
     }
   }
 
@@ -300,16 +427,18 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     lines.push(`- ${fmtDate(meeting.startTime)} | ${meeting.subject}${attendees ? ` | attendees: ${attendees}` : ""}`);
   }
 
-  lines.push("", "NOTES (SE / AE / SAM):");
-  for (const note of deal.notes.slice(0, 60)) {
-    lines.push(`- [${note.role} ${fmtDate(note.createdAt)}] ${note.body}`);
+  const includedNotes = deal.notes.filter((n) => isIncluded("note", n.id));
+  if (includedNotes.length > 0) {
+    lines.push("", "NOTES (SE / AE / SAM):");
+    for (const note of includedNotes.slice(0, 60)) {
+      lines.push(`- [${note.role} ${fmtDate(note.createdAt)}] ${note.body}`);
+    }
   }
 
-  // Zoom transcripts: prefer the AI summary + notes; include only a short
-  // excerpt of the full transcript so a few chatty meetings can't dominate.
-  if (deal.transcripts.length > 0) {
+  const includedTranscripts = deal.transcripts.filter((t) => isIncluded("transcript", t.id));
+  if (includedTranscripts.length > 0) {
     lines.push("", "MEETING TRANSCRIPTS (Zoom):");
-    for (const t of deal.transcripts.slice(0, 12)) {
+    for (const t of includedTranscripts.slice(0, 12)) {
       const subject = t.meeting?.subject ?? "Meeting";
       const when = t.meeting?.startTime ? fmtDate(t.meeting.startTime) : fmtDate(t.autoIngestedAt);
       lines.push(`- ${when} | ${subject}`);
@@ -319,26 +448,29 @@ export async function buildAccountKnowledgeBase(dealId: string): Promise<Account
     }
   }
 
-  // Open follow-up tasks (Salesforce activities). Skip completed ones.
-  const openTasks = deal.salesforceTasks.filter(
-    (task) => task.status !== "Completed" && task.status !== "Deferred",
+  const includedOpenTasks = deal.salesforceTasks.filter(
+    (task) => isOpenTask(task.status) && isIncluded("task", task.id),
   );
-  if (openTasks.length > 0) {
+  if (includedOpenTasks.length > 0) {
     lines.push("", "OPEN TASKS:");
-    for (const task of openTasks.slice(0, 20)) {
+    for (const task of includedOpenTasks.slice(0, 20)) {
       const due = task.dueDate ? ` (due ${fmtDate(task.dueDate)})` : "";
       lines.push(`- [${task.status}] ${task.taskName}${due}`);
     }
   }
 
-  lines.push("", "ASSETS:");
-  for (const asset of deal.assets.slice(0, 60)) {
-    lines.push(`- ${asset.type.replaceAll("_", " ")}: ${asset.title} (source: ${asset.sourceTool})`);
+  const includedAssets = deal.assets.filter((a) => isIncluded("asset", a.id));
+  if (includedAssets.length > 0) {
+    lines.push("", "ASSETS:");
+    for (const asset of includedAssets.slice(0, 60)) {
+      lines.push(`- ${asset.type.replaceAll("_", " ")}: ${asset.title} (source: ${asset.sourceTool})`);
+    }
   }
 
-  if (deal.emails.length > 0) {
+  const includedEmails = deal.emails.filter((e) => isIncluded("email", e.id));
+  if (includedEmails.length > 0) {
     lines.push("", "EMAILS:");
-    for (const email of deal.emails.slice(0, 30)) {
+    for (const email of includedEmails.slice(0, 30)) {
       lines.push(`- ${fmtDate(email.receivedAt)} | from ${email.from} | ${email.subject}`);
     }
   }
@@ -369,6 +501,9 @@ export type AllAccountsKnowledgeBase = {
 export async function buildAllAccountsKnowledgeBase(): Promise<AllAccountsKnowledgeBase> {
   const now = new Date();
   const deals = await prisma.deal.findMany({
+    // Accounts that opted out of AI at Nutanix never appear in the portfolio
+    // context or its counts.
+    where: { aiOptOut: false },
     orderBy: { amount: "desc" },
     include: {
       meetings: { select: { startTime: true } },

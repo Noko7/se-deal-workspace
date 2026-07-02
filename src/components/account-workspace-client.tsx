@@ -51,7 +51,7 @@ export function AccountWorkspaceClient({
   // the chat box so the chatbot remains the primary, full-height surface.
   const header = (
     <>
-      <div className="border-b border-charcoal-200 bg-gradient-to-r from-iris-50 to-white px-4 py-3">
+      <div className="border-b border-charcoal-200 bg-gradient-to-r from-iris-50 to-white px-4 py-3 dark:from-iris-100 dark:to-charcoal-50">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-iris-500 text-white">

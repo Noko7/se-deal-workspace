@@ -1,11 +1,11 @@
 "use client";
 
-import { BrainCircuit } from "lucide-react";
+import { Brain } from "lucide-react";
 
 // --- BrainIcon --------------------------------------------------------------
 // Nutanix-themed replacement for the old 🧠 emoji. A rounded "iris" badge with
-// the circuit-brain glyph, echoing Nutanix's product-icon language. Decorative
-// by default; pass a `title` to give it an accessible label.
+// an anatomical brain glyph (Apple/SF-Symbols style), rendered in Nutanix Iris
+// Purple. Decorative by default; pass a `title` to give it an accessible label.
 
 type BrainIconSize = "sm" | "md" | "lg";
 
@@ -37,7 +37,7 @@ export function BrainIcon({
       aria-hidden={title ? undefined : true}
       className={`inline-flex shrink-0 items-center justify-center bg-gradient-to-br from-iris-500 to-iris-700 text-white shadow-sm ${BADGE_SIZES[size]} ${className}`}
     >
-      <BrainCircuit className={GLYPH_SIZES[size]} strokeWidth={2} />
+      <Brain className={GLYPH_SIZES[size]} strokeWidth={2} />
     </span>
   );
 }
@@ -62,8 +62,10 @@ export function ContextSwitch({
   busy?: boolean;
   size?: "sm" | "md";
 }) {
+  // Concrete pixel sizes (no fractional spacing) so the knob always renders and
+  // travels the full width of the track for an unmistakable on/off state.
   const track = size === "sm" ? "h-5 w-9" : "h-6 w-11";
-  const knob = size === "sm" ? "h-3.5 w-3.5" : "h-4.5 w-4.5";
+  const knob = size === "sm" ? "h-4 w-4" : "h-5 w-5";
   const travel = size === "sm" ? "translate-x-4" : "translate-x-5";
 
   return (
@@ -75,13 +77,15 @@ export function ContextSwitch({
       aria-busy={busy || undefined}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex ${track} shrink-0 items-center rounded-full border transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? "border-iris-600 bg-iris-500" : "border-charcoal-300 bg-charcoal-200"
+      className={`relative inline-flex ${track} shrink-0 cursor-pointer items-center rounded-full border p-0 transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-iris-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked
+          ? "border-iris-600 bg-iris-500 hover:bg-iris-600"
+          : "border-charcoal-300 bg-charcoal-300 hover:bg-charcoal-400 dark:border-charcoal-400 dark:bg-charcoal-300"
       }`}
     >
       <span
-        className={`ml-0.5 inline-block ${knob} transform rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? travel : "translate-x-0"
+        className={`pointer-events-none inline-block ${knob} translate-x-0.5 transform rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform duration-200 ${
+          checked ? travel : "translate-x-0.5"
         }`}
       />
     </button>

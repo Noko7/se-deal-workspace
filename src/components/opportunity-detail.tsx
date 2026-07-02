@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { updateOpportunityAction } from "@/lib/actions";
 import { PRODUCT_OPTIONS } from "@/lib/salesforce-options";
-import { Button, Card, EmptyState, StatusPill } from "@/components/ui";
+import { Button, Card, EmptyState, StageBadge, StatusPill } from "@/components/ui";
 import type { OpportunityDetailView } from "@/lib/opportunity-detail";
 
 const TABS = ["Overview", "Notes", "Activity", "Contacts", "Attachments"] as const;
@@ -56,7 +56,7 @@ export function OpportunityDetail({ opp, embedded = false }: { opp: OpportunityD
   const headerBody = (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <StatusPill tone="info">{opp.stage}</StatusPill>
+        <StageBadge stage={opp.stage} />
         <StatusPill tone="neutral">Tech close: {opp.technicalCloseStatus}</StatusPill>
         <StatusPill tone="neutral">Owner: {opp.owner}</StatusPill>
         {opp.partners ? <StatusPill tone="neutral">{opp.partners}</StatusPill> : null}

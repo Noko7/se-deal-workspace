@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { MeetingAsset } from "@prisma/client";
-import { ArrowLeft, BookOpenText, Briefcase, ExternalLink, FolderOpen, History, Users } from "lucide-react";
+import { ArrowLeft, BookOpenText, Briefcase, ChevronDown, ExternalLink, FolderOpen, History, Users } from "lucide-react";
 import { addNoteAction } from "@/lib/actions";
 import { buildAccountKnowledgeBase } from "@/lib/account-ai";
 import { toCalendarMeeting } from "@/lib/calendar";
 import { getOpportunityDetail, type OpportunityDetailView } from "@/lib/opportunity-detail";
 import { AccountOpportunities } from "@/components/account-opportunities";
 import { AccountWorkspaceClient } from "@/components/account-workspace-client";
+import { MarkdownView } from "@/components/markdown-view";
 import { relativeDay, shortDate, shortDateTime } from "@/lib/format";
 import { ActionBar, Button, Card, EmptyState, PreviewStatusPill, SectionHeader, StatusPill } from "@/components/ui";
 
@@ -34,8 +35,8 @@ function countAttendees(attendeesJson: string): number {
 }
 
 function roleTone(role: NoteRole): string {
-  if (role === "AE") return "bg-sky-100 text-sky-700";
-  if (role === "SAM") return "bg-emerald-100 text-emerald-700";
+  if (role === "AE") return "bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300";
+  if (role === "SAM") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300";
   return "bg-iris-100 text-iris-700";
 }
 
@@ -202,8 +203,21 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         subtitle="One cohesive timeline with synced meeting history and all related notes in context."
         icon={<History className="h-5 w-5" />}
       >
+        <details className="group rounded-lg border border-charcoal-200 bg-charcoal-50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-4 py-3">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-charcoal-800">
+              <History className="h-4 w-4 text-iris-500" />
+              Meetings &amp; notes timeline
+              <span className="text-xs font-normal text-charcoal-500">
+                ({allMeetings.length} {allMeetings.length === 1 ? "meeting" : "meetings"} · {notes.length}{" "}
+                {notes.length === 1 ? "note" : "notes"})
+              </span>
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-charcoal-400 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="space-y-5 border-t border-charcoal-200 p-4">
         <SectionHeader title="Add Note" subtitle="Capture one note stream for the account. Link to meeting when applicable." />
-        <form action={addNoteAction} className="mb-5 space-y-3 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+        <form action={addNoteAction} className="mb-5 space-y-3 rounded-lg border border-charcoal-200 bg-white p-3">
           <input type="hidden" name="dealId" value={anchor.id} />
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
@@ -251,72 +265,84 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           <div className="space-y-3">
             {timeline.map((entry) =>
               entry.kind === "meeting" ? (
-                <article
+                <details
                   key={`meeting-${entry.id}`}
-                  className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-500 bg-white p-4 shadow-sm"
+                  className="group/mtg overflow-hidden rounded-lg border border-charcoal-200 border-l-4 border-l-iris-500 bg-white shadow-sm"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <h4 className="text-base font-semibold text-charcoal-900">{entry.meeting.subject}</h4>
-                      <p className="text-sm text-charcoal-500">
-                        {shortDateTime(entry.meeting.startTime)} - {shortDateTime(entry.meeting.endTime)}
-                      </p>
+                  <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-2 p-4">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-charcoal-400 transition-transform group-open/mtg:rotate-180" />
+                      <div className="min-w-0">
+                        <h4 className="text-base font-semibold text-charcoal-900">{entry.meeting.subject}</h4>
+                        <p className="text-sm text-charcoal-500">
+                          {shortDateTime(entry.meeting.startTime)} - {shortDateTime(entry.meeting.endTime)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <StatusPill tone="neutral">
                         <span className="inline-flex items-center gap-1">
                           <Users className="h-3 w-3" /> {countAttendees(entry.meeting.attendeesJson)}
                         </span>
                       </StatusPill>
+                      {entry.notes.length > 0 ? (
+                        <StatusPill tone="info">
+                          {entry.notes.length} {entry.notes.length === 1 ? "note" : "notes"}
+                        </StatusPill>
+                      ) : null}
                       <StatusPill tone="info">{relativeDay(entry.meeting.startTime)}</StatusPill>
                     </div>
-                  </div>
+                  </summary>
 
-                  {entry.meeting.assets.length > 0 ? (
-                    <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                      {entry.meeting.assets.map((asset) => (
-                        <AssetTile key={asset.id} asset={asset} />
-                      ))}
-                    </div>
-                  ) : null}
+                  <div className="border-t border-charcoal-100 px-4 pb-4 pt-3">
+                    {entry.meeting.assets.length > 0 ? (
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                        {entry.meeting.assets.map((asset) => (
+                          <AssetTile key={asset.id} asset={asset} />
+                        ))}
+                      </div>
+                    ) : null}
 
-                  <div className="mt-3 space-y-2">
-                    {entry.notes.length === 0 ? (
-                      <p className="text-xs text-charcoal-500">No notes captured for this meeting yet.</p>
-                    ) : (
-                      entry.notes.map((note) => (
-                        <div key={note.id} className="rounded-md border border-charcoal-200 bg-charcoal-50 p-2.5">
-                          <div className="mb-1 flex items-center gap-2">
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${roleTone(note.role)}`}>
-                              {note.role}
-                            </span>
-                            <span className="text-xs text-charcoal-500">{note.author}</span>
-                            <span className="ml-auto text-xs text-charcoal-400">{shortDate(note.createdAt)}</span>
+                    <div className="mt-3 space-y-2">
+                      {entry.notes.length === 0 ? (
+                        <p className="text-xs text-charcoal-500">No notes captured for this meeting yet.</p>
+                      ) : (
+                        entry.notes.map((note) => (
+                          <div key={note.id} className="rounded-md border border-charcoal-200 bg-charcoal-50 p-3">
+                            <div className="mb-2 flex items-center gap-2">
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${roleTone(note.role)}`}>
+                                {note.role}
+                              </span>
+                              <span className="text-xs text-charcoal-500">{note.author}</span>
+                              <span className="ml-auto text-xs text-charcoal-400">{shortDate(note.createdAt)}</span>
+                            </div>
+                            <MarkdownView markdown={note.body} />
                           </div>
-                          <p className="text-sm text-charcoal-700">{note.body}</p>
-                        </div>
-                      ))
-                    )}
+                        ))
+                      )}
+                    </div>
                   </div>
-                </article>
+                </details>
               ) : (
                 <article
                   key={`note-${entry.id}`}
                   className="rounded-lg border border-charcoal-200 border-l-4 border-l-charcoal-500 bg-white p-4"
                 >
-                  <div className="mb-1 flex items-center gap-2">
+                  <div className="mb-2 flex items-center gap-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${roleTone(entry.note.role)}`}>
                       {entry.note.role}
                     </span>
                     <span className="text-xs text-charcoal-500">{entry.note.author}</span>
                     <span className="ml-auto text-xs text-charcoal-400">{shortDate(entry.note.createdAt)}</span>
                   </div>
-                  <p className="text-sm text-charcoal-700">{entry.note.body}</p>
+                  <MarkdownView markdown={entry.note.body} />
                 </article>
               ),
             )}
           </div>
         )}
+          </div>
+        </details>
       </Card>
     </div>
   );

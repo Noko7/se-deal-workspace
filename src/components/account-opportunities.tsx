@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { OpportunityDetail } from "@/components/opportunity-detail";
-import { StatusPill } from "@/components/ui";
+import { StageBadge } from "@/components/ui";
+import { normalizeStage } from "@/lib/opportunity-stage";
 import type { OpportunityDetailView } from "@/lib/opportunity-detail";
 
 function fmtCloseDate(iso: string | null): string {
@@ -28,8 +29,8 @@ export function AccountOpportunities({
 
   // Open opps first (soonest close date first), then closed (most recent first).
   const sorted = [...opps].sort((a, b) => {
-    const aClosed = a.stage.startsWith("Closed");
-    const bClosed = b.stage.startsWith("Closed");
+    const aClosed = normalizeStage(a.stage).startsWith("Closed");
+    const bClosed = normalizeStage(b.stage).startsWith("Closed");
     if (aClosed !== bClosed) return aClosed ? 1 : -1;
     const at = a.closeDate ? new Date(a.closeDate).getTime() : Number.MAX_SAFE_INTEGER;
     const bt = b.closeDate ? new Date(b.closeDate).getTime() : Number.MAX_SAFE_INTEGER;
@@ -40,8 +41,6 @@ export function AccountOpportunities({
     <div className="space-y-3">
       {sorted.map((opp) => {
         const isOpen = Boolean(open[opp.id]);
-        const closedWon = opp.stage === "Closed Won";
-        const closedLost = opp.stage === "Closed Lost";
         return (
           <div
             key={opp.id}
@@ -64,7 +63,7 @@ export function AccountOpportunities({
                   {opp.oppId} · {opp.owner}
                 </span>
               </span>
-              <StatusPill tone={closedWon ? "good" : closedLost ? "neutral" : "info"}>{opp.stage}</StatusPill>
+              <StageBadge stage={opp.stage} />
               <span className="text-xs font-medium text-charcoal-600">
                 {opp.technicalCloseStatus === "-" ? "Tech close —" : `Tech close ${opp.technicalCloseStatus}%`}
               </span>

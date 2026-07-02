@@ -1,5 +1,6 @@
 import { IntegrationStatus, PreviewStatus, RecommendationDecision } from "@prisma/client";
 import { ButtonHTMLAttributes, ReactNode } from "react";
+import { stageMeta } from "@/lib/opportunity-stage";
 
 export function Card({
   title,
@@ -101,13 +102,40 @@ export function StatusPill({
 }) {
   const toneClass = {
     neutral: "bg-charcoal-100 text-charcoal-700",
-    good: "bg-[#eef8d8] text-[#3f5e0a]",
-    warning: "bg-[#ffe7e0] text-[#9a3b27]",
-    bad: "bg-rose-100 text-rose-800",
+    good: "bg-[#eef8d8] text-[#3f5e0a] dark:bg-emerald-400/15 dark:text-emerald-300",
+    warning: "bg-[#ffe7e0] text-[#9a3b27] dark:bg-orange-400/15 dark:text-orange-200",
+    bad: "bg-rose-100 text-rose-800 dark:bg-rose-400/15 dark:text-rose-300",
     info: "bg-iris-100 text-iris-700",
   }[tone];
 
   return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${toneClass}`}>{children}</span>;
+}
+
+// Numbered, color-coded pill for an opportunity's sales-cycle stage (1–7).
+// `size="sm"` drops the word "Stage" for tight rows.
+export function StageBadge({
+  stage,
+  size = "md",
+  className = "",
+}: {
+  stage: string;
+  size?: "sm" | "md";
+  className?: string;
+}) {
+  const meta = stageMeta(stage);
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${meta.pill} ${className}`}
+      title={`Stage ${meta.num} of 7 · ${meta.label}`}
+    >
+      <span
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${meta.chip}`}
+      >
+        {meta.num}
+      </span>
+      {size === "md" ? <span className="pr-0.5">{meta.label}</span> : null}
+    </span>
+  );
 }
 
 export function IntegrationStatusPill({ status }: { status: IntegrationStatus }) {

@@ -1,3 +1,5 @@
+"use client";
+
 import { Fragment, memo, type ReactNode } from "react";
 
 // Minimal, dependency-free Markdown renderer. It only needs to handle the

@@ -12,6 +12,7 @@ import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
 import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
+import { ProposalOppPicker } from "@/components/proposal-opp-picker";
 import { Button } from "@/components/ui";
 
 const linesToArray = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -122,17 +123,6 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
 
   const previewStale = doc !== previewDoc;
   const linkedOpp = useMemo(() => opps.find((o) => o.dealId === linkedDealId) ?? null, [opps, linkedDealId]);
-
-  // Opportunities grouped by account for the <select>, open deals first.
-  const oppGroups = useMemo(() => {
-    const byAccount = new Map<string, ProposalOppOption[]>();
-    for (const o of opps) {
-      const list = byAccount.get(o.accountName) ?? [];
-      list.push(o);
-      byAccount.set(o.accountName, list);
-    }
-    return [...byAccount.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [opps]);
 
   // Link (or re-link) the proposal to an opportunity and prefill from it.
   function linkOpportunity(dealId: string) {
@@ -315,7 +305,7 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
           className={`flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition ${
             dragging
               ? "border-iris-500 bg-iris-100 ring-2 ring-iris-300"
-              : "border-iris-300 bg-gradient-to-br from-iris-50 to-white hover:border-iris-400"
+              : "border-iris-300 bg-gradient-to-br from-iris-50 to-white hover:border-iris-400 dark:border-iris-500/50 dark:from-iris-100 dark:to-charcoal-50 dark:hover:border-iris-400"
           }`}
         >
           <span className={`flex h-12 w-12 items-center justify-center rounded-full text-iris-600 transition ${dragging ? "scale-110 bg-iris-200" : "bg-iris-100"}`}>
@@ -329,30 +319,14 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
             an on-brand 2-page Solution Brief and a polished BOM deck from it.
           </span>
         </button>
-        {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+        {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">{error}</p> : null}
         {opps.length ? (
-          <div className="mx-auto flex w-full max-w-xl flex-wrap items-center justify-center gap-2 rounded-lg border border-charcoal-200 bg-white px-3 py-2.5">
+          <div className="mx-auto w-full max-w-xl space-y-2 rounded-lg border border-charcoal-200 bg-white px-3 py-2.5">
             <span className="flex items-center gap-1.5 text-xs font-semibold text-charcoal-700">
-              <Building2 className="h-4 w-4 text-iris-500" /> Link to an opportunity
+              <Building2 className="h-4 w-4 text-iris-500" /> Search accounts &amp; link an opportunity
             </span>
-            <select
-              value={linkedDealId}
-              onChange={(e) => linkOpportunity(e.target.value)}
-              className="min-w-0 flex-1 text-sm"
-              aria-label="Link this proposal to an opportunity"
-            >
-              <option value="">None (standalone proposal)</option>
-              {oppGroups.map(([account, list]) => (
-                <optgroup key={account} label={account}>
-                  {list.map((o) => (
-                    <option key={o.dealId} value={o.dealId}>
-                      {o.dealName}{o.isClosed ? " · closed" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <p className="w-full text-center text-[11px] text-charcoal-400">
+            <ProposalOppPicker opps={opps} value={linkedDealId} onSelect={linkOpportunity} variant="full" />
+            <p className="text-center text-[11px] text-charcoal-400">
               Prefills the customer, opportunity, and Salesforce narrative — and lets you save the proposal back to the account for the Account AI.
             </p>
           </div>
@@ -403,24 +377,7 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
             <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" /> Change file</span>
           </Button>
           {opps.length ? (
-            <select
-              value={linkedDealId}
-              onChange={(e) => linkOpportunity(e.target.value)}
-              className="max-w-[220px] text-xs"
-              aria-label="Linked opportunity"
-              title="Link this proposal to an opportunity"
-            >
-              <option value="">No linked opp</option>
-              {oppGroups.map(([account, list]) => (
-                <optgroup key={account} label={account}>
-                  {list.map((o) => (
-                    <option key={o.dealId} value={o.dealId}>
-                      {o.dealName}{o.isClosed ? " · closed" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <ProposalOppPicker opps={opps} value={linkedDealId} onSelect={linkOpportunity} variant="compact" />
           ) : null}
           {linkedOpp ? (
             <Button tone="secondary" onClick={saveToAccount} disabled={saveState === "saving"}>

@@ -13,7 +13,13 @@ const ZOOM_WEBHOOK_PATH = "/api/integrations/zoom/webhook";
 
 export default async function IntegrationsPage() {
   const { integrations } = await getDashboardData();
-  const nonNaiIntegrations = integrations.filter((integration) => integration.integrationKey !== "local_llm");
+  // Connectors that already have their own dedicated card below (Zoom auto-sync,
+  // the Salesforce Account Schema explorer, and the Nutanix NAI/LLM card) are
+  // omitted from the generic Connector Catalog so the page isn't redundant.
+  const DEDICATED_KEYS = new Set(["local_llm", "zoom", "salesforce"]);
+  const catalogIntegrations = integrations.filter(
+    (integration) => !DEDICATED_KEYS.has(integration.integrationKey),
+  );
   const llm = await getLlmCredentialSummary();
   const zoom = await getZoomConfigSummary();
 
@@ -27,16 +33,16 @@ export default async function IntegrationsPage() {
         <SectionHeader
           title="Connector Catalog"
           subtitle="Track connector health and run setup checks before enabling live credentials."
-          action={<StatusPill tone="info">{nonNaiIntegrations.length} connectors</StatusPill>}
+          action={<StatusPill tone="info">{catalogIntegrations.length} connectors</StatusPill>}
         />
         <div className="space-y-4">
-          {nonNaiIntegrations.length === 0 ? (
+          {catalogIntegrations.length === 0 ? (
             <EmptyState
               title="No integrations configured"
               description="Add connector records to display setup and status actions."
             />
           ) : null}
-          {nonNaiIntegrations.map((integration) => {
+          {catalogIntegrations.map((integration) => {
             const adapter = integrationAdapters[integration.integrationKey as keyof typeof integrationAdapters];
             return (
               <article key={integration.id} className="rounded-lg border border-charcoal-200 border-l-4 border-l-iris-400 bg-white p-4 shadow-sm">

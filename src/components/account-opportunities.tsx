@@ -44,18 +44,24 @@ export function AccountOpportunities({
         return (
           <div
             key={opp.id}
-            className={`rounded-xl border bg-white shadow-sm transition ${
-              isOpen ? "border-iris-300 ring-1 ring-iris-200" : "border-charcoal-200 hover:border-iris-300"
+            className={`overflow-hidden rounded-xl border bg-white shadow-sm transition ${
+              isOpen
+                ? "border-iris-300 ring-1 ring-iris-200 dark:border-iris-500/50"
+                : "border-charcoal-200 hover:border-iris-300"
             }`}
           >
             <button
               type="button"
               onClick={() => toggle(opp.id)}
               aria-expanded={isOpen}
-              className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl px-4 py-3 text-left"
+              className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left transition-colors ${
+                isOpen
+                  ? "bg-iris-50/70 hover:bg-iris-100 dark:bg-iris-100/40 dark:hover:bg-iris-100/60"
+                  : "bg-white hover:bg-charcoal-50"
+              }`}
             >
               <ChevronDown
-                className={`h-4 w-4 shrink-0 text-charcoal-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                className={`h-4 w-4 shrink-0 text-charcoal-500 transition-transform ${isOpen ? "rotate-180 text-iris-600" : ""}`}
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-charcoal-900">{opp.dealName}</span>

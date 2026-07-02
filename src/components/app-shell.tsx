@@ -32,10 +32,10 @@ const navigation = [
   { href: "/account-map", label: "Account Map", description: "Geo coverage by region and SE", icon: MapPinned },
   { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
   { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },
-  { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
   { href: "/simple-sizer", label: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: Calculator },
   { href: "/qbr", label: "QBR Deck Builder", description: "Pull CS360 health checks into an on-brand QBR deck", icon: Presentation },
   { href: "/proposal", label: "Proposal Builder", description: "Turn a Sizer scenario into a branded proposal + BOM", icon: FileText },
+  { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
 ];
 
 // Routes that render without the app chrome (their own full-screen layout).

@@ -15,8 +15,8 @@ import { mergeReports } from "@/lib/install-base/parse";
 import { parseHardwareFile } from "@/lib/install-base/hardware";
 import { buildWorkbookBlob } from "@/lib/install-base/workbook";
 
-const PART1_LINK = "https://csinsights.nutanix.com/hx/resourceutil/allaccounts/all/10361";
-const PART2_LINK = "https://csinsights.nutanix.com/hx/clustersummary/allaccounts/all/10360";
+const PART1_LINK = "https://csinsights.nutanix.com/hx/resourceutil/allaccounts/all/8781";
+const PART2_LINK = "https://csinsights.nutanix.com/hx/clustersummary/allaccounts/all/8782";
 const PART3_LINK = "https://nutanix.lightning.force.com/lightning/r/Report/00OVO00000VxHHV2A3/view?queryScope=userFolders";
 
 function isCsv(file: File): boolean {
@@ -46,6 +46,7 @@ function DropSlot({
   onClear,
   accept = ".csv,text/csv",
   hint = "Export to CSV from CS360, then drop it here",
+  optional = false,
 }: {
   label: string;
   link: string;
@@ -54,6 +55,7 @@ function DropSlot({
   onClear: () => void;
   accept?: string;
   hint?: string;
+  optional?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,7 +63,14 @@ function DropSlot({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-charcoal-900">{label}</p>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-charcoal-900">
+          {label}
+          {optional ? (
+            <span className="rounded-full bg-charcoal-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal-600">
+              Optional
+            </span>
+          ) : null}
+        </p>
         <a
           href={link}
           target="_blank"
@@ -176,15 +185,15 @@ export function InstallBaseReport() {
 
       const nextWarnings: string[] = [];
       if (!part2) {
-        nextWarnings.push("Part 2 wasn't provided — license and version columns (Hypervisor Version → LCM) will be blank.");
+        nextWarnings.push("Part 2 wasn't provided, so the license and version columns (Hypervisor Version through LCM) will be blank.");
       } else if (merged.matchedPart2 === 0) {
-        nextWarnings.push("No Part 2 rows matched Part 1 by Cluster UUID or Cluster Name — license/version columns are blank.");
+        nextWarnings.push("No Part 2 rows matched Part 1 by Cluster UUID or Cluster Name, so the license and version columns are blank.");
       }
       if (merged.missingPart1.length > 0) {
         nextWarnings.push(`Some Part 1 columns weren't recognized and were left blank (${merged.missingPart1.length}).`);
       }
       if (hardware && !hardware.headerFound) {
-        nextWarnings.push("Couldn't find the Hardware header row in the Part 3 file — check it's the exported Salesforce report.");
+        nextWarnings.push("Couldn't find the Hardware header row in the Part 3 file. Check that it's the exported Salesforce report.");
       } else if (hardware && hardware.missing.length > 0) {
         nextWarnings.push(`Some Part 3 (Hardware) columns weren't recognized and were left blank (${hardware.missing.length}).`);
       }
@@ -206,21 +215,18 @@ export function InstallBaseReport() {
 
   return (
     <div className="space-y-5">
-      {/* Step-by-step instructions — full width, numbered. */}
+      {/* Step-by-step instructions: full width, numbered. */}
       <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-charcoal-600 marker:font-semibold marker:text-iris-600">
-        <li>Visit the links for Part 1 and Part 2.</li>
+        <li>Open the Part 1 and Part 2 report links below</li>
         <li>
-          Set the desired filters for your report using the &ldquo;Customize Report&rdquo; button at the top right of
-          CS360 (vertical, region, account, account team, etc.).
+          In CS360, click &ldquo;Customize Report&rdquo; (top right) and set your filters (vertical, region, account,
+          account team, etc.)
         </li>
-        <li>
-          Click the &ldquo;Export to CSV&rdquo; button and drag and drop (or upload) the files into their respective
-          spots.
-        </li>
+        <li>Click &ldquo;Export to CSV,&rdquo; then drop each file into its slot below</li>
       </ol>
 
-      {/* The three report slots. */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Part 1 & Part 2 slots. */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <DropSlot
           label="Part 1 Report File"
           link={PART1_LINK}
@@ -251,26 +257,59 @@ export function InstallBaseReport() {
           }}
           onClear={() => setPart2(null)}
         />
-        <DropSlot
-          label="Part 3 Report File (Hardware)"
-          link={PART3_LINK}
-          file={part3}
-          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          hint="Export the Salesforce report (Formatted Report, .xlsx) and drop it here"
-          onFile={(f) => {
-            if (!isSpreadsheet(f)) {
-              setError("That doesn't look like a CSV or Excel export.");
-              return;
-            }
-            setError(null);
-            setDone(false);
-            setPart3(f);
-          }}
-          onClear={() => setPart3(null)}
-        />
       </div>
 
-      {/* Add-on chart reports — Yes/No. */}
+      {/* Part 3: optional hardware report. Sits below Parts 1 & 2 at the same
+          slot size; only needed if the hardware report is also wanted. */}
+      <div className="space-y-3 border-t border-charcoal-200 pt-5">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-charcoal-900">
+            Part 3: Hardware Report
+            <span className="rounded-full bg-charcoal-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal-600">
+              Optional
+            </span>
+          </p>
+          <p className="text-xs text-charcoal-500">Only needed if you also want the hardware report generated.</p>
+        </div>
+        <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-charcoal-600 marker:font-semibold marker:text-iris-600">
+          <li>Visit the link for Part 3</li>
+          <li>
+            Click the &ldquo;Filters&rdquo; button (Funnel Icon at top right) and apply each shown filter as desired
+            <ul className="mt-1.5 list-none space-y-1 pl-0 text-[13px] text-charcoal-500">
+              <li>
+                <span className="font-semibold text-iris-600">2a.</span> Optional: If you want additional custom
+                settings (like Account Owner), click the edit button top right. You can then edit columns and filters
+                on the left panel, as desired. Click Run when complete
+              </li>
+            </ul>
+          </li>
+          <li>Click the downward arrow at the top right of the screen (Next to &ldquo;Edit&rdquo;)</li>
+          <li>Select &ldquo;Export&rdquo; and ensure &ldquo;Formatted Report&rdquo; is selected for export</li>
+          <li>Export and drop (or upload) the file</li>
+        </ol>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <DropSlot
+            label="Part 3 Report File"
+            link={PART3_LINK}
+            file={part3}
+            optional
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            hint="Export the Salesforce report (Formatted Report, .xlsx) and drop it here"
+            onFile={(f) => {
+              if (!isSpreadsheet(f)) {
+                setError("That doesn't look like a CSV or Excel export.");
+                return;
+              }
+              setError(null);
+              setDone(false);
+              setPart3(f);
+            }}
+            onClear={() => setPart3(null)}
+          />
+        </div>
+      </div>
+
+      {/* Add-on chart reports: Yes/No. */}
       <div className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -328,7 +367,7 @@ export function InstallBaseReport() {
       {/* Privacy note. */}
       <p className="flex items-center gap-1.5 text-[11px] text-charcoal-500">
         <Check className="h-3.5 w-3.5 text-emerald-600" />
-        Fully in-browser and stateless — your files are parsed locally and never uploaded, stored, or sent to any AI.
+        Fully in-browser and stateless. Your files are parsed locally and never uploaded, stored, or sent to any AI.
       </p>
 
       {error ? (

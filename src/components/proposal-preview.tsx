@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { EditableText, EditableList } from "@/components/inline-edit";
 import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
 import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor, platformSpecFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
@@ -40,13 +41,25 @@ function Bullets({ items }: { items: string[] }) {
   );
 }
 
-function ThreeCol({ groups }: { groups: { heading: string; items: string[] }[] }) {
+function ThreeCol({
+  groups,
+  editable,
+}: {
+  groups: { heading: string; items: string[]; onCommit?: (lines: string[]) => void }[];
+  editable?: boolean;
+}) {
   return (
     <div className="grid grid-cols-3 gap-4">
       {groups.map((g) => (
         <div key={g.heading}>
           <p className="mb-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>{g.heading}</p>
-          <Bullets items={g.items} />
+          <EditableList
+            items={g.items}
+            fontStyle={{ fontSize: 11 }}
+            editable={Boolean(editable && g.onCommit)}
+            onCommit={g.onCommit ?? (() => {})}
+            renderReadOnly={(items) => <Bullets items={items} />}
+          />
         </div>
       ))}
     </div>
@@ -101,8 +114,63 @@ function Page({ children, pageNo, customer }: { children: React.ReactNode; pageN
 }
 const NUTANIX_HEX_SLATE = cssHex(NUTANIX.slate);
 
+// The meta line under the title: opportunity / install country / date / prepared by.
+// Non-editable render is byte-identical to the original single <p>; editable
+// render swaps each piece for an inline EditableText chip.
+function MetaLine({
+  doc,
+  editable,
+  patch,
+}: {
+  doc: ProposalDoc;
+  editable: boolean;
+  patch?: (updater: (d: ProposalDoc) => ProposalDoc) => void;
+}) {
+  if (!editable || !patch) {
+    return (
+      <p className="mt-0.5 text-[11px] text-charcoal-500">
+        {[doc.meta.opportunityName, doc.meta.installCountry, doc.meta.dateLabel].filter(Boolean).join("  ·  ")}
+        {"  ·  Prepared by "}{doc.meta.preparedBy}
+      </p>
+    );
+  }
+  const chipStyle = { fontSize: 11 };
+  return (
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-charcoal-500">
+      <EditableText
+        inline
+        value={doc.meta.opportunityName ?? ""}
+        fontStyle={chipStyle}
+        onCommit={(v) => patch((d) => ((d.meta.opportunityName = v || null), d))}
+      />
+      <span>·</span>
+      <EditableText
+        inline
+        value={doc.meta.installCountry ?? ""}
+        fontStyle={chipStyle}
+        onCommit={(v) => patch((d) => ((d.meta.installCountry = v || null), d))}
+      />
+      <span>·</span>
+      <EditableText inline value={doc.meta.dateLabel} fontStyle={chipStyle} onCommit={(v) => patch((d) => ((d.meta.dateLabel = v), d))} />
+      <span>· Prepared by</span>
+      <EditableText inline value={doc.meta.preparedBy} fontStyle={chipStyle} onCommit={(v) => patch((d) => ((d.meta.preparedBy = v), d))} />
+    </p>
+  );
+}
+
 /** The 2-page mini-TCO Solution Brief, on the Nutanix corporate letterhead. */
-export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string | null }) {
+export function ProposalTwoPager({
+  doc,
+  logo,
+  editable = false,
+  patch,
+}: {
+  doc: ProposalDoc;
+  logo: string | null;
+  editable?: boolean;
+  patch?: (updater: (d: ProposalDoc) => ProposalDoc) => void;
+}) {
+  const canEdit = editable && Boolean(patch);
   const t = doc.scenario.totals;
   const rollup = hardwareRollup(doc.scenario);
   const licLines = doc.licensing.lines;
@@ -118,11 +186,14 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
       <Page pageNo={1} customer={doc.meta.customer}>
         <div className="mb-4">
           <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>{doc.options?.externalStorage ? "STORAGE PROPOSAL" : "SOLUTION PROPOSAL"}</p>
-          <h1 className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">{doc.meta.title}</h1>
-          <p className="mt-0.5 text-[11px] text-charcoal-500">
-            {[doc.meta.opportunityName, doc.meta.installCountry, doc.meta.dateLabel].filter(Boolean).join("  ·  ")}
-            {"  ·  Prepared by "}{doc.meta.preparedBy}
-          </p>
+          {canEdit ? (
+            <div className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">
+              <EditableText value={doc.meta.title} fontStyle={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }} onCommit={(v) => patch!((d) => ((d.meta.title = v), d))} />
+            </div>
+          ) : (
+            <h1 className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">{doc.meta.title}</h1>
+          )}
+          <MetaLine doc={doc} editable={canEdit} patch={patch} />
           {logo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={logo} alt="customer" className="mt-2 h-8 w-auto max-w-[160px] object-contain" />
@@ -131,29 +202,49 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
 
         <section className="mb-4">
           <SectionTitle>Executive Summary</SectionTitle>
-          <p className="text-[12px] leading-relaxed text-charcoal-700">{doc.executiveSummary}</p>
+          {canEdit ? (
+            <div className="text-[12px] leading-relaxed text-charcoal-700">
+              <EditableText multiline value={doc.executiveSummary} fontStyle={{ fontSize: 12, lineHeight: 1.6 }} onCommit={(v) => patch!((d) => ((d.executiveSummary = v), d))} />
+            </div>
+          ) : (
+            <p className="text-[12px] leading-relaxed text-charcoal-700">{doc.executiveSummary}</p>
+          )}
         </section>
 
         <section className="mb-4">
           <SectionTitle>Current Challenges</SectionTitle>
-          <p className="mb-2 text-[11px] text-charcoal-600">{doc.challengesIntro}</p>
+          {canEdit ? (
+            <div className="mb-2 text-[11px] text-charcoal-600">
+              <EditableText value={doc.challengesIntro} fontStyle={{ fontSize: 11 }} onCommit={(v) => patch!((d) => ((d.challengesIntro = v), d))} />
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] text-charcoal-600">{doc.challengesIntro}</p>
+          )}
           <ThreeCol
+            editable={canEdit}
             groups={[
-              { heading: "Technical", items: doc.challenges.technical },
-              { heading: "Operational", items: doc.challenges.operational },
-              { heading: "Financial", items: doc.challenges.financial },
+              { heading: "Technical", items: doc.challenges.technical, onCommit: (lines) => patch!((d) => ((d.challenges.technical = lines), d)) },
+              { heading: "Operational", items: doc.challenges.operational, onCommit: (lines) => patch!((d) => ((d.challenges.operational = lines), d)) },
+              { heading: "Financial", items: doc.challenges.financial, onCommit: (lines) => patch!((d) => ((d.challenges.financial = lines), d)) },
             ]}
           />
         </section>
 
         <section>
           <SectionTitle>Nutanix Proposed Benefits</SectionTitle>
-          <p className="mb-2 text-[11px] text-charcoal-600">{doc.benefitsIntro}</p>
+          {canEdit ? (
+            <div className="mb-2 text-[11px] text-charcoal-600">
+              <EditableText value={doc.benefitsIntro} fontStyle={{ fontSize: 11 }} onCommit={(v) => patch!((d) => ((d.benefitsIntro = v), d))} />
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] text-charcoal-600">{doc.benefitsIntro}</p>
+          )}
           <ThreeCol
+            editable={canEdit}
             groups={[
-              { heading: "Technical", items: doc.benefits.technical },
-              { heading: "Operational", items: doc.benefits.operational },
-              { heading: "Financial", items: doc.benefits.financial },
+              { heading: "Technical", items: doc.benefits.technical, onCommit: (lines) => patch!((d) => ((d.benefits.technical = lines), d)) },
+              { heading: "Operational", items: doc.benefits.operational, onCommit: (lines) => patch!((d) => ((d.benefits.operational = lines), d)) },
+              { heading: "Financial", items: doc.benefits.financial, onCommit: (lines) => patch!((d) => ((d.benefits.financial = lines), d)) },
             ]}
           />
         </section>
@@ -166,29 +257,48 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
               <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-charcoal-500">Current</p>
-              <Bullets items={doc.currentState} />
+              <EditableList
+                items={doc.currentState}
+                fontStyle={{ fontSize: 11 }}
+                editable={canEdit}
+                onCommit={(lines) => patch!((d) => ((d.currentState = lines), d))}
+                renderReadOnly={(items) => <Bullets items={items} />}
+              />
             </div>
             <div className="rounded-lg border p-3" style={{ borderColor: PURPLE, background: cssHex(NUTANIX.cloud) }}>
               <p className="mb-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Proposed</p>
-              <Bullets items={doc.proposedState} />
+              <EditableList
+                items={doc.proposedState}
+                fontStyle={{ fontSize: 11 }}
+                editable={canEdit}
+                onCommit={(lines) => patch!((d) => ((d.proposedState = lines), d))}
+                renderReadOnly={(items) => <Bullets items={items} />}
+              />
             </div>
           </div>
         </section>
 
         <section className="mb-4">
           <SectionTitle>About the Process</SectionTitle>
-          <div className="flex flex-wrap gap-1.5">
-            {doc.timeline.map((m, i) => (
-              <span
-                key={i}
-                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
-                style={m.label.toLowerCase().includes("go live") ? { background: PURPLE, color: "white" } : { background: cssHex(NUTANIX.cloud), color: cssHex(NUTANIX.ink) }}
-              >
-                <span className="opacity-50">{i + 1}</span>
-                {m.label}
-              </span>
-            ))}
-          </div>
+          <EditableList
+            items={doc.timeline.map((m) => m.label)}
+            editable={canEdit}
+            onCommit={(lines) => patch!((d) => ((d.timeline = lines.map((label) => ({ label }))), d))}
+            renderReadOnly={(items) => (
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((label, i) => (
+                  <span
+                    key={i}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
+                    style={label.toLowerCase().includes("go live") ? { background: PURPLE, color: "white" } : { background: cssHex(NUTANIX.cloud), color: cssHex(NUTANIX.ink) }}
+                  >
+                    <span className="opacity-50">{i + 1}</span>
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          />
         </section>
 
         <section className="mb-4">
@@ -302,13 +412,6 @@ export function ProposalTwoPager({ doc, logo }: { doc: ProposalDoc; logo: string
             </tbody>
           </table>
         </section>
-
-        {doc.quote.text ? (
-          <section className="mt-auto rounded-lg border-l-4 px-4 py-3" style={{ borderColor: PURPLE, background: "#FBFAFF" }}>
-            <p className="text-[13px] italic text-charcoal-800">“{doc.quote.text}”</p>
-            <p className="mt-1 text-[10px] font-semibold text-charcoal-500">{doc.quote.author}</p>
-          </section>
-        ) : null}
       </Page>
     </>
   );
@@ -388,15 +491,17 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
                     {front ? (
                       <div className="flex items-center gap-2">
                         <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Front</span>
+                        {/* min-w-0 lets the wide rack photo shrink to the tile width (an img flex
+                            item's default min-width:auto is its intrinsic px width, which overflows). */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={front} alt={`${m.sku} front`} className="max-h-12 w-full object-contain" />
+                        <img src={front} alt={`${m.sku} front`} className="max-h-12 w-full min-w-0 object-contain" />
                       </div>
                     ) : null}
                     {rear ? (
                       <div className="flex items-center gap-2">
                         <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Rear</span>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={rear} alt={`${m.sku} rear`} className="max-h-12 w-full object-contain" />
+                        <img src={rear} alt={`${m.sku} rear`} className="max-h-12 w-full min-w-0 object-contain" />
                       </div>
                     ) : null}
                   </div>

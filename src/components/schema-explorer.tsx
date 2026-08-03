@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Play, Table2 } from "lucide-react";
+import { ChevronDown, Table2 } from "lucide-react";
 import { ACCOUNT_SCHEMA, schemaStats, type SchemaField } from "@/lib/account-schema";
-import { Button, StatusPill } from "@/components/ui";
+import { StatusPill } from "@/components/ui";
 
 const TYPE_TONE: Record<string, string> = {
   string: "bg-charcoal-100 text-charcoal-700",
@@ -69,35 +69,11 @@ function FieldRow({ field }: { field: SchemaField }) {
   );
 }
 
-type TestResult = {
-  ok: boolean;
-  error?: string;
-  sampledFrom?: { dealId: string; account: string; opportunity: string };
-  counts?: { contacts: number; activities: number; notes: number; transcripts: number };
-  record?: unknown;
-};
-
 export function SchemaExplorer() {
   const stats = schemaStats();
   const [open, setOpen] = useState<Record<string, boolean>>(() => ({ [ACCOUNT_SCHEMA[0]?.key ?? ""]: true }));
-  const [testing, setTesting] = useState(false);
-  const [result, setResult] = useState<TestResult | null>(null);
 
   const toggle = (key: string) => setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const sendTestRequest = async () => {
-    setTesting(true);
-    setResult(null);
-    try {
-      const res = await fetch("/api/schema/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const data = (await res.json()) as TestResult;
-      setResult(data);
-    } catch {
-      setResult({ ok: false, error: "Network error reaching the schema test endpoint." });
-    } finally {
-      setTesting(false);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -109,7 +85,7 @@ export function SchemaExplorer() {
       </div>
 
       <p className="text-xs text-charcoal-600">
-        This is the schema Account-AI reasons over and the shape we will map to Salesforce. Fields marked{" "}
+        This is the shape we will map to Salesforce. Fields marked{" "}
         <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">custom · verify</span> use a
         best-guess <code>__c</code> API name — confirm each one against your SFDC org before the live connection.
       </p>
@@ -153,52 +129,6 @@ export function SchemaExplorer() {
             </div>
           );
         })}
-      </div>
-
-      <div className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-charcoal-800">Test request</p>
-            <p className="text-xs text-charcoal-500">
-              Returns a live sample Account + Opportunity (with contacts, activities, notes, and transcripts) shaped to the mapping above.
-            </p>
-          </div>
-          <Button type="button" onClick={sendTestRequest} disabled={testing}>
-            <span className="flex items-center gap-1.5">
-              <Play className="h-4 w-4" />
-              {testing ? "Running…" : "Send test request"}
-            </span>
-          </Button>
-        </div>
-
-        {result ? (
-          <div className="mt-3">
-            {result.ok ? (
-              <>
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-charcoal-600">
-                  <StatusPill tone="good">200 OK</StatusPill>
-                  {result.sampledFrom ? (
-                    <span>
-                      Sampled from <span className="font-semibold text-charcoal-800">{result.sampledFrom.account}</span> — {result.sampledFrom.opportunity}
-                    </span>
-                  ) : null}
-                  {result.counts ? (
-                    <span className="text-charcoal-500">
-                      ({result.counts.contacts} contacts · {result.counts.activities} activities · {result.counts.notes} notes · {result.counts.transcripts} transcripts)
-                    </span>
-                  ) : null}
-                </div>
-                <pre className="max-h-96 overflow-auto rounded-md border border-charcoal-200 bg-white p-3 text-[11px] leading-relaxed text-charcoal-800">
-                  {JSON.stringify(result.record, null, 2)}
-                </pre>
-              </>
-            ) : (
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                {result.error ?? "Test request failed."}
-              </div>
-            )}
-          </div>
-        ) : null}
       </div>
     </div>
   );

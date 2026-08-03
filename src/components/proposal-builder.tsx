@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AlignLeft, Building2, Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, ListChecks, Loader2, Receipt, RefreshCw, Save, Sparkles, Upload, X, Zap } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Loader2, Pencil, Receipt, RefreshCw, Sparkles, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
-import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, proposalHelpers, purchasedProducts, type ChallengeGroups, type ProposalDoc } from "@/lib/proposal-doc";
-import type { ProposalOppOption } from "@/lib/data";
+import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ProposalDoc } from "@/lib/proposal-doc";
 import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
@@ -12,11 +12,7 @@ import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
 import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
-import { ProposalOppPicker } from "@/components/proposal-opp-picker";
 import { Button } from "@/components/ui";
-
-const linesToArray = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
-const arrayToLines = (a: string[]) => a.join("\n");
 
 // Shared style for selectable toggle chips. Selected reads as a tinted, outlined
 // chip (not a solid purple block) so a row of them stays clean and legible.
@@ -24,8 +20,8 @@ function toggleClass(selected: boolean): string {
   return [
     "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition",
     selected
-      ? "border-iris-400 bg-iris-50 text-iris-700 ring-1 ring-iris-200"
-      : "border-charcoal-200 bg-white text-charcoal-600 hover:border-iris-300 hover:bg-iris-50/40",
+      ? "border-iris-500 bg-iris-100 text-iris-700 ring-1 ring-iris-300"
+      : "border-charcoal-300 bg-white text-charcoal-700 hover:border-iris-400 hover:bg-iris-50",
   ].join(" ");
 }
 
@@ -60,119 +56,24 @@ async function loadImageAsset(url: string): Promise<ImgAsset | null> {
   }
 }
 
-// First paragraph of a Salesforce narrative field, capped so a long "Why now"
-// note doesn't blow out a one-line intro slot on the brief.
-function firstParagraph(text: string, max = 420): string {
-  const para = text.split(/\n\s*\n/)[0]?.trim() ?? "";
-  return para.length > max ? `${para.slice(0, max).trimEnd()}…` : para;
-}
-
-// Prefill proposal fields from a linked opportunity. Only fills what the deal
-// actually has — no fabricated narrative.
-function applyOppToDoc(d: ProposalDoc, opp: ProposalOppOption): ProposalDoc {
-  if (d.meta.title === `Nutanix Solution Proposal for ${d.meta.customer}`) {
-    d.meta.title = `Nutanix Solution Proposal for ${opp.accountName}`;
-  }
-  d.meta.customer = opp.accountName;
-  d.meta.opportunityName = opp.dealName;
-  if (opp.whyNow?.trim()) d.challengesIntro = firstParagraph(opp.whyNow);
-  if (opp.whyNutanix?.trim()) d.benefitsIntro = firstParagraph(opp.whyNutanix);
-  return d;
-}
-
-// Plain-text summary of the proposed design, saved as a note so the Account AI
-// can reason over the proposal without parsing the exported deck.
-function proposalSummaryText(doc: ProposalDoc): string {
-  const { fmtInt, tib } = proposalHelpers;
-  const t = doc.scenario.totals;
-  const lines: (string | null)[] = [
-    `Proposal saved from Proposal Builder: ${doc.meta.title}`,
-    `Prepared by ${doc.meta.preparedBy} on ${doc.meta.dateLabel}.`,
-    "",
-    `Proposed design: ${fmtInt(t.nodes)} nodes across ${fmtInt(t.clusters)} cluster(s) · ${fmtInt(t.cores)} cores · ${fmtInt(t.ramGiB)} GB RAM · ${tib(t.ssdTiB + t.hddTiB)} usable.`,
-    doc.options?.externalStorage
-      ? `External storage design: primary storage on ${doc.options.externalStorageVendor} over NVMe/TCP.`
-      : null,
-    "",
-    "Software scope:",
-    ...doc.licensing.lines.map(
-      (l) => `- ${LICENSE_CATALOG[l.product].label} ${l.tier}: ${fmtInt(l.qty)} ${l.unit} (${doc.licensing.termYears}-year term)`,
-    ),
-    "",
-    "Executive summary:",
-    doc.executiveSummary,
-  ];
-  return lines.filter((x): x is string => x !== null).join("\n");
-}
-
-export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; opps?: ProposalOppOption[] }) {
+export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   const [doc, setDoc] = useState<ProposalDoc | null>(null);
-  // What the preview/print surface renders. Kept slightly behind `doc` so typing
-  // in the editor stays snappy; synced automatically (debounced) or on demand.
-  const [previewDoc, setPreviewDoc] = useState<ProposalDoc | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [logo, setLogo] = useState<string | null>(null);
+  // Zoom multiplier on top of the fit-to-width scale (1 = fit). Lets an SE zoom
+  // in to edit small text comfortably; the container scrolls when zoomed past fit.
+  const [zoom, setZoom] = useState(1);
   const [tab, setTab] = useState<"twopager" | "bom">("twopager");
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
   const [dragging, setDragging] = useState(false);
-  const [linkedDealId, setLinkedDealId] = useState<string>("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const fileInput = useRef<HTMLInputElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
-  const previewStale = doc !== previewDoc;
-  const linkedOpp = useMemo(() => opps.find((o) => o.dealId === linkedDealId) ?? null, [opps, linkedDealId]);
-
-  // Link (or re-link) the proposal to an opportunity and prefill from it.
-  function linkOpportunity(dealId: string) {
-    setLinkedDealId(dealId);
-    setSaveState("idle");
-    const opp = opps.find((o) => o.dealId === dealId);
-    if (!opp) return;
-    setDoc((d) => {
-      if (!d) return d;
-      const next = applyOppToDoc(structuredCloneSafe(d), opp);
-      setPreviewDoc(next);
-      return next;
-    });
-  }
-
-  async function saveToAccount() {
-    if (!doc || !linkedOpp || saveState === "saving") return;
-    setSaveState("saving");
-    try {
-      const res = await fetch("/api/proposal/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dealId: linkedOpp.dealId,
-          title: doc.meta.title,
-          summary: proposalSummaryText(doc),
-        }),
-      });
-      setSaveState(res.ok ? "saved" : "error");
-    } catch {
-      setSaveState("error");
-    }
-  }
-
-  // Debounced auto-sync of the preview after edits.
-  useEffect(() => {
-    if (!doc || !autoRefresh) return;
-    const id = window.setTimeout(() => setPreviewDoc(doc), 150);
-    return () => window.clearTimeout(id);
-  }, [doc, autoRefresh]);
-
   function loadScenario(scenario: ProposalScenario) {
-    let built = buildProposalDoc(scenario);
+    const built = buildProposalDoc(scenario);
     if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") built.meta.preparedBy = defaultSe;
-    const opp = opps.find((o) => o.dealId === linkedDealId);
-    if (opp) built = applyOppToDoc(built, opp);
     setDoc(built);
-    setPreviewDoc(built);
     setError(null);
-    setSaveState("idle");
   }
 
   async function handleFile(file: File) {
@@ -230,7 +131,6 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
   function exportPdf() {
     setExporting("pdf");
     setTab("twopager");
-    setPreviewDoc(doc); // make sure the print surface reflects the latest edits
     // allow the print surface to mount, then print
     window.setTimeout(() => {
       window.print();
@@ -320,17 +220,6 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
           </span>
         </button>
         {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">{error}</p> : null}
-        {opps.length ? (
-          <div className="mx-auto w-full max-w-xl space-y-2 rounded-lg border border-charcoal-200 bg-white px-3 py-2.5">
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-charcoal-700">
-              <Building2 className="h-4 w-4 text-iris-500" /> Search accounts &amp; link an opportunity
-            </span>
-            <ProposalOppPicker opps={opps} value={linkedDealId} onSelect={linkOpportunity} variant="full" />
-            <p className="text-center text-[11px] text-charcoal-400">
-              Prefills the customer, opportunity, and Salesforce narrative — and lets you save the proposal back to the account for the Account AI.
-            </p>
-          </div>
-        ) : null}
         <div className="flex items-center justify-center gap-2 text-sm text-charcoal-500">
           <span>No export handy?</span>
           <button onClick={() => loadScenario(buildSampleScenario(defaultSe))} className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 font-medium text-iris-600 ring-1 ring-iris-200 hover:bg-iris-50">
@@ -353,13 +242,34 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
             <FileJson className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-sm font-semibold text-charcoal-900">{doc.meta.customer}</p>
+            <EditableText
+              inline
+              value={doc.meta.customer}
+              className="text-sm font-semibold text-charcoal-900"
+              onCommit={(v) =>
+                patch((d) => {
+                  const defaultTitle = d.options.externalStorage
+                    ? `Nutanix with External Storage Proposal for ${d.meta.customer}`
+                    : `Nutanix Solution Proposal for ${d.meta.customer}`;
+                  if (d.meta.title === defaultTitle) {
+                    d.meta.title = d.options.externalStorage
+                      ? `Nutanix with External Storage Proposal for ${v}`
+                      : `Nutanix Solution Proposal for ${v}`;
+                  }
+                  d.meta.customer = v;
+                  return d;
+                })
+              }
+            />
             <p className="text-xs text-charcoal-500">
               {doc.scenario.totals.clusters} clusters · {doc.scenario.totals.nodes} nodes · {doc.scenario.totals.cores} cores
             </p>
           </div>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <span className="flex flex-1 items-center justify-center gap-1.5 text-xs text-charcoal-500">
+          <Pencil className="h-3.5 w-3.5 text-iris-500" /> Click any text on the page to edit it.
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
           {logo ? (
             <span className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-2 py-1">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -376,24 +286,7 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
           <Button tone="secondary" onClick={() => fileInput.current?.click()}>
             <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" /> Change file</span>
           </Button>
-          {opps.length ? (
-            <ProposalOppPicker opps={opps} value={linkedDealId} onSelect={linkOpportunity} variant="compact" />
-          ) : null}
-          {linkedOpp ? (
-            <Button tone="secondary" onClick={saveToAccount} disabled={saveState === "saving"}>
-              <span className="flex items-center gap-1.5">
-                {saveState === "saving" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : saveState === "saved" ? (
-                  <Check className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {saveState === "saved" ? "Saved to account" : saveState === "error" ? "Retry save" : "Save to account"}
-              </span>
-            </Button>
-          ) : null}
-          <Button tone="secondary" onClick={exportPdf} disabled={exporting !== null}>
+          <Button onClick={exportPdf} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} 2-Pager PDF</span>
           </Button>
           <Button onClick={exportPptx} disabled={exporting !== null}>
@@ -406,8 +299,8 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
       <div className="grid items-start gap-4 xl:grid-cols-[380px_1fr]">
         {/* Editor — flows the full height of the page (no internal scroll cap). */}
         <div className="space-y-3 pr-1">
-          <Section title="Proposal details" icon={<FileText className="h-4 w-4" />} defaultOpen>
-            {/* Deal type: switching to external storage reframes the customer-facing copy. */}
+          <Section title="Deal type" icon={<FileText className="h-4 w-4" />} defaultOpen>
+            {/* Switching to external storage reframes the customer-facing copy. */}
             <div>
               <p className="mb-1 text-[11px] font-semibold text-charcoal-600">Deal type</p>
               <div className="grid grid-cols-2 gap-2">
@@ -458,46 +351,6 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
                 </div>
               ) : null}
             </div>
-            <Field label="Title" value={doc.meta.title} onChange={(v) => patch((d) => ((d.meta.title = v), d))} />
-            <Field
-              label="Customer / account"
-              value={doc.meta.customer}
-              onChange={(v) =>
-                patch((d) => {
-                  // Keep the headline title in sync with the account name until the
-                  // SE manually edits the title to something custom.
-                  if (d.meta.title === `Nutanix Solution Proposal for ${d.meta.customer}`) {
-                    d.meta.title = `Nutanix Solution Proposal for ${v}`;
-                  }
-                  d.meta.customer = v;
-                  return d;
-                })
-              }
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Prepared by" value={doc.meta.preparedBy} onChange={(v) => patch((d) => ((d.meta.preparedBy = v), d))} />
-              <Field label="Date" value={doc.meta.dateLabel} onChange={(v) => patch((d) => ((d.meta.dateLabel = v), d))} />
-            </div>
-            <Field label="Opportunity" value={doc.meta.opportunityName ?? ""} onChange={(v) => patch((d) => ((d.meta.opportunityName = v || null), d))} />
-          </Section>
-
-          <Section title="Narrative" icon={<AlignLeft className="h-4 w-4" />} defaultOpen>
-            <TextArea label="Executive summary" rows={5} value={doc.executiveSummary} onChange={(v) => patch((d) => ((d.executiveSummary = v), d))} />
-            <TextArea label="Quote" rows={2} value={doc.quote.text} onChange={(v) => patch((d) => ((d.quote.text = v), d))} />
-            <Field label="Quote author" value={doc.quote.author} onChange={(v) => patch((d) => ((d.quote.author = v), d))} />
-          </Section>
-
-          <Section title="Challenges & outcomes" icon={<ListChecks className="h-4 w-4" />}>
-            <GroupEditor title="Current challenges" intro={doc.challengesIntro} groups={doc.challenges}
-              onIntro={(v) => patch((d) => ((d.challengesIntro = v), d))}
-              onGroups={(g) => patch((d) => ((d.challenges = g), d))} />
-            <GroupEditor title="Proposed benefits" intro={doc.benefitsIntro} groups={doc.benefits}
-              onIntro={(v) => patch((d) => ((d.benefitsIntro = v), d))}
-              onGroups={(g) => patch((d) => ((d.benefits = g), d))} />
-            <div className="grid grid-cols-2 gap-3">
-              <TextArea label="Current state" rows={4} value={arrayToLines(doc.currentState)} onChange={(v) => patch((d) => ((d.currentState = linesToArray(v)), d))} />
-              <TextArea label="Proposed state" rows={4} value={arrayToLines(doc.proposedState)} onChange={(v) => patch((d) => ((d.proposedState = linesToArray(v)), d))} />
-            </div>
           </Section>
 
           <Section title="Software scope" icon={<Receipt className="h-4 w-4" />} defaultOpen>
@@ -517,66 +370,60 @@ export function ProposalBuilder({ defaultSe, opps = [] }: { defaultSe: string; o
         {/* Preview */}
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-lg border border-charcoal-200 bg-charcoal-50 p-1 text-sm">
-              <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "text-charcoal-500 hover:text-charcoal-800"}`}>
+            <div className="inline-flex rounded-lg border border-charcoal-300 bg-charcoal-100 p-1 text-sm">
+              <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-300" : "text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
                 <FileText className="h-4 w-4" /> 2-Pager (PDF)
               </button>
-              <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "text-charcoal-500 hover:text-charcoal-800"}`}>
+              <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-300" : "text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
                 <Layers className="h-4 w-4" /> BOM Deck
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAutoRefresh((v) => !v)}
-                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${autoRefresh ? "border-iris-200 bg-iris-50 text-iris-700" : "border-charcoal-200 bg-white text-charcoal-500"}`}
-                title="Auto-update the preview as you type"
-              >
-                <Zap className={`h-3.5 w-3.5 ${autoRefresh ? "fill-iris-400 text-iris-500" : ""}`} /> Live
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewDoc(doc)}
-                disabled={!previewStale}
-                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${previewStale ? "border-iris-600 bg-iris-600 text-white hover:bg-iris-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}
-                title="Update the preview now"
-              >
-                {previewStale ? <RefreshCw className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-                {previewStale ? "Refresh preview" : "Up to date"}
-              </button>
-            </div>
+            {tab === "twopager" ? (
+              <div className="inline-flex items-center gap-1 rounded-lg border border-charcoal-300 bg-white p-1 text-xs">
+                <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} disabled={zoom <= 0.5} className="rounded-md p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Zoom out" title="Zoom out">
+                  <ZoomOut className="h-4 w-4" />
+                </button>
+                <button onClick={() => setZoom(1)} className="min-w-[3.5rem] rounded-md px-2 py-1 text-center font-semibold text-charcoal-800 hover:bg-charcoal-100" title="Reset to fit width">
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.1) * 10) / 10))} disabled={zoom >= 2} className="rounded-md p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Zoom in" title="Zoom in">
+                  <ZoomIn className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {tab === "twopager" ? (
             <div className="rounded-xl border border-charcoal-200 bg-charcoal-100 p-4">
-              <PreviewScaler>
-                <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
+              <PreviewScaler zoom={zoom}>
+                <ProposalTwoPager doc={doc} logo={logo} editable patch={patch} />
               </PreviewScaler>
             </div>
           ) : (
-            <ProposalBomPreview doc={previewDoc ?? doc} />
+            <ProposalBomPreview doc={doc} />
           )}
         </div>
       </div>
 
       {/* Off-screen print surface for the 2-page PDF. */}
       <div className="proposal-print-root" aria-hidden>
-        <ProposalTwoPager doc={previewDoc ?? doc} logo={logo} />
+        <ProposalTwoPager doc={doc} logo={logo} />
       </div>
     </div>
   );
 }
 
-// Scales the fixed 816px Letter pages down to fit the preview column. Measures
-// the container with a ResizeObserver (same pattern as the QBR slide frame) and
-// reserves the exact scaled height, so nothing clips or overlaps content below.
+// Scales the fixed 816px Letter pages to fit the preview column, times an
+// optional zoom multiplier. Measures the container with a ResizeObserver (same
+// pattern as the QBR slide frame) and reserves the exact scaled box, so nothing
+// clips or overlaps below; the container scrolls when zoomed past fit width.
 const PROPOSAL_PAGE_W = 816;
 
-function PreviewScaler({ children }: { children: React.ReactNode }) {
+function PreviewScaler({ children, zoom = 1 }: { children: React.ReactNode; zoom?: number }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [fit, setFit] = useState(1);
   const [contentH, setContentH] = useState(0);
 
   useLayoutEffect(() => {
@@ -584,7 +431,7 @@ function PreviewScaler({ children }: { children: React.ReactNode }) {
     const inner = innerRef.current;
     if (!outer || !inner) return;
     const update = () => {
-      setScale(Math.min(1, outer.clientWidth / PROPOSAL_PAGE_W));
+      setFit(Math.min(1, outer.clientWidth / PROPOSAL_PAGE_W));
       setContentH(inner.offsetHeight);
     };
     update();
@@ -594,14 +441,20 @@ function PreviewScaler({ children }: { children: React.ReactNode }) {
     return () => ro.disconnect();
   }, []);
 
+  const scale = fit * zoom;
+  const scaledW = PROPOSAL_PAGE_W * scale;
+
   return (
-    <div ref={outerRef} className="relative w-full" style={{ height: contentH * scale || undefined }}>
-      <div
-        ref={innerRef}
-        className="absolute left-1/2 top-0 flex flex-col items-center gap-5 [&>.proposal-page]:shadow-xl"
-        style={{ width: PROPOSAL_PAGE_W, transform: `translateX(-50%) scale(${scale})`, transformOrigin: "top center" }}
-      >
-        {children}
+    <div ref={outerRef} className="w-full overflow-auto">
+      {/* Reserves the scaled footprint and centers the page when it fits. */}
+      <div className="relative mx-auto" style={{ width: scaledW || undefined, height: contentH * scale || undefined }}>
+        <div
+          ref={innerRef}
+          className="absolute left-0 top-0 flex flex-col items-center gap-5 [&>.proposal-page]:shadow-xl"
+          style={{ width: PROPOSAL_PAGE_W, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -643,9 +496,9 @@ function HelpPopover({ align = "right" }: { align?: "left" | "right" }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label="How to use the Proposal Builder"
-        className="flex h-8 w-8 items-center justify-center rounded-full border border-charcoal-200 bg-white text-charcoal-500 transition hover:border-iris-300 hover:text-iris-600"
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-charcoal-300 bg-white text-iris-600 transition hover:border-iris-400 hover:bg-iris-50 hover:text-iris-700"
       >
-        <HelpCircle className="h-4 w-4" />
+        <HelpCircle className="h-6 w-6" />
       </button>
       {open ? (
         <div
@@ -704,36 +557,6 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
     <label className="block space-y-1">
       <span className="text-xs font-medium text-charcoal-700">{label}</span>
       <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full" />
-    </label>
-  );
-}
-
-// Textarea that grows to fit its content (no inner scrollbar, no fixed height).
-function AutoTextarea({ value, onChange, minRows = 2, placeholder, className = "" }: { value: string; onChange: (v: string) => void; minRows?: number; placeholder?: string; className?: string }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
-  return (
-    <textarea
-      ref={ref}
-      value={value}
-      rows={minRows}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className={`w-full resize-none overflow-hidden ${className}`}
-    />
-  );
-}
-
-function TextArea({ label, value, rows, onChange }: { label: string; value: string; rows: number; onChange: (v: string) => void }) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-xs font-medium text-charcoal-700">{label}</span>
-      <AutoTextarea value={value} minRows={rows} onChange={onChange} />
     </label>
   );
 }
@@ -872,38 +695,6 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
       </div>
 
       <p className="mt-2 text-[11px] text-charcoal-500">Scope only. Commercial pricing is handled in a separate quote.</p>
-    </div>
-  );
-}
-
-function GroupEditor({
-  title,
-  intro,
-  groups,
-  onIntro,
-  onGroups,
-}: {
-  title: string;
-  intro: string;
-  groups: ChallengeGroups;
-  onIntro: (v: string) => void;
-  onGroups: (g: ChallengeGroups) => void;
-}) {
-  const set = (key: keyof ChallengeGroups, v: string) => onGroups({ ...groups, [key]: v.split("\n").map((l) => l.trim()).filter(Boolean) });
-  return (
-    <div className="rounded-lg border border-charcoal-200 bg-charcoal-50/60 p-3">
-      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-iris-700">{title}</p>
-      <div className="mb-2">
-        <AutoTextarea value={intro} minRows={2} onChange={onIntro} placeholder="Intro line" />
-      </div>
-      <div className="space-y-2">
-        {(["technical", "operational", "financial"] as const).map((k) => (
-          <label key={k} className="block space-y-1">
-            <span className="text-[11px] font-medium capitalize text-charcoal-600">{k} (one per line)</span>
-            <AutoTextarea value={groups[k].join("\n")} minRows={2} onChange={(v) => set(k, v)} />
-          </label>
-        ))}
-      </div>
     </div>
   );
 }

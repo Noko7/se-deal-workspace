@@ -10,10 +10,7 @@ module.exports = {
     {
       name: "se-deal-dev",
       script: "npm",
-      // `dev:pm2` runs `prisma generate` before `next dev`, so every (re)start
-      // picks up the latest schema and the running server can never hold a stale
-      // Prisma client after a schema change.
-      args: "run dev:pm2",
+      args: "run dev",
       cwd: "/home/seadmin/se-deal-workspace",
       autorestart: true,
       // Avoid a tight crash loop: require 15s of uptime to count as "started",

@@ -73,7 +73,6 @@ export type ProposalDoc = {
     termYears: number;
     lines: LicenseLine[];
   };
-  quote: { text: string; author: string };
   scenario: ProposalScenario;
 };
 
@@ -99,17 +98,14 @@ export function basePlatformLabel(doc: ProposalDoc): string {
 const todayLabel = () =>
   new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
+// Concise procurement-to-go-live path. Kept short so page 2 stays clean; the SE
+// can add milestones inline if a deal needs more detail.
 export const DEFAULT_TIMELINE: TimelineMilestone[] = [
   { label: "Purchase Order" },
-  { label: "Order Process Completion" },
-  { label: "Manufacturing Complete" },
-  { label: "Shipping Scheduled" },
-  { label: "Technology Arrives" },
-  { label: "Project Planning Complete" },
+  { label: "Hardware Delivered" },
   { label: "Implementation Complete" },
-  { label: "Testing Complete" },
   { label: "Migration Complete" },
-  { label: "Go Live", done: false },
+  { label: "Go Live" },
 ];
 
 const fmtInt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -219,8 +215,15 @@ type ProposalNarrative = {
   benefits: ChallengeGroups;
   currentState: string[];
   proposedState: string[];
-  quote: { text: string; author: string };
 };
+
+// First cluster with known post-node-failure capacity headroom, as a short
+// factual clause. Some exports (notably a few OEM/Sizer builds) omit this
+// field -- omit the clause rather than print a hole where a number should be.
+function failoverClause(scenario: ProposalScenario): string {
+  const pct = scenario.clusters.find((c) => c.failover.nMinus1 != null)?.failover.nMinus1;
+  return pct == null ? "" : ` Retains ~${Math.round(pct)}% capacity after a single node failure.`;
+}
 
 export function proposalNarrative(
   scenario: ProposalScenario,
@@ -236,69 +239,56 @@ export function proposalNarrative(
     return {
       title: `Nutanix with External Storage Proposal for ${customer}`,
       executiveSummary:
-        `This proposal runs ${customer} on Nutanix Cloud Infrastructure (NCI) with the AHV hypervisor for compute, while ` +
-        `primary storage is delivered by an external ${storageVendor} array over NVMe/TCP. Compute and storage scale ` +
-        `independently across ${fmtInt(t.nodes)} nodes and ${clusterLine}, so you keep your enterprise storage investment, ` +
-        `add Nutanix compute as you grow, and manage the environment from Prism with AHV included.`,
-      challengesIntro:
-        "A few things about the setup today make it harder than it should be to grow and run the environment.",
+        `${customer}: ${fmtInt(t.nodes)} Nutanix compute nodes across ${clusterLine} running AHV, ` +
+        `sized for ${fmtInt(t.cores)} CPU cores and ${fmtInt(t.ramGiB)} GB memory. Primary storage stays on the ` +
+        `existing ${storageVendor} array, connected over NVMe/TCP. Compute and storage scale independently, so ` +
+        `each is refreshed and sized on its own schedule.`,
+      challengesIntro: "Current setup:",
       challenges: {
-        technical: ["Compute refresh is tied to the storage array (and vice versa)", "Hypervisor licensing keeps climbing", `Existing ${storageVendor} capacity is underutilized by the current stack`],
-        operational: ["Too much of the day goes to manual infrastructure work", "Compute and storage are managed in separate tools"],
-        financial: ["Hypervisor and maintenance costs keep creeping up", "Refresh cycles force you to buy compute and storage together"],
+        technical: ["Compute refresh is tied to the storage array (and vice versa)", "Hypervisor licensing scales with compute", `${storageVendor} capacity is underutilized by the current stack`],
+        operational: ["Compute and storage are managed in separate tools", "Manual work required for routine infrastructure tasks"],
+        financial: ["Hypervisor and maintenance costs scale with node count", "Refresh cycles force a combined compute + storage buy"],
       },
-      benefitsIntro:
-        `Here is how Nutanix takes each of those off your plate while keeping your ${storageVendor} array in the design.`,
+      benefitsIntro: `Proposed design:`,
       benefits: {
-        technical: ["Run AHV on Nutanix compute against external storage over NVMe/TCP", "Scale compute and storage independently", "Keep advanced data services on the external array"],
-        operational: ["Manage compute and VMs from one place in Prism", "Add a compute node to grow, non-disruptively"],
-        financial: [`Reuse the existing ${storageVendor} investment`, "AHV included, no separate hypervisor tax", "Subscription pricing you can actually plan around"],
+        technical: ["AHV runs on Nutanix compute against the external array over NVMe/TCP", "Compute and storage scale independently", "Existing array's data services stay in place"],
+        operational: ["Compute and VMs managed from one place in Prism", "Nodes added non-disruptively"],
+        financial: [`${storageVendor} investment reused, not replaced`, "AHV included -- no separate hypervisor license", "Subscription-term pricing"],
       },
-      currentState: ["Compute and storage refresh locked together", "Hypervisor costs climbing", "Limited flexibility to scale one without the other"],
+      currentState: ["Compute and storage refresh locked together", "Hypervisor cost scales with every node", "Compute and storage cannot be sized independently"],
       proposedState: [
-        `Nutanix compute across ${fmtInt(t.nodes)} nodes`,
-        `Primary storage on external ${storageVendor}`,
-        "Compute and storage scale independently",
+        `${fmtInt(t.nodes)} Nutanix compute nodes, AHV included`,
+        `Primary storage stays on ${storageVendor}`,
+        "Compute and storage sized and refreshed independently",
       ],
-      quote: {
-        text: "Nutanix let us modernize compute and keep the storage array we already trust. We scale each one on its own terms.",
-        author: "Customer reference",
-      },
     };
   }
 
   return {
     title: `Nutanix Solution Proposal for ${customer}`,
     executiveSummary:
-      `This proposal puts ${customer} on a Nutanix cloud platform built from ${fmtInt(t.nodes)} ` +
-      `nodes across ${clusterLine}. That works out to ${fmtInt(t.cores)} CPU cores, ${fmtInt(t.ramGiB)} GB of memory, ` +
-      `and ${usable} of usable capacity to run on. We move what you already have onto Nutanix Cloud ` +
-      `Infrastructure (NCI) with AHV, so there is one system to manage instead of separate compute and storage, ` +
-      `the environment is easier to protect, and when you need more you add a node rather than starting another project.`,
-    challengesIntro:
-      "A few things about the setup today make it harder than it should be to grow, protect, and run the environment.",
+      `${customer}: ${fmtInt(t.nodes)} nodes across ${clusterLine} on Nutanix Cloud Infrastructure (NCI) with AHV -- ` +
+      `${fmtInt(t.cores)} CPU cores, ${fmtInt(t.ramGiB)} GB memory, ${usable} usable capacity.` +
+      failoverClause(scenario) +
+      ` One system for compute and storage; capacity is added by adding a node.`,
+    challengesIntro: "Current setup:",
     challenges: {
-      technical: ["Hardware is aging and close to end of support", "Compute and storage have to be scaled separately", "Not every workload is covered by DR or replication"],
-      operational: ["Too much of the day goes to manual infrastructure work", "Each site gets managed a little differently"],
-      financial: ["Maintenance and licensing keep creeping up", "Refresh and expansion costs are hard to predict"],
+      technical: ["Hardware is aging and approaching end of support", "Compute and storage are scaled separately", "DR/replication coverage is inconsistent across workloads"],
+      operational: ["Manual work required for routine infrastructure tasks", "Sites are managed inconsistently"],
+      financial: ["Maintenance and licensing costs scale independently", "Refresh and expansion costs are hard to forecast"],
     },
-    benefitsIntro:
-      "Here is how the Nutanix platform takes each of those off your plate, with one system instead of three.",
+    benefitsIntro: "Proposed design:",
     benefits: {
-      technical: ["Upgrades and lifecycle handled in a click", "Compression, dedup, and EC-X built in, no extra license", "Snapshots and async or sync DR come standard"],
-      operational: ["Run the whole estate from one place in Prism Central", "Add a node to grow, with nothing taken offline"],
-      financial: ["Software consolidated under one NCI edition", "Subscription pricing you can actually plan around"],
+      technical: ["Upgrades and lifecycle management are one-click", "Compression, dedup, and erasure coding included, no add-on license", "Snapshots and async/sync DR included"],
+      operational: ["Entire estate managed from one place in Prism Central", "Capacity added by adding a node, no downtime"],
+      financial: ["Software consolidated under one NCI edition", "Subscription-term pricing"],
     },
-    currentState: ["Running tight on resources and headroom", "Can't protect or replicate every VM", "Recovery takes longer than anyone wants"],
+    currentState: ["Limited headroom for growth", "Inconsistent DR/replication coverage", "Recovery time exceeds target"],
     proposedState: [
-      `Room to grow across ${fmtInt(t.nodes)} nodes`,
-      "Every VM protected and replicated",
-      "Faster recovery with DR built in",
+      `${fmtInt(t.nodes)} nodes, ${usable} usable capacity`,
+      "Every VM covered by DR/replication",
+      "Recovery time reduced",
     ],
-    quote: {
-      text: "Nutanix gave us cloud simplicity on our own terms. We grow by adding a node, not by kicking off another project.",
-      author: "Customer reference",
-    },
   };
 }
 
@@ -320,7 +310,6 @@ export function applyDealMode(
     benefits: n.benefits,
     currentState: n.currentState,
     proposedState: n.proposedState,
-    quote: { ...n.quote },
   };
 }
 
@@ -387,7 +376,6 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
       termYears: 3,
       lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) })],
     },
-    quote: { ...n.quote },
     scenario,
   };
   return built;

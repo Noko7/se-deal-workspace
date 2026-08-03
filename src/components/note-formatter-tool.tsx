@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  CalendarPlus,
   Check,
   ClipboardList,
   Copy,
@@ -13,7 +12,6 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import { AttachToMeetingModal } from "@/components/attach-to-meeting-modal";
 import {
   DEFAULT_MEETING_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
@@ -135,8 +133,6 @@ export function NoteFormatterTool() {
   const [aiLoading, setAiLoading] = useState(false);
   const [truncatedNotice, setTruncatedNotice] = useState(false);
 
-  const [attachOpen, setAttachOpen] = useState(false);
-  const [attachedTo, setAttachedTo] = useState<{ accountName: string; subject: string } | null>(null);
   const lockedToPlan = searchParams.get("locked") === "1";
   const urlKind = searchParams.get("noteType");
   const kind: NoteKind =
@@ -240,7 +236,6 @@ export function NoteFormatterTool() {
     setAiText(null);
     setAiError(null);
     setTruncatedNotice(false);
-    setAttachedTo(null);
   };
 
   return (
@@ -422,14 +417,6 @@ export function NoteFormatterTool() {
               <button
                 type="button"
                 disabled={!hasOutput}
-                onClick={() => setAttachOpen(true)}
-                className="flex items-center gap-1.5 rounded-md bg-iris-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-iris-600 disabled:opacity-50"
-              >
-                <CalendarPlus className="h-3.5 w-3.5" /> Attach to meeting
-              </button>
-              <button
-                type="button"
-                disabled={!hasOutput}
                 onClick={copyMarkdown}
                 className={SECONDARY_BTN}
                 style={SECONDARY_BORDER}
@@ -448,13 +435,6 @@ export function NoteFormatterTool() {
               </button>
             </div>
           </header>
-
-          {attachedTo ? (
-            <div className="flex items-center gap-2 border-b border-charcoal-200 bg-[#eef8d8] px-4 py-2 text-xs text-[#3f5e0a]">
-              <Check className="h-3.5 w-3.5" />
-              Attached to <span className="font-semibold">{attachedTo.accountName}</span> · {attachedTo.subject}
-            </div>
-          ) : null}
 
           <div className="min-h-0 flex-1 overflow-auto p-4">
             {aiLoading ? (
@@ -491,13 +471,6 @@ export function NoteFormatterTool() {
           </div>
         </section>
       </div>
-
-      <AttachToMeetingModal
-        open={attachOpen}
-        onClose={() => setAttachOpen(false)}
-        markdown={activeText}
-        onAttached={(info) => setAttachedTo(info)}
-      />
     </div>
   );
 }

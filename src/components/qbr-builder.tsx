@@ -30,12 +30,10 @@ import { exportDeckToPptx } from "@/lib/qbr-pptx";
 import { QbrSlideBoard, QbrSlideFrame } from "@/components/qbr-slide";
 import { Button } from "@/components/ui";
 
-export type AccountLite = { id: string; accountName: string };
-
 const TONES: HealthTone[] = ["good", "warn", "bad", "neutral"];
 
-export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; defaultSe: string }) {
-  const [selected, setSelected] = useState(accounts[0]?.accountName ?? "");
+export function QbrBuilder({ defaultSe }: { defaultSe: string }) {
+  const [selected, setSelected] = useState("");
   const [deck, setDeck] = useState<QbrDeck | null>(null);
   const [order, setOrder] = useState<string[]>([]);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
@@ -285,17 +283,13 @@ export function QbrBuilder({ accounts, defaultSe }: { accounts: AccountLite[]; d
               <span className="block text-xs font-semibold uppercase tracking-wide text-charcoal-600">Customer</span>
               <div className="flex h-10 items-center gap-2 rounded-md border border-charcoal-300 bg-white px-3 transition focus-within:border-iris-400 focus-within:ring-2 focus-within:ring-iris-300 focus-within:ring-offset-1">
                 <Building2 className="h-4 w-4 shrink-0 text-charcoal-400" />
-                <select
+                <input
+                  type="text"
                   value={selected}
                   onChange={(e) => setSelected(e.target.value)}
+                  placeholder={UCLA_SAMPLE_ACCOUNT}
                   className="w-full border-0 bg-transparent py-0 outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                >
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.accountName}>
-                      {a.accountName}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
 

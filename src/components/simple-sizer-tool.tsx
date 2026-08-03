@@ -47,10 +47,6 @@ export function SimpleSizerTool() {
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedEnvironment | null>(null);
   const [settings, setSettings] = useState<SizerSettings>(DEFAULT_SETTINGS);
-  const [accounts, setAccounts] = useState<Array<{ dealId: string; accountName: string; dealName: string; owner: string }>>([]);
-  const [selectedDealId, setSelectedDealId] = useState("");
-  const [attachMessage, setAttachMessage] = useState<string | null>(null);
-  const [attaching, setAttaching] = useState(false);
 
   const recommendation = useMemo(
     () => (parsed ? computeSizerRecommendation(parsed, settings) : null),
@@ -79,44 +75,11 @@ export function SimpleSizerTool() {
         throw new Error(data.error ?? "Unable to analyze file.");
       }
       setParsed(data.parsed);
-      setAttachMessage(null);
-      const accountsRes = await fetch("/api/simple-sizer/attach");
-      if (accountsRes.ok) {
-        const payload = (await accountsRes.json()) as { accounts?: Array<{ dealId: string; accountName: string; dealName: string; owner: string }> };
-        const items = payload.accounts ?? [];
-        setAccounts(items);
-        if (!selectedDealId && items.length) {
-          setSelectedDealId(items[0].dealId);
-        }
-      }
     } catch (e) {
       setError((e as Error).message);
       setParsed(null);
     } finally {
       setUploading(false);
-    }
-  };
-
-  const attachToAccount = async () => {
-    if (!parsed || !recommendation || !selectedDealId) return;
-    setAttaching(true);
-    setAttachMessage(null);
-    try {
-      const body = buildSizingAttachmentText(parsed, recommendation, clusterRecommendations, settings);
-      const response = await fetch("/api/simple-sizer/attach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dealId: selectedDealId, body }),
-      });
-      const payload = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error ?? "Failed to attach sizing.");
-      }
-      setAttachMessage("Sizing attached to account successfully.");
-    } catch (error) {
-      setAttachMessage((error as Error).message);
-    } finally {
-      setAttaching(false);
     }
   };
 
@@ -162,28 +125,6 @@ export function SimpleSizerTool() {
               </Button>
               {parsed ? <StatusPill tone="good">Parsed {parsed.fileName}</StatusPill> : null}
             </div>
-            {parsed ? (
-              <div className="mt-3 rounded-lg border-2 border-charcoal-900 bg-charcoal-100 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-800">Attach Sizing to Account</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <select
-                    value={selectedDealId}
-                    onChange={(e) => setSelectedDealId(e.target.value)}
-                    className="min-w-[320px] flex-1 border-2 border-charcoal-800 bg-white font-medium text-charcoal-900"
-                  >
-                    {accounts.map((account) => (
-                      <option key={account.dealId} value={account.dealId}>
-                        {account.accountName} - {account.dealName} ({account.owner})
-                      </option>
-                    ))}
-                  </select>
-                  <Button type="button" onClick={attachToAccount} disabled={!selectedDealId || attaching}>
-                    {attaching ? "Attaching..." : "Attach Sizing"}
-                  </Button>
-                </div>
-                {attachMessage ? <p className="mt-2 text-sm font-medium text-charcoal-900">{attachMessage}</p> : null}
-              </div>
-            ) : null}
             {error ? <p className="mt-2 text-sm text-[#9a3b27]">{error}</p> : null}
             <p className="mt-2 text-xs text-charcoal-500">
               Based on patterns from your formatter workflows (Collector-Formatter and RVTools-Formatter), this UI
@@ -643,81 +584,5 @@ function ClusterSection({
       </div>
     </section>
   );
-}
-
-function buildSizingAttachmentText(
-  parsed: ParsedEnvironment,
-  recommendation: ReturnType<typeof computeSizerRecommendation>,
-  clusterRecommendations: ClusterRecommendation[],
-  settings: SizerSettings,
-): string {
-  const lines: string[] = [];
-  lines.push("Simple Sizer Snapshot");
-  lines.push(`Source: ${parsed.source}`);
-  lines.push(`File: ${parsed.fileName}`);
-  lines.push(`Generated: ${new Date().toISOString()}`);
-  lines.push("");
-  lines.push("Environment Summary");
-  lines.push(`- Clusters: ${parsed.clusters}`);
-  lines.push(`- Hosts: ${parsed.hosts}`);
-  lines.push(`- VMs: ${parsed.totalVms}`);
-  lines.push(`- Agg vCPU: ${parsed.aggVcpu}`);
-  lines.push(`- Agg RAM (GiB): ${parsed.aggRamGiB}`);
-  lines.push(
-    `- Agg Storage (${settings.storageBasis === "consumed" ? "Consumed" : "Provisioned"} TiB): ${
-      settings.storageBasis === "consumed" ? parsed.aggStorageConsumedTiB : parsed.aggStorageProvisionedTiB
-    }`,
-  );
-  lines.push("");
-  lines.push("Sizing Inputs");
-  lines.push(`- vCPU:pCore Ratio: ${settings.vcpuToPcoreRatio}:1`);
-  lines.push(`- Node Count: ${settings.nodeCount}`);
-  lines.push(`- RF: RF${settings.rf}`);
-  lines.push(`- HA Failover Reservation: N+${settings.failoverHosts ?? 1}`);
-  lines.push(`- Storage Efficiency: ${storageEfficiencyLabel(settings.storageEfficiency ?? "none")}`);
-  if (settings.peakIops) lines.push(`- Observed Peak IOPS (cluster): ${settings.peakIops.toLocaleString()}`);
-  lines.push(`- Storage Basis: ${settings.storageBasis}`);
-  lines.push("");
-  lines.push("Nutanix Build Guidance");
-  lines.push(`- Topology: ${recommendation.effectiveNodeCount} nodes, RF${settings.rf}, N+${recommendation.failoverHosts}`);
-  if (recommendation.clusterCount > 1) {
-    lines.push(`- Scale-out: exceeds 32-node max — split into ${recommendation.clusterCount} clusters under one Prism Central`);
-  }
-  lines.push(`- Licensing: ${recommendation.licenseTier.tier} (${recommendation.licenseTier.detail})`);
-  lines.push(`- Network: ${recommendation.networkRecommendation}`);
-  if (recommendation.diskTier) {
-    lines.push(
-      `- Disk tier (~${recommendation.perNodeIops?.toLocaleString()} IOPS/node): ${recommendation.diskTier.tier} (${recommendation.diskTier.latency})`,
-    );
-  }
-  for (const warning of recommendation.warnings) {
-    lines.push(`- Check: ${warning}`);
-  }
-  lines.push("");
-  lines.push("Recommended Environment");
-  lines.push(`- Per Node CPU (pCores): ${recommendation.nodeTotalPCores}`);
-  lines.push(`- Per Node RAM (GB): ${recommendation.nodeTotalRamGiB}`);
-  lines.push(`- Per Node Storage (TB): ${recommendation.nodeStorageTiB}`);
-  lines.push(`- Cluster Total CPU (pCores): ${recommendation.clusterTotalPCores}`);
-  lines.push(`- Cluster Total RAM (GB): ${recommendation.clusterTotalRamGiB}`);
-  lines.push(`- Cluster Total Storage (TB raw): ${recommendation.clusterTotalStorageTiB}`);
-  if (recommendation.monsterVmRisk) {
-    lines.push(`- NUMA/Monster VM Risk: ${recommendation.monsterVmReason}`);
-  }
-  lines.push("");
-  lines.push("Per-Cluster Recommendations");
-  for (const cluster of clusterRecommendations) {
-    lines.push(`* ${cluster.clusterName}`);
-    lines.push(`  - Per Node CPU: ${cluster.recommendation.nodeTotalPCores} pCores`);
-    lines.push(`  - Per Node RAM: ${cluster.recommendation.nodeTotalRamGiB} GB`);
-    lines.push(`  - Per Node Storage: ${cluster.recommendation.nodeStorageTiB} TB`);
-    lines.push(`  - Cluster CPU Total: ${cluster.recommendation.clusterTotalPCores} pCores`);
-    lines.push(`  - Cluster RAM Total: ${cluster.recommendation.clusterTotalRamGiB} GB`);
-    lines.push(`  - Cluster Storage Total: ${cluster.recommendation.clusterTotalStorageTiB} TB raw`);
-    if (cluster.recommendation.monsterVmRisk) {
-      lines.push(`  - Risk: ${cluster.recommendation.monsterVmReason}`);
-    }
-  }
-  return lines.join("\n");
 }
 

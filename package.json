@@ -4,28 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:pm2": "prisma generate && next dev",
     "build": "next build",
     "start": "next start",
     "deploy": "bash deploy.sh",
     "test": "node --import tsx --test tests/*.test.ts",
-    "lint": "eslint",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
-    "db:seed": "prisma db seed",
-    "db:seed:user": "node --import tsx scripts/ensure-dev-user.ts",
-    "db:relabel-stages": "node --import tsx scripts/relabel-stages.ts",
-    "db:reset": "prisma migrate reset --force"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@prisma/client": "^6.18.0",
-    "@protomaps/basemaps": "^5.7.2",
     "date-fns": "^4.2.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.17.0",
-    "maplibre-gl": "^5.24.0",
     "next": "16.2.6",
-    "pmtiles": "^4.4.1",
     "pptxgenjs": "^4.0.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -39,12 +28,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
-    "prisma": "^6.18.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
     "typescript": "^5"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }

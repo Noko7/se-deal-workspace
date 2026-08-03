@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 const ALGO = "aes-256-gcm";
 
 function keyFromSecret(): Buffer {
-  const secret = process.env.AUTH_SECRET?.trim() || "se-deal-workspace-dev-secret-change-me";
+  const secret = process.env.APP_SECRET?.trim() || "se-deal-workspace-dev-secret-change-me";
   return crypto.createHash("sha256").update(secret).digest();
 }
 

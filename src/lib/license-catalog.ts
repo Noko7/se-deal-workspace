@@ -5,12 +5,12 @@
 
 import type { ProductKey } from "@/lib/nutanix-icons";
 
-// EUC (End User Computing) and NCI-C (NCI Compute) are not in the product-icon
-// set, so license lines use a slightly wider key than ProductKey.
-export type LicenseProductKey = ProductKey | "EUC" | "ComputeInfrastructure";
+// EUC (End User Computing), NCI-C (NCI Compute) and NDL (Data Lens) are not in
+// the product-icon set, so license lines use a slightly wider key than ProductKey.
+export type LicenseProductKey = ProductKey | "EUC" | "ComputeInfrastructure" | "DataLens";
 
-// Base platforms rendered with a text badge instead of a brand product icon.
-export const TEXT_BADGE_PRODUCTS: LicenseProductKey[] = ["EUC", "ComputeInfrastructure"];
+// Products rendered with a text badge instead of a brand product icon.
+export const TEXT_BADGE_PRODUCTS: LicenseProductKey[] = ["EUC", "ComputeInfrastructure", "DataLens"];
 export const hasBrandIcon = (p: LicenseProductKey): p is ProductKey => !TEXT_BADGE_PRODUCTS.includes(p);
 
 export type LicenseLine = {
@@ -126,6 +126,19 @@ export const LICENSE_CATALOG: Record<LicenseProductKey, CatalogEntry> = {
       Ultimate: "Enterprise Kubernetes with full platform services",
     },
   },
+  // Data governance + ransomware protection for unstructured data, licensed by
+  // capacity. For SaaS deployments the SKUs are designated "NDL HS Starter" and
+  // "NDL HS Pro" (HS = hosted service).
+  DataLens: {
+    label: "NDL",
+    category: "Data Lens (per TiB)",
+    unit: "TiB",
+    tiers: ["Starter", "Pro"],
+    blurbs: {
+      Starter: "Data lifecycle management, signature-based ransomware protection, and auditing (1-month retention)",
+      Pro: "Adds behavior-based threat detection, permission risk analytics, and self-service restore (1-year retention)",
+    },
+  },
 };
 
 // Customer-readable descriptor for a product + tier, e.g. "Rich data services,
@@ -143,7 +156,7 @@ export const isBasePlatform = (p: LicenseProductKey) => BASE_PLATFORMS.includes(
 
 // Add-on products shown in the "add product" controls (base platforms excluded
 // so NCI can never be added as a redundant duplicate line).
-export const LICENSE_PRODUCT_ORDER: LicenseProductKey[] = ["CloudManager", "NUS", "Database", "NAI", "NKP", "NC2"];
+export const LICENSE_PRODUCT_ORDER: LicenseProductKey[] = ["CloudManager", "NUS", "Database", "DataLens", "NAI", "NKP", "NC2"];
 
 let counter = 0;
 export function newLicenseLine(product: LicenseProductKey, opts: Partial<LicenseLine> = {}): LicenseLine {

@@ -1,18 +1,18 @@
 ## SE Deal Workspace
 
-Foundation-first implementation of the Nutanix SE Deal Workspace plan:
+A local, stateless toolkit for Nutanix systems engineers — no database, no
+login, no persisted customer or account data. Every tool operates on a file
+you upload or a scenario you paste in, and produces a downloadable output.
 
-- 5-page app shell:
-  - Calendar
-  - Current Deals
-  - Email Memory
-  - Integrations
-  - QBR Deck Builder
-- Prisma + SQLite data layer with seeded baseline records
-- Upload + preview flow for presentation/whiteboard/deal artifacts
-- Internal AI sizing recommendation workflow with approval state
-- Integration adapter layer with mock/live connector stubs for Wave 2
-- Local and Docker runtime profiles
+- Note Formatter — turn raw notes into implementation plans
+- Simple Sizer — import Collector/RVTools and size quickly
+- QBR Deck Builder — pull a CS360 health report and assemble a QBR deck
+- Install Base Report — merge CS360 exports into a color-coded workbook
+- Proposal Builder — turn a Sizer scenario into a branded proposal + BOM
+- Integrations — connector setup/status and the Salesforce schema reference
+
+Admin config (connector status, LLM credentials) is stored locally in
+`data/local-config.json`, encrypted at rest — not in a database.
 
 ## Getting Started
 
@@ -24,41 +24,30 @@ Foundation-first implementation of the Nutanix SE Deal Workspace plan:
 npm install
 ```
 
-2) Prepare local database:
-
-```bash
-npm run db:push
-npm run db:seed
-```
-
-3) Start development server:
+2) Start the development server:
 
 ```bash
 npm run dev
 ```
 
-4) Open [http://localhost:3000](http://localhost:3000)
+3) Open [http://localhost:3000](http://localhost:3000)
 
 ### Useful commands
 
 ```bash
 npm run lint
 npm run build
-npm run db:generate
-npm run db:reset
+npm test
 ```
 
 ### Environment variables
 
-Copy `.env.example` to `.env` and fill in connector values as needed for Wave 2:
+Copy `.env.example` to `.env`. Everything is optional:
 
-- `OUTLOOK_TENANT_ID`
-- `OUTLOOK_CLIENT_ID`
-- `SALESFORCE_INSTANCE_URL`
-- `SALESFORCE_CLIENT_ID`
-- `LUCIDCHART_API_KEY`
+- `APP_SECRET` — encrypts locally stored admin config at rest
+- `LLM_*` — points the Note Formatter at an OpenAI-compatible endpoint (works offline without it)
 
-### Health checks
+### Health check
 
 - App health: `GET /api/health`
 - Connector scaffold status: `GET /api/connectors`
@@ -76,6 +65,4 @@ docker compose up --build
   - `bootstrap-ubuntu.sh`
   - `deploy.sh`
   - `validate.sh`
-  - `backup-db.sh`
-  - `restore-db.sh`
   - `systemd/se-deal-workspace.service`

@@ -1,62 +1,26 @@
-import { buildAllAccountsKnowledgeBase } from "@/lib/account-ai";
-import { toCalendarMeeting } from "@/lib/calendar";
-import { getAccountsOverview, getCalendarMeetings } from "@/lib/data";
-import { prisma } from "@/lib/prisma";
-import { AccountAiWorkspace, type AccountOption } from "@/components/account-ai-workspace";
+import Link from "next/link";
+import { Calculator, FileSpreadsheet, FileText, NotebookPen, Plug, Presentation } from "lucide-react";
+import { Card } from "@/components/ui";
 
-export const dynamic = "force-dynamic";
+const tools = [
+  { href: "/note-formatter", title: "Note Formatter", description: "Turn notes into implementation plans", icon: <NotebookPen className="h-5 w-5" /> },
+  { href: "/simple-sizer", title: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: <Calculator className="h-5 w-5" /> },
+  { href: "/qbr", title: "QBR Deck Builder", description: "Pull CS360 health checks into an on-brand QBR deck", icon: <Presentation className="h-5 w-5" /> },
+  { href: "/install-base-report", title: "Install Base Report", description: "Merge CS360 exports into a color-coded install base workbook", icon: <FileSpreadsheet className="h-5 w-5" /> },
+  { href: "/proposal", title: "Proposal Builder", description: "Turn a Sizer scenario into a branded proposal + BOM", icon: <FileText className="h-5 w-5" /> },
+  { href: "/integrations", title: "Integrations", description: "Connection setup and health checks", icon: <Plug className="h-5 w-5" /> },
+];
 
-export default async function AccountAiHomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ account?: string }>;
-}) {
-  const [overview, meetings, portfolio, params] = await Promise.all([
-    getAccountsOverview(),
-    getCalendarMeetings(),
-    buildAllAccountsKnowledgeBase(),
-    searchParams,
-  ]);
-
-  const accounts: AccountOption[] = overview.map((account) => ({
-    id: account.id,
-    accountName: account.accountName,
-    dealName: account.name,
-    stage: account.stage,
-    aiOptOut: account.aiOptOut,
-  }));
-
-  const calendarMeetings = meetings.map(toCalendarMeeting);
-
-  // Deep-link: ?account=<id> preselects that account. The id may be any of the
-  // account's opportunities (pipeline cards link per-deal), so resolve sibling
-  // opp ids to the account's primary row instead of silently dropping them.
-  let initialSelected: string | undefined;
-  if (params.account) {
-    if (accounts.some((a) => a.id === params.account)) {
-      initialSelected = params.account;
-    } else {
-      const deal = await prisma.deal.findUnique({
-        where: { id: params.account },
-        select: { accountName: true },
-      });
-      initialSelected = deal
-        ? accounts.find((a) => a.accountName === deal.accountName)?.id
-        : undefined;
-    }
-  }
-
+export default function HomePage() {
   return (
-    <AccountAiWorkspace
-      accounts={accounts}
-      meetings={calendarMeetings}
-      initialSelected={initialSelected}
-      aggregate={{
-        accountCount: portfolio.summary.accountCount,
-        meetingCount: portfolio.summary.meetingCount,
-        noteCount: portfolio.summary.noteCount,
-        assetCount: portfolio.summary.assetCount,
-      }}
-    />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {tools.map((tool) => (
+        <Link key={tool.href} href={tool.href} className="block">
+          <Card title={tool.title} subtitle={tool.description} icon={tool.icon}>
+            <span className="text-sm font-medium text-iris-600">Open →</span>
+          </Card>
+        </Link>
+      ))}
+    </div>
   );
 }

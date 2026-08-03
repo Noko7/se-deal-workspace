@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NUTANIX, cssHex } from "@/lib/nutanix-brand";
+import { EditableText, EditableList } from "@/components/inline-edit";
 import type { QbrDeckMeta, QbrSlide } from "@/lib/qbr-deck";
 import {
   compileSlide,
@@ -33,130 +34,6 @@ function alignToFlex(a?: "left" | "center" | "right"): string {
 }
 function valignToFlex(v?: "top" | "middle" | "bottom"): string {
   return v === "middle" ? "center" : v === "bottom" ? "flex-end" : "flex-start";
-}
-
-// --- editable text -----------------------------------------------------------
-
-function EditableText({
-  value,
-  multiline,
-  textAlign,
-  fontStyle,
-  onCommit,
-}: {
-  value: string;
-  multiline?: boolean;
-  textAlign: "left" | "center" | "right";
-  fontStyle: React.CSSProperties;
-  onCommit: (v: string) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Uncontrolled: seed/refresh textContent imperatively so typing never causes a
-  // React reconcile that would jump the caret. useLayoutEffect avoids a mount flash.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && document.activeElement !== el && el.textContent !== value) el.textContent = value;
-  }, [value]);
-
-  return (
-    <div
-      ref={ref}
-      className="qbr-editable"
-      contentEditable
-      suppressContentEditableWarning
-      title="Click to edit"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          if (ref.current) ref.current.textContent = value;
-          ref.current?.blur();
-        } else if (e.key === "Enter" && !multiline) {
-          e.preventDefault();
-          ref.current?.blur();
-        }
-      }}
-      onBlur={() => {
-        const t = ref.current?.textContent ?? "";
-        if (t !== value) onCommit(t);
-      }}
-      style={{ ...fontStyle, width: "100%", textAlign, outline: "none", cursor: "text", whiteSpace: multiline ? "pre-wrap" : "normal" }}
-    />
-  );
-}
-
-function EditableList({
-  items,
-  bulletColor,
-  fontStyle,
-  editable,
-  onCommit,
-}: {
-  items: string[];
-  bulletColor: string;
-  fontStyle: React.CSSProperties;
-  editable: boolean;
-  onCommit: (lines: string[]) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (editing && ref.current) {
-      ref.current.innerText = items.join("\n");
-      ref.current.focus();
-      const sel = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(ref.current);
-      range.collapse(false);
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
-    // Only re-seed the editor when entering edit mode.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
-
-  if (editable && editing) {
-    return (
-      <div
-        ref={ref}
-        className="qbr-editable"
-        contentEditable
-        suppressContentEditableWarning
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            setEditing(false);
-          }
-        }}
-        onBlur={() => {
-          const lines = (ref.current?.innerText ?? "")
-            .split("\n")
-            .map((s) => s.trim())
-            .filter(Boolean);
-          setEditing(false);
-          onCommit(lines);
-        }}
-        style={{ ...fontStyle, width: "100%", outline: "none", cursor: "text", whiteSpace: "pre-wrap", lineHeight: 1.4 }}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={editable ? "qbr-editable" : undefined}
-      title={editable ? "Click to edit" : undefined}
-      onClick={() => editable && setEditing(true)}
-      style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", cursor: editable ? "text" : "default" }}
-    >
-      {items.map((it, i) => (
-        <div key={i} style={{ display: "flex", gap: 9, lineHeight: 1.4, ...fontStyle }}>
-          <span style={{ marginTop: ptToPx(6), width: 7, height: 7, borderRadius: "50%", background: cssHex(bulletColor), flexShrink: 0 }} />
-          <span>{it}</span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // --- charts ------------------------------------------------------------------
@@ -363,7 +240,7 @@ function TextBox({ el, editable, onPatch }: { el: TextElement; editable: boolean
       <div style={box}>
         <EditableList
           items={el.lines}
-          bulletColor={el.bulletColor ?? NUTANIX.purple}
+          bulletColor={cssHex(el.bulletColor ?? NUTANIX.purple)}
           fontStyle={fontStyle}
           editable={Boolean(editable && el.edit && onPatch)}
           onCommit={(lines) => el.edit && onPatch?.(el.edit.path, lines)}

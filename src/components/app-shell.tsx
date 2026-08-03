@@ -5,41 +5,27 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Calculator,
-  CalendarDays,
+  FileSpreadsheet,
   FileText,
-  LogOut,
-  Mail,
-  MapPinned,
+  Home,
   Menu,
   NotebookPen,
   Plug,
   Presentation,
-  Sparkles,
-  Users,
   X,
 } from "lucide-react";
-import { EnvironmentSwitcher } from "@/components/environment-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { EnvironmentId } from "@/lib/environment";
 import type { Theme } from "@/lib/theme";
 
-export type SessionUser = { email: string; name: string };
-
 const navigation = [
-  { href: "/", label: "Account-AI", description: "Per-account knowledge base and assistant", icon: Sparkles },
-  { href: "/calendar", label: "Calendar", description: "Meetings, assets, and context", icon: CalendarDays },
-  { href: "/accounts", label: "My Accounts", description: "Pipeline, deal workspaces, notes, and assets", icon: Users },
-  { href: "/account-map", label: "Account Map", description: "Geo coverage by region and SE", icon: MapPinned },
-  { href: "/email-memory", label: "Email Memory", description: "Assign inbound context to deals", icon: Mail },
+  { href: "/", label: "Home", description: "Tool directory", icon: Home },
   { href: "/note-formatter", label: "Note Formatter", description: "Turn notes into implementation plans", icon: NotebookPen },
   { href: "/simple-sizer", label: "Simple Sizer", description: "Import Collector/RVTools and size quickly", icon: Calculator },
   { href: "/qbr", label: "QBR Deck Builder", description: "Pull CS360 health checks into an on-brand QBR deck", icon: Presentation },
+  { href: "/install-base-report", label: "Install Base Report", description: "Merge CS360 exports into a color-coded install base workbook", icon: FileSpreadsheet },
   { href: "/proposal", label: "Proposal Builder", description: "Turn a Sizer scenario into a branded proposal + BOM", icon: FileText },
   { href: "/integrations", label: "Integrations", description: "Connection setup and health checks", icon: Plug },
 ];
-
-// Routes that render without the app chrome (their own full-screen layout).
-const BARE_ROUTES = new Set(["/login", "/signup"]);
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -47,14 +33,10 @@ function isActive(pathname: string, href: string): boolean {
 
 export function AppShell({
   children,
-  initialEnv,
   initialTheme,
-  user,
 }: {
   children: ReactNode;
-  initialEnv: EnvironmentId;
   initialTheme: Theme;
-  user: SessionUser | null;
 }) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
@@ -68,11 +50,6 @@ export function AppShell({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [navOpen]);
-
-  // Auth screens: render the page on its own, no nav.
-  if (BARE_ROUTES.has(pathname)) {
-    return <>{children}</>;
-  }
 
   return (
     <div className="min-h-screen bg-charcoal-50 text-charcoal-900">
@@ -94,9 +71,7 @@ export function AppShell({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <EnvironmentSwitcher initialEnv={initialEnv} />
             <ThemeToggle initialTheme={initialTheme} />
-            {user ? <UserMenu user={user} /> : null}
             <span className="hidden h-6 w-px bg-white/20 sm:block" aria-hidden />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/nutanix-logo-white.png" alt="Nutanix" className="hidden h-4 w-auto shrink-0 sm:block md:h-5" />
@@ -172,65 +147,5 @@ function NavDrawer({ open, pathname, onClose }: { open: boolean; pathname: strin
         </nav>
       </aside>
     </>
-  );
-}
-
-// Avatar button + dropdown showing the signed-in user and a logout action.
-function UserMenu({ user }: { user: SessionUser }) {
-  const [open, setOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  const initials = useMemo(() => {
-    const parts = user.name.trim().split(/\s+/).filter(Boolean);
-    const letters = parts.length >= 2 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : (parts[0]?.[0] ?? user.email[0]);
-    return letters.toUpperCase();
-  }, [user]);
-
-  const logout = async () => {
-    setLoggingOut(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
-      window.location.assign("/login");
-    }
-  };
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-label="Account menu"
-        aria-expanded={open}
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-iris-500 text-xs font-semibold text-white hover:bg-iris-600"
-      >
-        {initials}
-      </button>
-      {open ? (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-40 cursor-default bg-transparent p-0"
-          />
-          <div className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-lg border border-charcoal-200 bg-white text-charcoal-900 shadow-lg">
-            <div className="border-b border-charcoal-100 px-3 py-2.5">
-              <p className="truncate text-sm font-semibold">{user.name}</p>
-              <p className="truncate text-xs text-charcoal-500">{user.email}</p>
-            </div>
-            <button
-              type="button"
-              onClick={logout}
-              disabled={loggingOut}
-              className="flex w-full items-center gap-2 bg-white px-3 py-2.5 text-left text-sm font-medium text-charcoal-800 hover:bg-charcoal-50 disabled:opacity-60"
-            >
-              <LogOut className="h-4 w-4" /> {loggingOut ? "Logging out…" : "Log out"}
-            </button>
-          </div>
-        </>
-      ) : null}
-    </div>
   );
 }

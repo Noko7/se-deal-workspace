@@ -34,11 +34,8 @@ yarn-error.log*
 .env*
 !.env.example
 
-# Sensitive customer data — NEVER commit real account data.
-# Only the non-sensitive data/account-map-sample.csv is tracked.
-/secure-data/
-/data/*.csv
-!/data/account-map-sample.csv
+# local admin config (connector status, encrypted LLM credentials)
+/data/local-config.json
 
 # vercel
 .vercel
@@ -46,9 +43,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# local sqlite databases
-/dev.db
-/prisma/dev.db
-/prisma/dev.db-shm
-/prisma/dev.db-wal

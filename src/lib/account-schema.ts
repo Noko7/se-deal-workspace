@@ -2,8 +2,7 @@
 //
 // This is the single source of truth for "what fields do we track, and how do
 // they map to Salesforce" — rendered on the Integrations page so an SE/AE can
-// diff it against the real SFDC org before we wire a live connection. The same
-// catalog documents the data that Account-AI is allowed to reason over.
+// diff it against the real SFDC org before we wire a live connection.
 //
 // Salesforce API names: standard fields use their real API names (Name,
 // StageName, Amount, CloseDate, NextStep, ForecastCategory, ...). Custom fields
@@ -40,7 +39,7 @@ export type SchemaField = {
   required?: boolean;
   /** What the field is. */
   description: string;
-  /** Why an SE/AE cares, and how Account-AI uses it. */
+  /** Why an SE/AE cares about this field. */
   seValue: string;
   /** A representative example value (string-rendered). */
   example: string;
@@ -64,7 +63,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "Account",
     relationship: "Root object — the customer company.",
     description:
-      "Firmographics and relationship context for the customer. Gives Account-AI the strategic backdrop (industry, size, incumbent, renewal timing) behind every opportunity.",
+      "Firmographics and relationship context for the customer. Gives the SE/AE the strategic backdrop (industry, size, incumbent, renewal timing) behind every opportunity.",
     fields: [
       {
         key: "accountName",
@@ -176,7 +175,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "Opportunity",
     relationship: "Child of Account — one active deal.",
     description:
-      "The deal itself: commercials, stage, forecast, and the technical framing an SE maintains. This is the primary object Account-AI reasons over for close plans and risk.",
+      "The deal itself: commercials, stage, forecast, and the technical framing an SE maintains for close plans and risk.",
     fields: [
       {
         key: "name",
@@ -513,7 +512,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "Contact",
     relationship: "Related list on Account / Opportunity (buying committee).",
     description:
-      "People on the customer's buying committee, with their role and disposition. Lets Account-AI answer stakeholder-strategy questions (who to win, who blocks).",
+      "People on the customer's buying committee, with their role and disposition — who to win, who blocks.",
     fields: [
       {
         key: "name",
@@ -742,7 +741,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "Zoom_Transcript__c",
     relationship: "Related to a Meeting (Event).",
     description:
-      "Zoom-sourced AI summary, full transcript, and meeting notes attached to a meeting. Fed to Account-AI as first-hand meeting evidence.",
+      "Zoom-sourced AI summary, full transcript, and meeting notes attached to a meeting.",
     fields: [
       {
         key: "meetingSubject",

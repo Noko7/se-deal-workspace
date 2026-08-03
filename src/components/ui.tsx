@@ -1,6 +1,5 @@
-import { IntegrationStatus, PreviewStatus, RecommendationDecision } from "@prisma/client";
 import { ButtonHTMLAttributes, ReactNode } from "react";
-import { stageMeta } from "@/lib/opportunity-stage";
+import type { IntegrationStatus } from "@/lib/local-config";
 
 export function Card({
   title,
@@ -111,42 +110,9 @@ export function StatusPill({
   return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${toneClass}`}>{children}</span>;
 }
 
-// Numbered, color-coded pill for an opportunity's sales-cycle stage (1–7).
-// `size="sm"` drops the word "Stage" for tight rows.
-export function StageBadge({
-  stage,
-  size = "md",
-  className = "",
-}: {
-  stage: string;
-  size?: "sm" | "md";
-  className?: string;
-}) {
-  const meta = stageMeta(stage);
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${meta.pill} ${className}`}
-      title={`Stage ${meta.num} of 7 · ${meta.label}`}
-    >
-      <span
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${meta.chip}`}
-      >
-        {meta.num}
-      </span>
-      {size === "md" ? <span className="pr-0.5">{meta.label}</span> : null}
-    </span>
-  );
-}
-
 export function IntegrationStatusPill({ status }: { status: IntegrationStatus }) {
-  const tone =
-    status === IntegrationStatus.CONNECTED ? "good" : status === IntegrationStatus.NEEDS_ATTENTION ? "warning" : "neutral";
+  const tone = status === "CONNECTED" ? "good" : status === "NEEDS_ATTENTION" ? "warning" : "neutral";
   return <StatusPill tone={tone}>{status.replace("_", " ")}</StatusPill>;
-}
-
-export function PreviewStatusPill({ status }: { status: PreviewStatus }) {
-  const tone = status === PreviewStatus.READY ? "good" : status === PreviewStatus.PENDING ? "warning" : "bad";
-  return <StatusPill tone={tone}>{status}</StatusPill>;
 }
 
 export function Button({
@@ -162,7 +128,7 @@ export function Button({
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const toneClass = {
     primary: "bg-iris-500 text-white hover:bg-iris-600",
-    secondary: "bg-white text-charcoal-800 border border-charcoal-300 hover:bg-charcoal-50",
+    secondary: "bg-white text-charcoal-800 border border-charcoal-400 hover:border-iris-400 hover:bg-iris-50",
     danger: "bg-rose-600 text-white hover:bg-rose-500",
   }[tone];
 
@@ -175,15 +141,4 @@ export function Button({
       {children}
     </button>
   );
-}
-
-export function RecommendationStatusPill({ status }: { status: RecommendationDecision }) {
-  const tone =
-    status === RecommendationDecision.APPROVED
-      ? "good"
-      : status === RecommendationDecision.REJECTED
-        ? "bad"
-        : "warning";
-
-  return <StatusPill tone={tone}>{status}</StatusPill>;
 }

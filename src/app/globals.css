@@ -57,6 +57,22 @@
   --color-aqua: #1fd0e3;
   --color-mantis: #92d523;
   --color-peach: #ff9478;
+
+  /*
+    Data-mark palette — for chart marks only (bars, meters, tile accents), never
+    for app chrome. The brand's bright secondaries are display colors: as data
+    marks they fail the checks (aqua/mantis/peach land at L 0.77–0.80, outside the
+    0.43–0.77 light band, at 1.7–2.1:1 contrast on white, and peach x mantis is
+    only dE 6.4 under deuteranopia). These are the nearest steps of the same hues
+    that pass all five checks against the light surface — validated, not eyeballed:
+      lightness band, chroma floor, CVD separation, normal-vision floor, contrast.
+    Fixed order: compute, memory, storage. Never cycled, never reassigned by rank.
+  */
+  --color-viz-compute: #7855fa;
+  --color-viz-memory: #16a3b3;
+  --color-viz-storage: #6ea01a;
+  --color-viz-muted: #9a9aa3;
+  --color-viz-track: #ececef;
 }
 
 /*
@@ -87,6 +103,17 @@
   --color-iris-100: #2c2156;
   --color-iris-600: #9278fb;
   --color-iris-700: #ac9bfd;
+
+  /*
+    Dark data marks are *selected*, not flipped: the dark band (L 0.48–0.67) is
+    narrower than the light one, so these are re-stepped and re-validated against
+    the #1f1f24 panel surface rather than lightened by rule.
+  */
+  --color-viz-compute: #8f74fb;
+  --color-viz-memory: #189cad;
+  --color-viz-storage: #74a41d;
+  --color-viz-muted: #6b6b75;
+  --color-viz-track: #2e2e35;
 }
 
 /* White surfaces (cards, chips) and form controls become dark panels. */
@@ -151,6 +178,90 @@ body {
 
   label {
     @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
+  }
+}
+
+/*
+  Simple Sizer motion. MOTION_INTENSITY 6 sits in the "fluid CSS" band, so this is
+  transitions and delay cascades only — transform and opacity exclusively, so every
+  animation stays on the compositor. No layout properties are animated.
+*/
+@keyframes sizer-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Staggered reveal: each item sets --index, the cascade does the rest. */
+.sizer-rise {
+  animation: sizer-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--index, 0) * 55ms);
+}
+
+/* Skeleton shimmer — a sweep across the placeholder, not a spinner. */
+@keyframes sizer-shimmer {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.sizer-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.sizer-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(120, 85, 250, 0.14), transparent);
+  animation: sizer-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Meter fills grow from zero once, so a bar reads as a measurement being taken. */
+@keyframes sizer-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.sizer-fill {
+  transform-origin: left center;
+  animation: sizer-fill 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--index, 0) * 55ms + 120ms);
+}
+
+/* A live status dot that breathes, so "parsed" reads as a current state. */
+@keyframes sizer-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+.sizer-breathe {
+  animation: sizer-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sizer-rise,
+  .sizer-fill,
+  .sizer-shimmer::after,
+  .sizer-breathe {
+    animation: none;
   }
 }
 

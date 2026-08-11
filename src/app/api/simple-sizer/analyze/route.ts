@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const parsed = parseSizerWorkbook(buffer, source, file.name);
+    const parsed = parseSizerWorkbook(buffer, source, file.name, file.size);
     return NextResponse.json({ ok: true, parsed });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown parse error";

@@ -11,8 +11,14 @@ export const SIZING_RULES = {
   minNodesByRf: { 2: 3, 3: 5 } as Record<Rf, number>,
   // Block/rack awareness distributes replicas across chassis.
   minBlocksByRf: { 2: 3, 3: 5 } as Record<Rf, number>,
-  maxNodesPerCluster: 32, // Prism System Maximums (AOS 7.5)
+  // Planning cap. AOS itself allows 32 (`aosMaxNodesPerCluster`), but builds are
+  // planned to 24 so a cluster keeps rebuild/upgrade headroom and stays inside a
+  // comfortable failure domain. Nothing in this tool may ever emit a cluster
+  // larger than this.
+  maxNodesPerCluster: 24,
+  aosMaxNodesPerCluster: 32, // Prism System Maximums (AOS 7.5) — the hard limit
   cvmRamGiBPerNode: 32,
+  cvmPCoresPerNode: 4,
   starterMaxNodes: 12, // NCI Starter ≤ 12 nodes
   edgeMaxNodes: 5, // NCI-Edge: ≤5 nodes, ≤25 VMs
   edgeMaxVms: 25,
@@ -28,6 +34,96 @@ export function minNodesForRf(rf: Rf): number {
 
 export function recommendedClusterCount(nodeCount: number): number {
   return Math.max(1, Math.ceil(nodeCount / SIZING_RULES.maxNodesPerCluster));
+}
+
+// Spread a node total across the fewest clusters that respect the planning
+// maximum, keeping them within one node of each other so no cluster is a runt.
+// 70 nodes -> [24, 23, 23], not [24, 24, 22].
+export function splitNodesIntoClusters(nodeCount: number): number[] {
+  const total = Math.max(0, Math.floor(nodeCount));
+  if (total === 0) return [];
+  const clusters = recommendedClusterCount(total);
+  const base = Math.floor(total / clusters);
+  const remainder = total % clusters;
+  return Array.from({ length: clusters }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
+// ---------------------------------------------------------------------------
+// Platform overhead — the capacity the platform itself consumes before a single
+// workload VM runs. Sized explicitly rather than buried in a magic constant.
+// ---------------------------------------------------------------------------
+
+export type CvmReserve = { cores: number; ramGiB: number; note: string };
+
+/**
+ * Per-node Controller VM reserve. The CVM scales with the node it runs on: a
+ * denser node drives more I/O, so it gets more vCPU and (on high-throughput
+ * all-flash) more RAM. 32 GiB is the documented floor.
+ */
+export function cvmReserveFor(nodeCores: number): CvmReserve {
+  if (nodeCores >= 64) {
+    return { cores: 10, ramGiB: 48, note: "High-throughput node — 10 vCPU / 48 GB CVM." };
+  }
+  if (nodeCores >= 32) {
+    return { cores: 8, ramGiB: 32, note: "Standard node — 8 vCPU / 32 GB CVM." };
+  }
+  if (nodeCores >= 24) {
+    return { cores: 6, ramGiB: 32, note: "Small node — 6 vCPU / 32 GB CVM." };
+  }
+  return { cores: 4, ramGiB: 32, note: "Edge node — 4 vCPU / 32 GB CVM." };
+}
+
+export type PrismCentralReserve = {
+  size: string;
+  instances: number;
+  vcpuEach: number;
+  ramGiBEach: number;
+  storageTiBEach: number;
+  totalVcpu: number;
+  totalRamGiB: number;
+  totalStorageTiB: number;
+  note: string;
+};
+
+/**
+ * Prism Central runs as a VM on the cluster it manages, so it has to be sized
+ * into the build. Instance sizes follow the documented small/large/extra-large
+ * tiers; past 2,500 VMs a 3-instance scale-out deployment is the norm for HA.
+ */
+export function prismCentralReserveFor(vmCount: number | null): PrismCentralReserve {
+  const vms = vmCount ?? 0;
+  const scaleOut = vms > 2500;
+  const instances = scaleOut ? 3 : 1;
+
+  let size = "Small";
+  let vcpuEach = 6;
+  let ramGiBEach = 30;
+  let storageTiBEach = 0.5;
+  if (vms > 12500) {
+    size = "Extra-large";
+    vcpuEach = 14;
+    ramGiBEach = 60;
+    storageTiBEach = 2.5;
+  } else if (vms > 2500) {
+    size = "Large";
+    vcpuEach = 10;
+    ramGiBEach = 44;
+    storageTiBEach = 2.5;
+  }
+
+  return {
+    size,
+    instances,
+    vcpuEach,
+    ramGiBEach,
+    storageTiBEach,
+    totalVcpu: vcpuEach * instances,
+    totalRamGiB: ramGiBEach * instances,
+    totalStorageTiB: storageTiBEach * instances,
+    note: scaleOut
+      ? `${size} Prism Central, 3-instance scale-out for HA (>2,500 VMs).`
+      : `${size} Prism Central, single instance.`,
+  };
 }
 
 export type LicenseTier = { tier: string; detail: string };
@@ -157,7 +253,7 @@ export function validateBuild(input: {
   if (input.nodeCount > SIZING_RULES.maxNodesPerCluster) {
     const count = recommendedClusterCount(input.nodeCount);
     warnings.push(
-      `Exceeds the 32-node cluster maximum — split into ${count} clusters under one Prism Central.`,
+      `Exceeds the ${SIZING_RULES.maxNodesPerCluster}-node planning maximum — split into ${count} clusters under one Prism Central.`,
     );
   }
 
@@ -192,7 +288,7 @@ export const SIZING_REFERENCE: ReferenceGroup[] = [
     title: "Cluster Sizing Fundamentals",
     items: [
       { rule: "Minimum cluster size", detail: "RF2 → 3 nodes · RF3 → 5 nodes. 1/2-node need a Witness VM.", source: NUTANIX_BIBLE },
-      { rule: "Maximum cluster size", detail: "Up to 32 nodes per AOS cluster; scale out with more clusters under one Prism Central.", source: NUTANIX_PORTAL },
+      { rule: "Maximum cluster size", detail: `AOS allows up to ${SIZING_RULES.aosMaxNodesPerCluster} nodes; this tool plans to ${SIZING_RULES.maxNodesPerCluster} so a cluster keeps rebuild and upgrade headroom. Scale out with more clusters under one Prism Central.`, source: NUTANIX_PORTAL },
       { rule: "Block awareness", detail: "RF2 → ≥3 blocks · RF3 → ≥5 blocks for chassis-level redundancy.", source: NUTANIX_BIBLE },
       { rule: "N+1 planning", detail: "Always size N+1 headroom (N+2 for HA-critical) so HA restarts fit.", source: NUTANIX_SIZER },
       { rule: "Licensing tiers", detail: "Starter ≤ 12 nodes · Pro/Ultimate > 12 · Edge ≤ 5 nodes / ≤ 25 VMs.", source: NCI_LICENSING },

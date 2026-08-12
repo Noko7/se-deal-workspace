@@ -36,12 +36,12 @@ function num(value: number, dp: number): string {
 
 /** Whole numbers for anything counted: hosts, VMs, cores, nodes. */
 export function fmtInt(value: number | null | undefined): string {
-  return value == null || !Number.isFinite(value) ? "—" : Math.round(value).toLocaleString();
+  return value == null || !Number.isFinite(value) ? "-" : Math.round(value).toLocaleString();
 }
 
 /** Decimals for ratios and averages. */
 export function fmtNum(value: number | null | undefined, dp = 1): string {
-  return value == null || !Number.isFinite(value) ? "—" : num(value, dp);
+  return value == null || !Number.isFinite(value) ? "-" : num(value, dp);
 }
 
 /**
@@ -49,20 +49,20 @@ export function fmtNum(value: number | null | undefined, dp = 1): string {
  * Rolls up to TB past 4 TB so large estates stay readable.
  */
 export function fmtRam(gib: number | null | undefined): string {
-  if (gib == null || !Number.isFinite(gib)) return "—";
+  if (gib == null || !Number.isFinite(gib)) return "-";
   if (Math.abs(gib) >= 4096) return `${num(gib / 1024, 1)} TB`;
   return `${num(gib, gib < 10 ? 1 : 0)} GB`;
 }
 
 /** Memory without the unit suffix, for table cells that carry their own header. */
 export function fmtRamValue(gib: number | null | undefined): string {
-  if (gib == null || !Number.isFinite(gib)) return "—";
+  if (gib == null || !Number.isFinite(gib)) return "-";
   return num(gib, gib < 10 ? 1 : 0);
 }
 
 /** Storage, genuinely converted from binary TiB to the decimal TB vendors quote. */
 export function fmtStorage(tib: number | null | undefined, dp = 1): string {
-  if (tib == null || !Number.isFinite(tib)) return "—";
+  if (tib == null || !Number.isFinite(tib)) return "-";
   const tb = tibToTB(tib);
   if (Math.abs(tb) < 1) return `${num(tb * 1000, 0)} GB`;
   return `${num(tb, dp)} TB`;

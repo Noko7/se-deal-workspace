@@ -4,17 +4,80 @@ import {
   DEFAULT_SIZER_SETTINGS,
   buildSizingPlan,
   emptyPowerSlice,
+  environmentWorkload,
+  fitOptionsFor,
   sizeWorkload,
   type ParsedCluster,
   type ParsedEnvironment,
   type PowerSlice,
   type SizerSettings,
+  type VmRecord,
+  type Workload,
 } from "@/lib/simple-sizer-core";
 import { NODE_PROFILES, chooseNodeProfile, fitProfile, usableCoresPerNode } from "@/lib/node-profiles";
 import { SIZING_RULES, splitNodesIntoClusters } from "@/lib/sizing-guidance";
 
 function slice(over: Partial<PowerSlice>): PowerSlice {
   return { ...emptyPowerSlice(), ...over };
+}
+
+/**
+ * A workload is now the sum of VM records, so fixtures build guests rather than
+ * totals. Spreading a slice evenly across identical VMs reproduces the totals
+ * exactly while giving the sizer the per-VM list it works from.
+ */
+function vmsFromSlice(
+  clusterId: string,
+  clusterName: string,
+  s: PowerSlice,
+  poweredOn: boolean,
+  usedPerVm?: Partial<VmRecord["cpuUsed"]>,
+): VmRecord[] {
+  const count = s.vms;
+  if (count <= 0) return [];
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${clusterId}-vm-${poweredOn ? "on" : "off"}-${i}`,
+    name: `${clusterName}-vm-${i}`,
+    clusterId,
+    clusterName,
+    poweredOn,
+    os: "Linux (other)",
+    vcpu: s.vcpu / count,
+    ramGiB: s.ramGiB / count,
+    storageProvisionedTiB: s.partitionConfiguredTiB / count,
+    storageConsumedTiB: s.partitionConsumedTiB / count,
+    cpuUsed: {
+      average: usedPerVm?.average ?? null,
+      p95: usedPerVm?.p95 ?? null,
+      peak: usedPerVm?.peak ?? null,
+    },
+    ramUsedGiB: null,
+  }));
+}
+
+// A Workload built straight from VM records, for the tests that size one
+// directly rather than going through a parsed environment.
+function workload(over: Partial<Workload> & { vcpu: number; ramGiB: number; storageTiB: number }): Workload {
+  return {
+    label: "t",
+    vmCount: 100,
+    excludedVms: 0,
+    maxVmVcpu: 8,
+    maxVmRamGiB: 64,
+    cpu: {
+      chosen: over.cpu?.chosen ?? over.vcpu / DEFAULT_SIZER_SETTINGS.vcpuToPcoreRatio,
+      statistic: over.cpu?.statistic ?? "allocated",
+      available: over.cpu?.available ?? {
+        p95: null,
+        average: null,
+        peak: null,
+        allocated: over.vcpu / DEFAULT_SIZER_SETTINGS.vcpuToPcoreRatio,
+      },
+      vmsWithoutTelemetry: over.cpu?.vmsWithoutTelemetry ?? 0,
+      fellBackTo: over.cpu?.fellBackTo ?? null,
+    },
+    ...over,
+  };
 }
 
 function cluster(name: string, on: Partial<PowerSlice>, off: Partial<PowerSlice> = {}, extra: Partial<ParsedCluster> = {}): ParsedCluster {
@@ -54,6 +117,7 @@ function cluster(name: string, on: Partial<PowerSlice>, off: Partial<PowerSlice>
     consumedMemoryGiB: null,
     totalStorageTiB: all.partitionConfiguredTiB,
     consumedStorageTiB: all.partitionConsumedTiB,
+    observed: null,
     powerStateKnown: true,
     all,
     poweredOn,
@@ -62,7 +126,10 @@ function cluster(name: string, on: Partial<PowerSlice>, off: Partial<PowerSlice>
   };
 }
 
-function environment(clusters: ParsedCluster[]): ParsedEnvironment {
+function environment(
+  clusters: ParsedCluster[],
+  vmUsage: Map<string, Partial<VmRecord["cpuUsed"]>> = new Map(),
+): ParsedEnvironment {
   const sum = (pick: (c: ParsedCluster) => PowerSlice): PowerSlice =>
     clusters.reduce(
       (acc, c) =>
@@ -77,6 +144,10 @@ function environment(clusters: ParsedCluster[]): ParsedEnvironment {
       emptyPowerSlice(),
     );
   const all = sum((c) => c.all);
+  const vms = clusters.flatMap((c) => [
+    ...vmsFromSlice(c.id, c.name, c.poweredOn, true, vmUsage.get(c.id)),
+    ...vmsFromSlice(c.id, c.name, c.poweredOff, false, vmUsage.get(c.id)),
+  ]);
   return {
     source: "collector_excel",
     sourceDetection: "manual",
@@ -101,12 +172,14 @@ function environment(clusters: ParsedCluster[]): ParsedEnvironment {
     aggStorageConsumedTiB: all.partitionConsumedTiB,
     maxVmVcpu: 8,
     maxVmRamGiB: 64,
+    observed: clusters.find((c) => c.observed)?.observed ?? null,
     powerStateKnown: true,
     all,
     poweredOn: sum((c) => c.poweredOn),
     poweredOff: sum((c) => c.poweredOff),
     guestOs: [],
     topVms: [],
+    vms,
     snapshots: null,
     hostCpuUtilPct: null,
     hostMemoryUtilPct: null,
@@ -124,7 +197,7 @@ describe("node class auto-selection", () => {
   it("picks a small class for a ROBO-sized workload", () => {
     const profile = chooseNodeProfile(
       [{ pCores: 12, ramGiB: 180, rawStorageTiB: 3, maxVmPCores: 2, maxVmRamGiB: 16 }],
-      { failoverHosts: 1, minNodes: 3 },
+      fitOptionsFor(settings(), 2),
     );
     assert.ok(profile.cores <= 24, `expected a small class, got ${profile.label} (${profile.cores}c)`);
   });
@@ -132,7 +205,7 @@ describe("node class auto-selection", () => {
   it("picks a dense class for a large estate instead of sprawling small nodes", () => {
     const profile = chooseNodeProfile(
       [{ pCores: 2800, ramGiB: 69000, rawStorageTiB: 2000, maxVmPCores: 8, maxVmRamGiB: 96 }],
-      { failoverHosts: 1, minNodes: 5 },
+      fitOptionsFor(settings(), 3),
     );
     assert.ok(profile.cores >= 48, `expected a dense class, got ${profile.label} (${profile.cores}c)`);
   });
@@ -140,10 +213,210 @@ describe("node class auto-selection", () => {
   it("never picks a node class that cannot host the largest VM", () => {
     const profile = chooseNodeProfile(
       [{ pCores: 60, ramGiB: 900, rawStorageTiB: 20, maxVmPCores: 40, maxVmRamGiB: 700 }],
-      { failoverHosts: 1, minNodes: 3 },
+      fitOptionsFor(settings(), 2),
     );
     assert.ok(usableCoresPerNode(profile) >= 40, `${profile.label} cannot host a 40-pCore VM`);
     assert.ok(profile.maxRamGiB - SIZING_RULES.cvmRamGiBPerNode >= 700, `${profile.label} cannot host a 700 GiB VM`);
+  });
+});
+
+describe("the workload is the VMs", () => {
+  // 180 guests allocated 620 vCPU between them, each drawing a tenth of a core.
+  // Allocation says 155 pCores; the guests themselves say 18.
+  const quietEstate = (usage: Partial<VmRecord["cpuUsed"]> = { average: 0.1 }) =>
+    environment(
+      [cluster("QUIET", { vms: 180, vcpu: 620, ramGiB: 1200, partitionConfiguredTiB: 60, partitionConsumedTiB: 30 })],
+      new Map([["id-QUIET", usage]]),
+    );
+
+  it("sizes CPU from what the guests draw, not from what they were allocated", () => {
+    const env = quietEstate();
+    const measured = environmentWorkload(env, settings({ cpuStatistic: "average" }));
+    const allocated = environmentWorkload(env, settings({ cpuStatistic: "allocated" }));
+    assert.equal(measured.cpu.statistic, "average");
+    assert.ok(
+      measured.cpu.chosen < allocated.cpu.chosen,
+      `measured (${measured.cpu.chosen}) should undercut allocated (${allocated.cpu.chosen})`,
+    );
+    const measuredPlan = buildSizingPlan(env, settings({ cpuStatistic: "average" }));
+    const allocatedPlan = buildSizingPlan(env, settings({ cpuStatistic: "allocated" }));
+    assert.ok(
+      measuredPlan.totalNodes <= allocatedPlan.totalNodes,
+      `${measuredPlan.totalNodes} nodes should not exceed ${allocatedPlan.totalNodes}`,
+    );
+  });
+
+  it("ignores host utilization entirely", () => {
+    // Same VMs, wildly different host telemetry. The build must not move.
+    const base = quietEstate();
+    const withHostLoad = quietEstate();
+    withHostLoad.observed = { cpuPCores: 900, ramGiB: 4000, basis: "peak", coverage: 1, source: "test" };
+    withHostLoad.clusterDetails[0].observed = withHostLoad.observed;
+    withHostLoad.clusterDetails[0].consumedCpuCores = 900;
+    assert.equal(
+      buildSizingPlan(base, settings()).totalNodes,
+      buildSizingPlan(withHostLoad, settings()).totalNodes,
+      "host utilization must not reach the build",
+    );
+  });
+
+  it("never sizes memory from measured usage, however idle the guests are", () => {
+    const env = quietEstate();
+    for (const vm of env.vms) vm.ramUsedGiB = 0.05;
+    const build = buildSizingPlan(env, settings()).consolidated;
+    assert.ok(
+      build.demand.ramGiB > 1200,
+      `memory demand ${build.demand.ramGiB} must be at least the provisioned total plus overhead`,
+    );
+  });
+
+  it("falls back to allocated vCPU per VM when a guest has no telemetry", () => {
+    const env = quietEstate({});
+    const cpu = environmentWorkload(env, settings()).cpu;
+    assert.equal(cpu.statistic, "allocated");
+    assert.equal(cpu.vmsWithoutTelemetry, 180);
+  });
+
+  it("prefers a 95th percentile over an average, and reports the peak it did not use", () => {
+    const env = quietEstate({ average: 0.1, p95: 0.3, peak: 2 });
+    const cpu = environmentWorkload(env, settings()).cpu;
+    assert.equal(cpu.statistic, "p95");
+    assert.ok(Math.abs(cpu.chosen - 180 * 0.3) < 1, `expected ~54 cores, got ${cpu.chosen}`);
+    assert.ok(Math.abs((cpu.available.peak ?? 0) - 180 * 2) < 1, "peak must still be reported");
+  });
+});
+
+describe("excluding and editing VMs", () => {
+  const estate = () =>
+    environment(
+      [cluster("EDIT", { vms: 10, vcpu: 100, ramGiB: 500, partitionConfiguredTiB: 20, partitionConsumedTiB: 10 })],
+      new Map([["id-EDIT", { average: 1 }]]),
+    );
+
+  it("drops an excluded VM from every dimension", () => {
+    const env = estate();
+    const before = environmentWorkload(env, settings());
+    const after = environmentWorkload(env, settings({ vmAdjustments: { [env.vms[0].id]: { excluded: true } } }));
+    assert.equal(after.vmCount, before.vmCount - 1);
+    assert.equal(after.excludedVms, 1);
+    assert.ok(after.vcpu < before.vcpu, "vCPU must drop");
+    assert.ok(after.ramGiB < before.ramGiB, "memory must drop");
+    assert.ok(after.storageTiB < before.storageTiB, "storage must drop");
+    assert.ok(after.cpu.chosen < before.cpu.chosen, "measured CPU must drop");
+  });
+
+  it("honours an edited vCPU, memory and storage figure", () => {
+    const env = estate();
+    const id = env.vms[0].id;
+    const edited = environmentWorkload(env, settings({ vmAdjustments: { [id]: { vcpu: 64, ramGiB: 512, storageTiB: 8 } } }));
+    const base = environmentWorkload(env, settings());
+    assert.equal(edited.vcpu, base.vcpu - env.vms[0].vcpu + 64);
+    assert.ok(Math.abs(edited.ramGiB - (base.ramGiB - env.vms[0].ramGiB + 512)) < 0.01);
+    assert.ok(Math.abs(edited.storageTiB - (base.storageTiB - env.vms[0].storageConsumedTiB + 8)) < 0.01);
+    assert.equal(edited.maxVmVcpu, 64, "an edited VM becomes the largest");
+  });
+
+  it("scales a VM's measured usage with an edited vCPU count", () => {
+    const env = estate();
+    const id = env.vms[0].id;
+    const original = env.vms[0].vcpu;
+    const doubled = environmentWorkload(env, settings({ cpuStatistic: "average", vmAdjustments: { [id]: { vcpu: original * 2 } } }));
+    const base = environmentWorkload(env, settings({ cpuStatistic: "average" }));
+    assert.ok(doubled.cpu.chosen > base.cpu.chosen, "doubling a VM's vCPU should raise its measured draw");
+  });
+
+  it("shrinks the build when enough VMs are excluded", () => {
+    const env = environment(
+      [cluster("BIG", { vms: 400, vcpu: 3200, ramGiB: 24000, partitionConfiguredTiB: 400, partitionConsumedTiB: 240 })],
+      new Map([["id-BIG", { average: 1.5 }]]),
+    );
+    const full = buildSizingPlan(env, settings());
+    const half: SizerSettings = settings({
+      vmAdjustments: Object.fromEntries(env.vms.slice(0, 200).map((vm) => [vm.id, { excluded: true }])),
+    });
+    const trimmed = buildSizingPlan(env, half);
+    assert.ok(trimmed.totalNodes < full.totalNodes, `${trimmed.totalNodes} should be fewer than ${full.totalNodes}`);
+    assert.ok(trimmed.warnings.some((w) => w.includes("excluded")), "the build must say VMs were excluded");
+  });
+});
+
+describe("target utilization", () => {
+  const estate = () =>
+    environment(
+      [cluster("T", { vms: 200, vcpu: 1600, ramGiB: 8000, partitionConfiguredTiB: 200, partitionConsumedTiB: 120 })],
+      new Map([["id-T", { average: 1 }]]),
+    );
+
+  it("lands the finished cluster near the requested utilization on every dimension", () => {
+    for (const targetUtilizationPct of [40, 50, 70]) {
+      const plan = buildSizingPlan(estate(), settings({ targetUtilizationPct }));
+      const { cpuPct, ramPct } = plan.consolidated.headroom;
+      // Whole nodes mean the landing point overshoots downward, never upward.
+      assert.ok(cpuPct <= targetUtilizationPct + 1, `CPU landed at ${cpuPct}% for a ${targetUtilizationPct}% target`);
+      assert.ok(ramPct <= targetUtilizationPct + 1, `RAM landed at ${ramPct}% for a ${targetUtilizationPct}% target`);
+    }
+  });
+
+  it("counts the CVM against the target rather than hiding it", () => {
+    const plan = buildSizingPlan(estate(), settings({ targetUtilizationPct: 50 }));
+    const build = plan.consolidated;
+    const cvmShare = (build.overhead.cvmTotalCores / (build.profile.cores * build.nodes)) * 100;
+    assert.ok(cvmShare > 0, "the build must carry a CVM");
+    assert.ok(
+      build.headroom.cpuPct >= cvmShare,
+      `reported CPU use ${build.headroom.cpuPct}% must include the ${cvmShare.toFixed(1)}% the CVMs take`,
+    );
+  });
+
+  it("buys more nodes for a lower target", () => {
+    const relaxed = buildSizingPlan(estate(), settings({ targetUtilizationPct: 40 }));
+    const packed = buildSizingPlan(estate(), settings({ targetUtilizationPct: 80 }));
+    assert.ok(relaxed.totalNodes > packed.totalNodes, `${relaxed.totalNodes} should exceed ${packed.totalNodes}`);
+  });
+});
+
+describe("cluster topology", () => {
+  const estate = () =>
+    environment(
+      [cluster("EDGE", { vms: 300, vcpu: 2400, ramGiB: 12000, partitionConfiguredTiB: 300, partitionConsumedTiB: 150 })],
+      new Map([["id-EDGE", { average: 1 }]]),
+    );
+
+  it("builds many small clusters when the size is pinned", () => {
+    for (const nodesPerCluster of [2, 3, 4, 8]) {
+      const plan = buildSizingPlan(estate(), settings({ nodesPerCluster }));
+      assert.ok(plan.targets.length >= 1);
+      for (const target of plan.targets) {
+        assert.equal(target.nodes, nodesPerCluster, `expected ${nodesPerCluster}-node clusters, got ${target.nodes}`);
+      }
+      assert.equal(plan.totalNodes, plan.targets.length * nodesPerCluster);
+    }
+  });
+
+  it("costs more nodes in small clusters than in large ones, because each carries its own CVMs", () => {
+    const small = buildSizingPlan(estate(), settings({ nodesPerCluster: 2 }));
+    const large = buildSizingPlan(estate(), settings({ nodesPerCluster: 12 }));
+    assert.ok(
+      small.totalNodes >= large.totalNodes,
+      `two-node clusters (${small.totalNodes}) should not need fewer nodes than twelve-node ones (${large.totalNodes})`,
+    );
+  });
+
+  it("raises the Witness requirement for a two-node cluster instead of rounding it away", () => {
+    const plan = buildSizingPlan(estate(), settings({ nodesPerCluster: 2 }));
+    assert.ok(plan.warnings.some((w) => w.includes("Witness")), `expected a Witness warning, got ${plan.warnings.join(" | ")}`);
+  });
+
+  it("never emits a cluster above the Nutanix maximum", () => {
+    for (const nodesPerCluster of ["auto" as const, 24, 30]) {
+      const plan = buildSizingPlan(estate(), settings({ nodesPerCluster }));
+      for (const target of plan.targets) {
+        assert.ok(
+          target.nodes <= SIZING_RULES.maxNodesPerCluster,
+          `${target.nodes}-node cluster exceeds the ${SIZING_RULES.maxNodesPerCluster}-node maximum`,
+        );
+      }
+    }
   });
 });
 
@@ -153,7 +426,7 @@ describe("per-node right-sizing", () => {
     for (const profile of NODE_PROFILES) {
       for (const failoverHosts of [1, 2]) {
         const demand = { pCores: 900, ramGiB: 14000, rawStorageTiB: 120, maxVmPCores: 8, maxVmRamGiB: 64 };
-        const fit = fitProfile(profile, demand, { failoverHosts, minNodes: 3 });
+        const fit = fitProfile(profile, demand, fitOptionsFor(settings({ failoverHosts }), 2));
         const survivors = fit.totalNodes - failoverHosts;
         const usableRam = (fit.ramPerNodeGiB - SIZING_RULES.cvmRamGiBPerNode) * survivors;
         assert.ok(
@@ -166,13 +439,13 @@ describe("per-node right-sizing", () => {
 
   it("populates at least enough RAM for the largest single VM plus the CVM", () => {
     const demand = { pCores: 200, ramGiB: 1000, rawStorageTiB: 20, maxVmPCores: 16, maxVmRamGiB: 512 };
-    const fit = fitProfile(NODE_PROFILES.find((p) => p.id === "memory")!, demand, { failoverHosts: 1, minNodes: 3 });
+    const fit = fitProfile(NODE_PROFILES.find((p) => p.id === "memory")!, demand, fitOptionsFor(settings(), 2));
     assert.ok(fit.ramPerNodeGiB - SIZING_RULES.cvmRamGiBPerNode >= 512, `only ${fit.ramPerNodeGiB} GiB populated`);
   });
 
   it("takes a custom node spec literally rather than right-sizing it", () => {
     const build = sizeWorkload(
-      { label: "t", vmCount: 100, vcpu: 400, ramGiB: 1000, storageTiB: 20, maxVmVcpu: 8, maxVmRamGiB: 64 },
+      workload({ vmCount: 100, vcpu: 400, ramGiB: 1000, storageTiB: 20 }),
       settings({ nodeProfileId: "custom", customCores: 56, customRamGiB: 1536, customStorageTiB: 60 }),
     );
     assert.equal(build.perNode.cores, 56);
@@ -287,7 +560,7 @@ describe("workload basis", () => {
 });
 
 describe("replication factor resolution", () => {
-  const small = { label: "t", vmCount: 20, vcpu: 40, ramGiB: 200, storageTiB: 2, maxVmVcpu: 4, maxVmRamGiB: 16 };
+  const small = workload({ vmCount: 20, vcpu: 40, ramGiB: 200, storageTiB: 2, maxVmVcpu: 4, maxVmRamGiB: 16 });
 
   it("keeps RF2 for a small cluster on auto", () => {
     const build = sizeWorkload(small, settings());
@@ -295,19 +568,33 @@ describe("replication factor resolution", () => {
     assert.ok(build.nodes >= 3, "RF2 needs at least 3 nodes");
   });
 
-  it("steps up to RF3 at 5+ nodes on auto", () => {
+  it("keeps RF2 through the mid-sizes rather than stepping up the moment RF3 becomes legal", () => {
     const build = sizeWorkload(
-      { label: "t", vmCount: 500, vcpu: 2000, ramGiB: 12000, storageTiB: 100, maxVmVcpu: 8, maxVmRamGiB: 64 },
+      workload({ vmCount: 500, vcpu: 2000, ramGiB: 12000, storageTiB: 100 }),
       settings(),
     );
+    assert.ok(build.nodes >= 5, "this workload should need more than the RF3 minimum");
+    assert.ok(
+      build.nodes < SIZING_RULES.autoRf3AtNodes,
+      `test workload must sit below the auto-RF3 threshold, got ${build.nodes} nodes`,
+    );
+    assert.equal(build.effectiveRf, 2);
+    assert.equal(build.rfUpgraded, false);
+  });
+
+  it("steps up to RF3 once the cluster is large enough for a rebuild to be risky", () => {
+    const build = sizeWorkload(
+      workload({ vmCount: 6000, vcpu: 32000, ramGiB: 160000, storageTiB: 1400, maxVmVcpu: 16, maxVmRamGiB: 256 }),
+      settings(),
+    );
+    assert.ok(build.nodes >= SIZING_RULES.autoRf3AtNodes, `expected a large build, got ${build.nodes} nodes`);
     assert.equal(build.effectiveRf, 3);
     assert.ok(build.rfUpgraded);
-    assert.ok(build.nodes >= 5, "RF3 needs at least 5 nodes");
   });
 
   it("honours an explicit RF2 request at scale", () => {
     const build = sizeWorkload(
-      { label: "t", vmCount: 500, vcpu: 2000, ramGiB: 12000, storageTiB: 100, maxVmVcpu: 8, maxVmRamGiB: 64 },
+      workload({ vmCount: 500, vcpu: 2000, ramGiB: 12000, storageTiB: 100 }),
       settings({ rf: 2 }),
     );
     assert.equal(build.effectiveRf, 2);
@@ -328,19 +615,34 @@ describe("replication factor resolution", () => {
 });
 
 describe("build sanity", () => {
-  it("always reserves the requested HA headroom", () => {
+  // A cluster built to a utilization target already has the spare capacity N+1
+  // reserves, so the build does not bolt an extra node on top. What matters is
+  // the property the reservation exists for: the survivors must still hold the
+  // whole workload after the failures.
+  it("survives the requested number of host failures without adding a spare node", () => {
     for (const failoverHosts of [1, 2]) {
       const build = sizeWorkload(
-        { label: "t", vmCount: 300, vcpu: 1200, ramGiB: 8000, storageTiB: 60, maxVmVcpu: 8, maxVmRamGiB: 64 },
+        workload({ vmCount: 300, vcpu: 1200, ramGiB: 8000, storageTiB: 60 }),
         settings({ failoverHosts }),
       );
-      assert.ok(build.nodes >= build.workingNodes + failoverHosts, "failover hosts were not added");
+      const survivors = build.nodes - failoverHosts;
+      assert.ok(survivors >= 1, `N+${failoverHosts} left no working node`);
+      const usableCores = usableCoresPerNode(build.profile) * survivors;
+      const usableRam = (build.perNode.ramGiB - build.overhead.cvm.ramGiB) * survivors;
+      assert.ok(
+        usableCores >= build.demand.pCores,
+        `N+${failoverHosts}: ${survivors} survivors hold ${usableCores} cores, need ${build.demand.pCores}`,
+      );
+      assert.ok(
+        usableRam >= build.demand.ramGiB,
+        `N+${failoverHosts}: ${survivors} survivors hold ${usableRam} GiB, need ${build.demand.ramGiB}`,
+      );
     }
   });
 
   it("flags a VM too large for the chosen node class", () => {
     const build = sizeWorkload(
-      { label: "t", vmCount: 10, vcpu: 60, ramGiB: 300, storageTiB: 5, maxVmVcpu: 8, maxVmRamGiB: 4096 },
+      workload({ vmCount: 10, vcpu: 60, ramGiB: 300, storageTiB: 5, maxVmVcpu: 8, maxVmRamGiB: 4096 }),
       settings({ nodeProfileId: "edge" }),
     );
     assert.ok(build.monsterVmRisk);
@@ -349,7 +651,7 @@ describe("build sanity", () => {
 
   it("returns whole nodes and whole physical cores", () => {
     const build = sizeWorkload(
-      { label: "t", vmCount: 137, vcpu: 613, ramGiB: 3771.5, storageTiB: 41.3, maxVmVcpu: 12, maxVmRamGiB: 96 },
+      workload({ vmCount: 137, vcpu: 613, ramGiB: 3771.5, storageTiB: 41.3, maxVmVcpu: 12, maxVmRamGiB: 96 }),
       settings(),
     );
     assert.ok(Number.isInteger(build.nodes), "node count must be a whole number");

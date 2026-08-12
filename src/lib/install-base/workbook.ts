@@ -286,7 +286,7 @@ function buildReportsSheet(wb: ExcelJS.Workbook, rows: MergedRow[], reportOption
   rs.getColumn(1).width = 4;
   rs.mergeCells("B1:K1");
   const rt = rs.getCell("B1");
-  rt.value = "Install Base — Usage Charts";
+  rt.value = "Install Base: Usage Charts";
   rt.font = { bold: true, size: 14, color: { argb: HEADER_FONT } };
   rt.alignment = { horizontal: "center", vertical: "middle" };
   rt.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_FILL } };
@@ -308,7 +308,7 @@ function buildReportsSheet(wb: ExcelJS.Workbook, rows: MergedRow[], reportOption
 
 export async function buildWorkbookBlob(rows: MergedRow[], opts: WorkbookOptions): Promise<Blob> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "SE Deal Workspace — Install Base Report";
+  wb.creator = "SE Deal Workspace, Install Base Report";
   wb.created = new Date();
 
   buildLegendSheet(wb);

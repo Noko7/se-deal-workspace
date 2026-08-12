@@ -29,7 +29,7 @@ export const NODE_PROFILES: NodeProfile[] = [
     cores: 16,
     maxRamGiB: 256,
     maxStorageTiB: 8,
-    blurb: "ROBO and edge sites — smallest sensible footprint.",
+    blurb: "ROBO and edge sites. The smallest sensible footprint.",
   },
   {
     id: "small",
@@ -47,7 +47,7 @@ export const NODE_PROFILES: NodeProfile[] = [
     cores: 32,
     maxRamGiB: 768,
     maxStorageTiB: 23,
-    blurb: "General-purpose VSI — the common default.",
+    blurb: "General-purpose VSI. The common default.",
   },
   {
     id: "balanced-plus",
@@ -92,7 +92,7 @@ export const NODE_PROFILES: NodeProfile[] = [
     cores: 96,
     maxRamGiB: 3072,
     maxStorageTiB: 92,
-    blurb: "Largest estates — fewest nodes to manage.",
+    blurb: "Largest estates, fewest nodes to manage.",
   },
 ];
 
@@ -138,6 +138,12 @@ export type FitOptions = {
   failoverHosts: number;
   // RF floor — RF2 needs >= 3 nodes, RF3 needs >= 5.
   minNodes: number;
+  // How full the finished cluster should run, 0-1, counting CVM overhead
+  // against it. The single headroom knob for every dimension.
+  targetUtilization: number;
+  // Exact nodes per cluster, or null to fill clusters to the planning maximum.
+  // A fixed size buys as many identical clusters as the workload needs.
+  nodesPerCluster?: number | null;
 };
 
 export type ProfileFit = {
@@ -145,10 +151,12 @@ export type ProfileFit = {
   nodesForCpu: number;
   nodesForRam: number;
   nodesForStorage: number;
-  // Nodes carrying workload, before the HA spare(s) and the RF floor.
+  // Nodes carrying workload, before the RF floor and any cluster-size rounding.
   workingNodes: number;
   totalNodes: number;
   clusterCount: number;
+  // Nodes in each cluster, all equal when the size was pinned.
+  nodesPerCluster: number;
   // Right-sized per-node build: cores are the class's, RAM/drives are populated
   // to what the workload actually needs (capped at the class ceiling).
   ramPerNodeGiB: number;
@@ -165,6 +173,18 @@ export type ProfileFit = {
   cvm: CvmReserve;
   score: number;
 };
+
+// Relative cost of a build, used only to compare node classes against each
+// other. A node costs far more than its CPUs: chassis, rack unit, switch ports,
+// the per-node licence minimum, and someone's time to run it. That fixed part is
+// expressed in core-equivalents so a single number can settle the trade between
+// "more small nodes" and "fewer big ones". Without it the solver optimises for
+// packing nodes full, which is how a 4-host cluster once turned into five
+// 16-core Edge nodes.
+const NODE_BASE_COST = 24;
+const RAM_GIB_PER_CORE_COST = 32;
+// A class that cannot host the customer's largest VM is not a candidate.
+const MONSTER_VM_PENALTY = 4;
 
 /** The CVM reserve this node class carries — scales with node density. */
 export function cvmFor(profile: NodeProfile): CvmReserve {
@@ -185,23 +205,67 @@ function pct(part: number, whole: number): number {
   return Math.max(0, Math.min(999, (part / whole) * 100));
 }
 
+/**
+ * How much workload one node of this class can carry at the target utilization.
+ *
+ * The CVM is a tenant of the node like any other VM, so it counts against the
+ * target rather than being subtracted first: a node is "50% used" when the
+ * workload *and* the CVM together occupy half of it. Below the point where the
+ * CVM alone exceeds the target, the class cannot be used at all, which is what
+ * the zero return means.
+ */
+function workloadPerNode(profile: NodeProfile, ramPerNodeGiB: number, target: number) {
+  const cvm = cvmFor(profile);
+  return {
+    cores: Math.max(0, profile.cores * target - cvm.cores),
+    ramGiB: Math.max(0, ramPerNodeGiB * target - cvm.ramGiB),
+    // Drives carry no platform tenant; the target is pure free space for
+    // rebuilds, snapshots and growth.
+    storageTiB: Math.max(0, profile.maxStorageTiB * target),
+  };
+}
+
 export function fitProfile(profile: NodeProfile, demand: NodeDemand, options: FitOptions): ProfileFit {
   const cvm = cvmFor(profile);
   const coresPerNode = usableCoresPerNode(profile);
   const maxRamPerNode = usableRamPerNode(profile);
-  const maxStoragePerNode = Math.max(0.1, profile.maxStorageTiB);
-
-  const nodesForCpu = Math.max(1, Math.ceil(demand.pCores / coresPerNode));
-  const nodesForRam = Math.max(1, Math.ceil(demand.ramGiB / maxRamPerNode));
-  const nodesForStorage = Math.max(1, Math.ceil(demand.rawStorageTiB / maxStoragePerNode));
-
-  const workingNodes = Math.max(nodesForCpu, nodesForRam, nodesForStorage);
+  const target = Math.min(1, Math.max(0.05, options.targetUtilization));
   const failoverHosts = Math.max(0, options.failoverHosts);
-  const totalNodes = Math.max(options.minNodes, workingNodes + failoverHosts);
-  const clusterCount = Math.max(1, Math.ceil(totalNodes / SIZING_RULES.maxNodesPerCluster));
+
+  // Nodes needed for each dimension so the finished cluster lands on target.
+  // A class whose CVM already exceeds the target cannot host anything, so it
+  // reports an impossible node count and loses on score rather than dividing by
+  // zero.
+  const capacity = workloadPerNode(profile, profile.maxRamGiB, target);
+  const nodesFor = (need: number, per: number) => (per > 0 ? Math.max(1, Math.ceil(need / per)) : Number.MAX_SAFE_INTEGER);
+  const nodesForCpu = nodesFor(demand.pCores, capacity.cores);
+  const nodesForRam = nodesFor(demand.ramGiB, capacity.ramGiB);
+  const nodesForStorage = nodesFor(demand.rawStorageTiB, capacity.storageTiB);
+
+  const workingNodes = Math.min(Number.MAX_SAFE_INTEGER, Math.max(nodesForCpu, nodesForRam, nodesForStorage));
+
+  // A cluster running at the target already absorbs the failures N+1 reserves
+  // for, so no spare is bolted on top. It is checked rather than assumed: after
+  // losing `failoverHosts`, the survivors must still hold the workload at 100%.
+  const survivable = (n: number) =>
+    n - failoverHosts >= 1 &&
+    demand.pCores <= (n - failoverHosts) * coresPerNode &&
+    demand.ramGiB <= (n - failoverHosts) * maxRamPerNode;
+  let sized = Math.max(options.minNodes, workingNodes);
+  while (sized < SIZING_RULES.maxNodesPerCluster * 64 && !survivable(sized)) sized += 1;
+
+  // A pinned cluster size buys whole clusters, so the total rounds up to a
+  // multiple of it. Each cluster carries its own CVMs, which is already priced
+  // in above: the per-node workload capacity is net of them.
+  const pinned = options.nodesPerCluster ?? null;
+  const nodesPerCluster = pinned && pinned > 0 ? Math.min(pinned, SIZING_RULES.maxNodesPerCluster) : null;
+  const totalNodes = nodesPerCluster ? Math.ceil(sized / nodesPerCluster) * nodesPerCluster : sized;
+  const clusterCount = nodesPerCluster
+    ? totalNodes / nodesPerCluster
+    : Math.max(1, Math.ceil(totalNodes / SIZING_RULES.maxNodesPerCluster));
 
   const driver: ProfileFit["driver"] =
-    totalNodes > workingNodes + failoverHosts
+    totalNodes > workingNodes && workingNodes < options.minNodes
       ? "resiliency"
       : nodesForStorage > Math.max(nodesForCpu, nodesForRam)
         ? "storage"
@@ -209,37 +273,35 @@ export function fitProfile(profile: NodeProfile, demand: NodeDemand, options: Fi
           ? "ram"
           : "cpu";
 
-  // Populate each node for the share of the workload it carries, plus the CVM.
-  // The HA spare(s) are excluded from the divisor: after a host failure the
-  // survivors must still hold the whole workload, so RAM is sized on the
-  // load-carrying nodes, not the full count. A node also has to be able to host
-  // the customer's largest single VM. Drives are pooled across every node, so
-  // capacity divides by the full count.
-  const loadNodes = Math.max(1, totalNodes - failoverHosts);
-  const ramNeededPerNode = Math.max(demand.ramGiB / loadNodes, demand.maxVmRamGiB ?? 0) + cvm.ramGiB;
-  const ramPerNodeGiB = profile.fixed ? profile.maxRamGiB : ladderRam(ramNeededPerNode, profile.maxRamGiB);
+  // Populate each node so that its share of the workload plus its CVM lands on
+  // the target, and so that one node can still hold the customer's largest
+  // single VM. Drives are pooled across the cluster, so capacity divides evenly.
+  const ramForShare = (demand.ramGiB / totalNodes + cvm.ramGiB) / target;
+  const ramForLargestVm = (demand.maxVmRamGiB ?? 0) + cvm.ramGiB;
+  const ramPerNodeGiB = profile.fixed
+    ? profile.maxRamGiB
+    : ladderRam(Math.max(ramForShare, ramForLargestVm), profile.maxRamGiB);
   const storagePerNodeTiB = profile.fixed
     ? profile.maxStorageTiB
-    : Math.min(profile.maxStorageTiB, demand.rawStorageTiB / totalNodes);
+    : Math.min(profile.maxStorageTiB, demand.rawStorageTiB / (totalNodes * target));
 
-  const cpuUtilPct = pct(demand.pCores, totalNodes * coresPerNode);
-  const ramUtilPct = pct(demand.ramGiB, totalNodes * usableRamPerNode(profile, ramPerNodeGiB));
-  const storageUtilPct = pct(demand.rawStorageTiB, totalNodes * maxStoragePerNode);
+  // Utilization as the customer will see it in Prism: everything running on the
+  // cluster, including the platform's own VMs, over what was bought.
+  const cpuUtilPct = pct(demand.pCores + totalNodes * cvm.cores, totalNodes * profile.cores);
+  const ramUtilPct = pct(demand.ramGiB + totalNodes * cvm.ramGiB, totalNodes * ramPerNodeGiB);
+  const storageUtilPct = pct(demand.rawStorageTiB, totalNodes * Math.max(0.1, storagePerNodeTiB));
 
   const fitsLargestVm =
     (demand.maxVmPCores == null || demand.maxVmPCores <= coresPerNode) &&
-    (demand.maxVmRamGiB == null || demand.maxVmRamGiB <= maxRamPerNode);
+    (demand.maxVmRamGiB == null || demand.maxVmRamGiB <= usableRamPerNode(profile, ramPerNodeGiB));
 
-  // Scoring. Cores are a fixed purchase, so stranded CPU is the real cost of an
-  // oversized class — it carries full weight. RAM and drives get right-sized, so
-  // only the rounding waste counts. Node sprawl is the cost of an undersized
-  // class: more rack units, ports, and hosts to operate. A node that can't host
-  // the customer's biggest VM is effectively disqualified.
-  const cpuWaste = 1 - Math.min(1, cpuUtilPct / 100);
-  const ramWaste = 1 - Math.min(1, ramUtilPct / 100);
-  const storageWaste = 1 - Math.min(1, storageUtilPct / 100);
-  const sprawl = totalNodes / SIZING_RULES.maxNodesPerCluster;
-  const score = cpuWaste + 0.25 * ramWaste + 0.15 * storageWaste + 0.5 * sprawl + (fitsLargestVm ? 0 : 2);
+  // Score the whole build, not how tightly each node is packed. Cost is what an
+  // SE is actually trading: node count times what a node of this class costs.
+  // Drives are right-sized to the workload, so they barely separate the classes
+  // and are left out. Ties go to the smaller class because NODE_PROFILES runs
+  // small to large and the winner is taken on a strict improvement.
+  const costPerNode = NODE_BASE_COST + profile.cores + ramPerNodeGiB / RAM_GIB_PER_CORE_COST;
+  const score = totalNodes * costPerNode * (fitsLargestVm ? 1 : MONSTER_VM_PENALTY);
 
   return {
     profile,
@@ -249,6 +311,7 @@ export function fitProfile(profile: NodeProfile, demand: NodeDemand, options: Fi
     workingNodes,
     totalNodes,
     clusterCount,
+    nodesPerCluster: nodesPerCluster ?? Math.ceil(totalNodes / clusterCount),
     ramPerNodeGiB,
     storagePerNodeTiB: Number(storagePerNodeTiB.toFixed(2)),
     fitsLargestVm,

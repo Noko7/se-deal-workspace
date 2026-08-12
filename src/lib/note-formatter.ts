@@ -252,7 +252,7 @@ function formatMeeting(input: string, options: FormatOptions): FormattedNotes {
 
   const title =
     options.title.trim() ||
-    (sections.date ? `Meeting Notes — ${sections.date}` : deriveTitle({ overview, steps: helpers })) ||
+    (sections.date ? `Meeting Notes: ${sections.date}` : deriveTitle({ overview, steps: helpers })) ||
     "Meeting Notes";
 
   const partial = {

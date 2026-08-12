@@ -61,7 +61,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     key: "account",
     label: "Account",
     sfdcObject: "Account",
-    relationship: "Root object — the customer company.",
+    relationship: "Root object: the customer company.",
     description:
       "Firmographics and relationship context for the customer. Gives the SE/AE the strategic backdrop (industry, size, incumbent, renewal timing) behind every opportunity.",
     fields: [
@@ -173,7 +173,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     key: "opportunity",
     label: "Opportunity",
     sfdcObject: "Opportunity",
-    relationship: "Child of Account — one active deal.",
+    relationship: "Child of Account: one active deal.",
     description:
       "The deal itself: commercials, stage, forecast, and the technical framing an SE maintains for close plans and risk.",
     fields: [
@@ -512,7 +512,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "Contact",
     relationship: "Related list on Account / Opportunity (buying committee).",
     description:
-      "People on the customer's buying committee, with their role and disposition — who to win, who blocks.",
+      "People on the customer's buying committee, with their role and disposition: who to win, who blocks.",
     fields: [
       {
         key: "name",
@@ -686,7 +686,7 @@ export const ACCOUNT_SCHEMA: SchemaObject[] = [
     sfdcObject: "ContentNote",
     relationship: "Related list on Opportunity / Meeting (SE / AE / SAM notes).",
     description:
-      "SE, AE, and SAM notes captured against the account and meetings. This is the richest signal for the AI — grounded, first-hand context.",
+      "SE, AE, and SAM notes captured against the account and meetings. This is the richest signal for the AI: grounded, first-hand context.",
     fields: [
       {
         key: "role",

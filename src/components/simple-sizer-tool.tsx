@@ -20,6 +20,11 @@ import {
   CUSTOM_PROFILE,
   DEFAULT_SIZER_SETTINGS,
   buildSizingPlan,
+  cpuStatisticLabel,
+  vmCpuContribution,
+  workloadCpuSummary,
+  type BuildRecommendation,
+  type CpuStatistic,
   type ParsedCluster,
   type ParsedEnvironment,
   type PlanMode,
@@ -28,12 +33,14 @@ import {
   type SizerSource,
   type SizingPlan,
   type StorageEfficiency,
+  type VmAdjustment,
+  type VmRecord,
   type WorkloadBasis,
 } from "@/lib/simple-sizer-core";
 import { parseSizerWorkbook } from "@/lib/simple-sizer";
 import { NODE_PROFILES } from "@/lib/node-profiles";
-import { KEY_RESOURCES, SIZING_REFERENCE, SIZING_RULES } from "@/lib/sizing-guidance";
-import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
+import { KEY_RESOURCES, SIZING_REFERENCE, SIZING_RULES, utilizationBasisLabel } from "@/lib/sizing-guidance";
+import { TIB_TO_TB, UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
 import { buildSizerWorkbookBlob, sizerWorkbookFileName } from "@/lib/sizer-workbook";
 import { HeroNumber, MicroMeters, Meter, RankedBars, SplitMeter, Stat, VizKey } from "@/components/sizer-viz";
 import { StatusPill } from "@/components/ui";
@@ -51,6 +58,24 @@ function ratioStatus(ratio: number | null | undefined): { label: string; classNa
   if (ratio > 6) return { label: "over guidance", className: "text-rose-600" };
   if (ratio > 4) return { label: "general-purpose", className: "text-charcoal-900" };
   return { label: "latency-safe", className: "text-charcoal-900" };
+}
+
+/**
+ * Say where the CPU number came from. The statistic chosen is the single biggest
+ * lever on node count, so it is never allowed to happen silently, and the line
+ * always states that memory was left on provisioned.
+ */
+function CpuBasisNote({ build, settings }: { build: BuildRecommendation; settings: SizerSettings }) {
+  const measured = build.workload.cpu.statistic !== "allocated";
+  return (
+    <p className="mt-3 max-w-[62ch] text-[11px] leading-relaxed text-charcoal-500">
+      <span className={measured ? "font-medium text-viz-compute" : "font-medium text-charcoal-700"}>
+        {measured ? "CPU sized from what the VMs actually use." : "CPU sized from allocated vCPU."}
+      </span>{" "}
+      {workloadCpuSummary(build.workload.cpu, settings.targetUtilizationPct, settings.cpuStatistic)} Memory is always
+      sized from provisioned, never from what the guests happen to be using, so a quiet estate cannot undersize it.
+    </p>
+  );
 }
 
 export function SimpleSizerTool() {
@@ -118,7 +143,7 @@ export function SimpleSizerTool() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError("Couldn't copy to the clipboard — your browser blocked it.");
+      setError("Couldn't copy to the clipboard. Your browser blocked it.");
     }
   };
 
@@ -173,6 +198,7 @@ export function SimpleSizerTool() {
               propose, and finally how every number was read. */}
           <EnvironmentSummary parsed={parsed} />
           <ExistingClusters parsed={parsed} plan={plan} />
+          <VirtualMachines parsed={parsed} settings={settings} plan={plan} onSettings={setSettings} />
           <BuildPlan plan={plan} settings={settings} onSettings={setSettings} />
           <ParsedInputs parsed={parsed} />
         </>
@@ -226,15 +252,16 @@ function ImportPanel({
             Read the estate, then size the cluster.
           </h1>
           <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-charcoal-600">
-            Drop in a Collector, RVTools or LiveOptics export. Node class and node count are chosen from the workload —
-            you only override what you disagree with.
+            Drop in a Collector, RVTools or LiveOptics export. Node class and node count come from what the estate
+            actually uses, not what it was allocated, so a quiet cluster sizes down. You only override what you disagree
+            with.
           </p>
 
           <p className="mt-4 flex max-w-[62ch] items-start gap-2.5 rounded-xl border border-charcoal-200 bg-charcoal-50 px-3.5 py-3 text-xs leading-relaxed text-charcoal-700">
             <ShieldCheck {...ICON} className="mt-0.5 h-4 w-4 shrink-0 text-viz-storage" />
             <span>
               <span className="font-medium text-charcoal-900">Your file never leaves this machine.</span> The workbook is
-              read in your browser — it is not uploaded, not sent to a server, and not written to disk. Nothing is stored,
+              read in your browser. It is not uploaded, not sent to a server, and not written to disk. Nothing is stored,
               so closing this tab discards the analysis. Customer data stays with you.
             </span>
           </p>
@@ -267,7 +294,7 @@ function ImportPanel({
               className="sm:col-start-2 sm:row-start-2"
             />
             <p id="upload-help" className="text-[11px] text-charcoal-500 sm:col-start-2 sm:row-start-3">
-              Drop a file here or browse — .xlsx or .xls, up to 30 MB.
+              Drop a file here or browse: .xlsx or .xls, up to 30 MB.
             </p>
           </div>
 
@@ -618,7 +645,7 @@ function EnvironmentSummary({ parsed }: { parsed: ParsedEnvironment }) {
                 ]}
               />
             ) : (
-              <p className="text-[11px] text-charcoal-500">Power state absent — all treated as running.</p>
+              <p className="text-[11px] text-charcoal-500">Power state absent, so all are treated as running.</p>
             )}
           </div>
         </div>
@@ -671,9 +698,23 @@ function EnvironmentSummary({ parsed }: { parsed: ParsedEnvironment }) {
                 {fmtInt(parsed.snapshots)} snapshots
               </StatusPill>
             ) : null}
-            {parsed.hostCpuUtilPct != null ? <StatusPill tone="neutral">Host CPU {fmtNum(parsed.hostCpuUtilPct)}%</StatusPill> : null}
+            {parsed.observed?.cpuPCores != null && parsed.totalCpuCores > 0 ? (
+              <StatusPill tone="neutral">
+                CPU used {fmtNum((parsed.observed.cpuPCores / parsed.totalCpuCores) * 100)}% ·{" "}
+                {fmtInt(parsed.observed.cpuPCores)} of {fmtInt(parsed.totalCpuCores)} cores
+              </StatusPill>
+            ) : parsed.hostCpuUtilPct != null ? (
+              <StatusPill tone="neutral">Host CPU {fmtNum(parsed.hostCpuUtilPct)}%</StatusPill>
+            ) : null}
             {parsed.hostMemoryUtilPct != null ? <StatusPill tone="neutral">Host RAM {fmtNum(parsed.hostMemoryUtilPct)}%</StatusPill> : null}
           </div>
+          {parsed.observed ? (
+            <p className="mt-3 max-w-[70ch] text-[11px] leading-relaxed text-charcoal-500">
+              Read as {utilizationBasisLabel(parsed.observed.basis)} from {parsed.observed.source}, covering{" "}
+              {Math.round(parsed.observed.coverage * 100)}% of the estate. This is what drives CPU sizing. Memory is sized from
+              what the VMs are configured with, not from this.
+            </p>
+          ) : null}
         </div>
 
         {parsed.guestOs.length ? (
@@ -686,7 +727,7 @@ function EnvironmentSummary({ parsed }: { parsed: ParsedEnvironment }) {
 
       {parsed.topVms.length ? (
         <div className="mt-8 border-t border-charcoal-200 pt-6">
-          <TopVmTable vms={parsed.topVms} caption="Largest VMs — each must fit inside one node" />
+          <TopVmTable vms={parsed.topVms} caption="Largest VMs, each of which must fit inside one node" />
         </div>
       ) : null}
 
@@ -743,7 +784,7 @@ function TopVmTable({
                 </td>
                 {showCluster ? (
                   <td className="max-w-[14rem] truncate px-3 text-charcoal-600" title={vm.cluster ?? ""}>
-                    {vm.cluster ?? "—"}
+                    {vm.cluster ?? "-"}
                   </td>
                 ) : null}
                 <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(vm.vcpu)}</td>
@@ -850,27 +891,43 @@ function BuildPlan({
                 unit={`${plan.profile.label} ${plan.totalNodes === 1 ? "node" : "nodes"}`}
                 hint={
                   <>
-                    across {fmtInt(plan.totalClusters)} {plan.totalClusters === 1 ? "cluster" : "clusters"} · RF
-                    {build.effectiveRf} · N+{build.failoverHosts} · {build.licenseTier.tier}
+                    {plan.totalClusters === 1 ? (
+                      <>as one cluster</>
+                    ) : (
+                      <>
+                        as {fmtInt(plan.totalClusters)} clusters of {fmtInt(build.fit.nodesPerCluster)}
+                      </>
+                    )}{" "}
+                    · RF{build.effectiveRf} · {build.licenseTier.tier}
                   </>
                 }
               />
               <p className="mt-5 max-w-[62ch] text-sm leading-relaxed text-charcoal-600">
-                {plan.profile.family} — {plan.profile.blurb} Sized on {driverText}: {build.fit.nodesForCpu} node
-                {build.fit.nodesForCpu === 1 ? "" : "s"} for CPU, {build.fit.nodesForRam} for memory, {build.fit.nodesForStorage} for
-                capacity, plus {build.failoverHosts} HA spare{build.failoverHosts === 1 ? "" : "s"}.
-                {build.rfUpgraded ? " Stepped up to RF3 at 5+ nodes." : ""}
+                {plan.profile.family}. {plan.profile.blurb} Sized on {driverText}: {build.fit.nodesForCpu} node
+                {build.fit.nodesForCpu === 1 ? "" : "s"} for CPU, {build.fit.nodesForRam} for memory,{" "}
+                {build.fit.nodesForStorage} for capacity, each at the {settings.targetUtilizationPct}% target.
+                {build.rfUpgraded ? ` Stepped up to RF3 at ${SIZING_RULES.autoRf3AtNodes}+ nodes per cluster.` : ""}
               </p>
+              <CpuBasisNote build={build} settings={settings} />
               {plan.autoSelected ? (
                 <p className="mt-3 text-[11px] text-charcoal-500">Node class chosen automatically. Override it below.</p>
               ) : null}
             </div>
 
+            {/* How full the build lands. The target is drawn on each meter so a
+                build that could not reach it is obvious rather than implied. */}
             <div className="grid content-start gap-4 lg:border-l lg:border-charcoal-200 lg:pl-8">
-              <p className="text-[11px] font-medium text-charcoal-500">Headroom on the proposed build</p>
-              <Meter label="CPU" series="compute" value={build.headroom.cpuPct} max={100} caption={`${fmtNum(100 - build.headroom.cpuPct)}% free`} index={0} />
-              <Meter label="Memory" series="memory" value={build.headroom.ramPct} max={100} caption={`${fmtNum(100 - build.headroom.ramPct)}% free`} index={1} />
-              <Meter label="Capacity" series="storage" value={build.headroom.storagePct} max={100} caption={`${fmtNum(100 - build.headroom.storagePct)}% free`} index={2} />
+              <p className="text-[11px] font-medium text-charcoal-500">
+                Used on the proposed build, target {settings.targetUtilizationPct}%
+              </p>
+              <Meter label="CPU" series="compute" value={build.headroom.cpuPct} max={100} caption={`${fmtNum(build.headroom.cpuPct)}% used`} index={0} />
+              <Meter label="Memory" series="memory" value={build.headroom.ramPct} max={100} caption={`${fmtNum(build.headroom.ramPct)}% used`} index={1} />
+              <Meter label="Capacity" series="storage" value={build.headroom.storagePct} max={100} caption={`${fmtNum(build.headroom.storagePct)}% used`} index={2} />
+              <p className="text-[11px] leading-relaxed text-charcoal-500">
+                Includes the {fmtInt(build.overhead.cvmTotalCores)} vCPU and {fmtRam(build.overhead.cvmTotalRamGiB)} the
+                CVMs take, plus Prism Central. Whole nodes mean the build usually lands a little under the target, never
+                over. N+{build.failoverHosts} is absorbed by this headroom rather than added as a spare node.
+              </p>
             </div>
           </div>
 
@@ -919,7 +976,49 @@ function BuildPlan({
               <option value="all">All VMs</option>
             </select>
           </Field>
-          <Field label="vCPU : pCore" htmlFor="ratio">
+          <Field label="CPU from per-VM" htmlFor="cpuStatistic">
+            <select
+              id="cpuStatistic"
+              value={settings.cpuStatistic}
+              onChange={(e) => set("cpuStatistic", e.target.value as CpuStatistic)}
+              className="w-full"
+            >
+              <option value="p95">95th percentile</option>
+              <option value="average">Average</option>
+              <option value="peak">Peak (all at once)</option>
+              <option value="allocated">Allocated vCPU</option>
+            </select>
+          </Field>
+          <Field label="Target utilization" htmlFor="targetUtil" helper="Workload plus CVM and Prism Central.">
+            <select
+              id="targetUtil"
+              value={settings.targetUtilizationPct}
+              onChange={(e) => set("targetUtilizationPct", Number(e.target.value))}
+              className="w-full"
+            >
+              {[40, 50, 60, 70, 80].map((p) => (
+                <option key={p} value={p}>
+                  {p}% used{p === 50 ? " (recommended)" : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Nodes per cluster" htmlFor="nodesPerCluster" helper="Ten small clusters, or one large one.">
+            <select
+              id="nodesPerCluster"
+              value={String(settings.nodesPerCluster)}
+              onChange={(e) => set("nodesPerCluster", e.target.value === "auto" ? "auto" : Number(e.target.value))}
+              className="w-full"
+            >
+              <option value="auto">Auto (fill to {SIZING_RULES.maxNodesPerCluster})</option>
+              {[2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24].map((n) => (
+                <option key={n} value={n}>
+                  {n} nodes{n === 2 ? " (edge, needs Witness)" : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="vCPU : pCore" htmlFor="ratio" helper="Only for VMs with no telemetry.">
             <select id="ratio" value={settings.vcpuToPcoreRatio} onChange={(e) => set("vcpuToPcoreRatio", Number(e.target.value))} className="w-full">
               {[2, 3, 4, 5, 6].map((r) => (
                 <option key={r} value={r}>
@@ -935,7 +1034,7 @@ function BuildPlan({
               onChange={(e) => set("rf", (e.target.value === "auto" ? "auto" : Number(e.target.value)) as RfSetting)}
               className="w-full"
             >
-              <option value="auto">Auto (RF3 at 5+ nodes)</option>
+              <option value="auto">Auto (RF3 at {SIZING_RULES.autoRf3AtNodes}+ nodes)</option>
               <option value="2">RF2</option>
               <option value="3">RF3</option>
             </select>
@@ -948,10 +1047,10 @@ function BuildPlan({
           </Field>
           <Field label="Node class" htmlFor="nodeProfile">
             <select id="nodeProfile" value={settings.nodeProfileId} onChange={(e) => set("nodeProfileId", e.target.value)} className="w-full">
-              <option value={AUTO_PROFILE}>Auto — pick for me</option>
+              <option value={AUTO_PROFILE}>Auto (pick for me)</option>
               {NODE_PROFILES.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label} — {p.cores}c / up to {fmtRam(p.maxRamGiB)}
+                  {p.label}: {p.cores}c / up to {fmtRam(p.maxRamGiB)}
                 </option>
               ))}
               <option value={CUSTOM_PROFILE}>Custom</option>
@@ -989,7 +1088,7 @@ function BuildPlan({
               </Field>
             </>
           ) : null}
-          <Field label="Peak IOPS" htmlFor="peakIops" helper="Optional — sets the disk tier.">
+          <Field label="Peak IOPS" htmlFor="peakIops" helper="Optional. Sets the disk tier.">
             <input
               id="peakIops"
               type="number"
@@ -1009,7 +1108,7 @@ function BuildPlan({
           {/* Cluster plan */}
           <div className="mt-8 border-t border-charcoal-200 pt-6">
             <p className="mb-4 text-[11px] font-medium text-charcoal-500">
-              Cluster plan — {plan.mode === "consolidated" ? "workloads pooled" : "one target per source cluster"}
+              Cluster plan: {plan.mode === "consolidated" ? "workloads pooled" : "one target per source cluster"}
             </p>
             <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
               {plan.targets.map((target, i) => (
@@ -1076,7 +1175,7 @@ function BuildPlan({
           ) : null}
 
           <p className="mt-4 max-w-[86ch] text-[11px] leading-relaxed text-charcoal-500">
-            Node classes are indicative platform targets — confirm models and drive configs in Nutanix Sizer and the HCL
+            Node classes are indicative platform targets. Confirm models and drive configs in Nutanix Sizer and the HCL
             before quoting. CPU and memory are sized on {settings.workloadBasis === "poweredOn" ? "powered-on VMs" : "all VMs"};
             storage always counts every VM, because powered-off VMs still occupy capacity. Raw capacity includes RF copies
             plus 20% reserved for rebuild.
@@ -1155,6 +1254,14 @@ function ClusterRow({
   const coresPerNode = cluster.hosts > 0 ? cluster.totalCpuCores / cluster.hosts : 0;
   const ramPerNode = cluster.hosts > 0 ? cluster.totalMemoryGiB / cluster.hosts : 0;
   const storagePerNode = cluster.hosts > 0 ? cluster.aggStorageProvisionedTiB / cluster.hosts : 0;
+  // Host rows carry utilization on some exports and not others. When they do
+  // not, the same figure is still recoverable from the guest telemetry, so the
+  // meter shows a number instead of vanishing.
+  const cpuUsedPct =
+    cluster.hostCpuUtilPct ??
+    (cluster.consumedCpuCores != null && cluster.totalCpuCores > 0
+      ? Number(((cluster.consumedCpuCores / cluster.totalCpuCores) * 100).toFixed(1))
+      : null);
 
   return (
     <div className="sizer-rise" style={{ ["--index" as string]: index }}>
@@ -1176,8 +1283,15 @@ function ClusterRow({
         </span>
         <span className="flex items-center gap-3">
           {recommendedNodes != null ? (
-            <span className="whitespace-nowrap text-[11px] tabular-nums text-charcoal-600">
-              <span className="text-base font-semibold text-charcoal-900">{recommendedNodes}</span> nodes
+            // Labelled "Nutanix nodes", never bare "nodes": beside a host count
+            // it is otherwise read as a property of the existing cluster.
+            <span
+              className="whitespace-nowrap text-right text-[11px] leading-tight tabular-nums text-charcoal-600"
+              title={`${cluster.hosts} existing hosts would become ${recommendedNodes} Nutanix nodes`}
+            >
+              <span className="text-base font-semibold text-charcoal-900">{recommendedNodes}</span>
+              <span className="ml-1">Nutanix</span>
+              <span className="block text-charcoal-500">{recommendedNodes === 1 ? "node" : "nodes"} needed</span>
             </span>
           ) : null}
           <ChevronDown
@@ -1214,8 +1328,8 @@ function ClusterRow({
                 </div>
               </dl>
               <div className="mt-4 grid gap-3">
-                {cluster.hostCpuUtilPct != null ? (
-                  <Meter label="Host CPU used" series="compute" value={cluster.hostCpuUtilPct} max={100} caption={`${fmtNum(cluster.hostCpuUtilPct)}%`} />
+                {cpuUsedPct != null ? (
+                  <Meter label="CPU used" series="compute" value={cpuUsedPct} max={100} caption={`${fmtNum(cpuUsedPct)}%`} />
                 ) : null}
                 {cluster.hostMemoryUtilPct != null ? (
                   <Meter label="Host memory used" series="memory" value={cluster.hostMemoryUtilPct} max={100} caption={`${fmtNum(cluster.hostMemoryUtilPct)}%`} />
@@ -1236,7 +1350,7 @@ function ClusterRow({
 
             <div>
               <p className="text-[11px] font-medium text-charcoal-500">
-                Hardware — {cluster.hardwareModels.length} distinct{" "}
+                Hardware: {cluster.hardwareModels.length} distinct{" "}
                 {cluster.hardwareModels.length === 1 ? "configuration" : "configurations"}
               </p>
               {cluster.hardwareModels.length ? (
@@ -1263,7 +1377,7 @@ function ClusterRow({
                             <span className="block truncate text-[11px] text-charcoal-500">{m.vendor ?? "Unknown vendor"}</span>
                           </td>
                           <td className="max-w-[13rem] truncate px-3 text-charcoal-600" title={m.cpuModel ?? ""}>
-                            {m.cpuModel ?? "—"}
+                            {m.cpuModel ?? "-"}
                           </td>
                           <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(m.hostCount)}</td>
                           <td className="px-3 text-right tabular-nums text-charcoal-700">
@@ -1348,6 +1462,313 @@ function ClusterRow({
 // Parsed inputs — the audit trail
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Virtual machines — the workload itself, editable
+// ---------------------------------------------------------------------------
+
+// Rendering a thousand rows of number inputs is slow and unusable. The table
+// pages, and the search runs over the whole list so nothing is unreachable.
+const VM_PAGE_SIZE = 40;
+
+type VmSortKey = "name" | "vcpu" | "cpuUsed" | "ramGiB" | "storage";
+
+function VirtualMachines({
+  parsed,
+  settings,
+  plan,
+  onSettings,
+}: {
+  parsed: ParsedEnvironment;
+  settings: SizerSettings;
+  plan: SizingPlan;
+  onSettings: (fn: (s: SizerSettings) => SizerSettings) => void;
+}) {
+  // Rows report the statistic the build actually used, so the column always
+  // reconciles with the total above it.
+  const statistic = plan.consolidated.workload.cpu.statistic;
+  const ratio = settings.vcpuToPcoreRatio;
+  const usedCores = (vm: VmRecord) => vmCpuContribution(vm, statistic, ratio);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<VmSortKey>("vcpu");
+  const [page, setPage] = useState(0);
+
+  const adjustments = settings.vmAdjustments;
+  const patch = (id: string, change: VmAdjustment | null) =>
+    onSettings((s) => {
+      const next = { ...s.vmAdjustments };
+      if (change == null) delete next[id];
+      else next[id] = { ...next[id], ...change };
+      return { ...s, vmAdjustments: next };
+    });
+  const patchMany = (ids: string[], change: VmAdjustment) =>
+    onSettings((s) => {
+      const next = { ...s.vmAdjustments };
+      for (const id of ids) next[id] = { ...next[id], ...change };
+      return { ...s, vmAdjustments: next };
+    });
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rows = q
+      ? parsed.vms.filter(
+          (vm) =>
+            vm.name.toLowerCase().includes(q) ||
+            (vm.clusterName ?? "").toLowerCase().includes(q) ||
+            vm.os.toLowerCase().includes(q),
+        )
+      : parsed.vms;
+    const cores = (vm: VmRecord) => vmCpuContribution(vm, statistic, ratio).cores;
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "cpuUsed") return cores(b) - cores(a);
+      if (sort === "ramGiB") return b.ramGiB - a.ramGiB;
+      if (sort === "storage") return b.storageProvisionedTiB - a.storageProvisionedTiB;
+      return b.vcpu - a.vcpu;
+    });
+    return sorted;
+  }, [parsed.vms, query, sort, statistic, ratio]);
+
+  const excludedCount = parsed.vms.filter((vm) => adjustments[vm.id]?.excluded).length;
+  const editedCount = parsed.vms.filter((vm) => {
+    const a = adjustments[vm.id];
+    return a != null && (a.vcpu != null || a.ramGiB != null || a.storageTiB != null);
+  }).length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / VM_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(safePage * VM_PAGE_SIZE, safePage * VM_PAGE_SIZE + VM_PAGE_SIZE);
+  const poweredOffIds = parsed.vms.filter((vm) => vm.poweredOn === false).map((vm) => vm.id);
+
+  if (!parsed.vms.length) return null;
+
+  return (
+    <Section
+      title="Virtual machines"
+      subtitle="The workload the build is sized from. Uncheck a VM to leave it behind, or correct what the export said it has."
+      badge={
+        <StatusPill tone={excludedCount || editedCount ? "warning" : "neutral"}>
+          {fmtInt(parsed.vms.length - excludedCount)} of {fmtInt(parsed.vms.length)} included
+          {editedCount ? ` · ${fmtInt(editedCount)} edited` : ""}
+        </StatusPill>
+      }
+    >
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-medium text-charcoal-500">Search</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(0);
+              }}
+              placeholder="VM, cluster or guest OS"
+              className="w-56"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-medium text-charcoal-500">Sort by</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as VmSortKey)} className="w-44">
+              <option value="vcpu">Largest vCPU</option>
+              <option value="cpuUsed">Busiest</option>
+              <option value="ramGiB">Largest memory</option>
+              <option value="storage">Largest storage</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {poweredOffIds.length ? (
+            <button
+              type="button"
+              onClick={() => patchMany(poweredOffIds, { excluded: true })}
+              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1.5 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50`}
+            >
+              Exclude {fmtInt(poweredOffIds.length)} powered-off
+            </button>
+          ) : null}
+          {excludedCount || editedCount ? (
+            <button
+              type="button"
+              onClick={() => onSettings((s) => ({ ...s, vmAdjustments: {} }))}
+              className={`${PRESS} inline-flex items-center gap-1.5 rounded-full border border-charcoal-300 px-3 py-1.5 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50`}
+            >
+              <RotateCcw {...ICON} className="h-3.5 w-3.5" />
+              Reset all
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[56rem] text-sm">
+          <thead>
+            <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
+              <th className="w-10 pb-2 pr-2 font-medium">
+                <span className="sr-only">Include in the build</span>
+              </th>
+              <th className="pb-2 pr-3 font-medium">VM</th>
+              <th className="px-3 pb-2 font-medium">Cluster</th>
+              <th className="px-3 pb-2 text-right font-medium">vCPU</th>
+              <th className="px-3 pb-2 text-right font-medium">Cores ({cpuStatisticLabel(statistic)})</th>
+              <th className="px-3 pb-2 text-right font-medium">Memory (GB)</th>
+              <th className="px-3 pb-2 text-right font-medium">Storage (TB)</th>
+              <th className="w-8 pb-2 pl-3 font-medium">
+                <span className="sr-only">Reset this VM</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-charcoal-100">
+            {visible.map((vm) => (
+              <VmRow key={vm.id} vm={vm} adjustment={adjustments[vm.id]} used={usedCores(vm)} onPatch={patch} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-charcoal-200 pt-4 text-[11px] text-charcoal-500">
+        <span>
+          Showing {fmtInt(safePage * VM_PAGE_SIZE + 1)} to {fmtInt(safePage * VM_PAGE_SIZE + visible.length)} of{" "}
+          {fmtInt(filtered.length)}
+          {query ? ` matching "${query}"` : ""}. CPU used is the best statistic the export carried for each VM.
+        </span>
+        {pageCount > 1 ? (
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={safePage === 0}
+              onClick={() => setPage(safePage - 1)}
+              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 font-medium text-charcoal-700 disabled:opacity-40`}
+            >
+              Previous
+            </button>
+            <span className="tabular-nums">
+              {safePage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage(safePage + 1)}
+              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 font-medium text-charcoal-700 disabled:opacity-40`}
+            >
+              Next
+            </button>
+          </span>
+        ) : null}
+      </div>
+    </Section>
+  );
+}
+
+function VmRow({
+  vm,
+  adjustment,
+  used,
+  onPatch,
+}: {
+  vm: VmRecord;
+  adjustment: VmAdjustment | undefined;
+  used: { cores: number; measured: boolean };
+  onPatch: (id: string, change: VmAdjustment | null) => void;
+}) {
+  const excluded = adjustment?.excluded === true;
+  const edited = adjustment?.vcpu != null || adjustment?.ramGiB != null || adjustment?.storageTiB != null;
+
+  // An emptied field clears the override rather than writing zero, so the export
+  // value comes back instead of the VM silently disappearing from the totals.
+  const numeric = (raw: string): number | undefined => {
+    const value = Number(raw);
+    return raw.trim() === "" || !Number.isFinite(value) || value < 0 ? undefined : value;
+  };
+  const cell = "w-20 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-right text-sm tabular-nums";
+
+  return (
+    <tr className={excluded ? "opacity-45" : undefined}>
+      <td className="py-2 pr-2">
+        <input
+          type="checkbox"
+          checked={!excluded}
+          onChange={(e) => onPatch(vm.id, { excluded: !e.target.checked })}
+          aria-label={`Include ${vm.name} in the build`}
+          className="h-4 w-4 accent-iris-500"
+        />
+      </td>
+      <td className="max-w-[16rem] py-2 pr-3">
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${vm.poweredOn === false ? "bg-viz-muted" : "bg-viz-storage"}`}
+          />
+          <span className="truncate font-medium text-charcoal-900" title={vm.name}>
+            {vm.name}
+          </span>
+          {edited ? <span className="shrink-0 text-[10px] font-medium text-viz-compute">edited</span> : null}
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-charcoal-500" title={vm.os}>
+          {vm.os}
+          {vm.poweredOn === false ? " · powered off" : ""}
+        </span>
+      </td>
+      <td className="max-w-[12rem] truncate px-3 py-2 text-[11px] text-charcoal-500" title={vm.clusterName ?? ""}>
+        {vm.clusterName ?? "-"}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={adjustment?.vcpu ?? Math.round(vm.vcpu)}
+          onChange={(e) => onPatch(vm.id, { vcpu: numeric(e.target.value) })}
+          aria-label={`vCPU for ${vm.name}`}
+          className={cell}
+        />
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums text-charcoal-600" title={used.measured ? undefined : "No telemetry for this VM, so its allocation over the overcommit ratio was used."}>
+        {fmtNum(used.cores, 2)}
+        {used.measured ? null : <span className="ml-1 text-charcoal-400">est</span>}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={adjustment?.ramGiB ?? Math.round(vm.ramGiB)}
+          onChange={(e) => onPatch(vm.id, { ramGiB: numeric(e.target.value) })}
+          aria-label={`Memory in GB for ${vm.name}`}
+          className={cell}
+        />
+      </td>
+      <td className="px-3 py-2 text-right">
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={Number(((adjustment?.storageTiB ?? vm.storageProvisionedTiB) * TIB_TO_TB).toFixed(2))}
+          onChange={(e) => {
+            const tb = numeric(e.target.value);
+            onPatch(vm.id, { storageTiB: tb == null ? undefined : tb / TIB_TO_TB });
+          }}
+          aria-label={`Storage in TB for ${vm.name}`}
+          className={cell}
+        />
+      </td>
+      <td className="py-2 pl-3 text-right">
+        {adjustment ? (
+          <button
+            type="button"
+            onClick={() => onPatch(vm.id, null)}
+            title={`Reset ${vm.name} to what the export said`}
+            className={`${PRESS} rounded p-1 text-charcoal-400 hover:text-charcoal-900`}
+          >
+            <RotateCcw {...ICON} className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
 function ParsedInputs({ parsed }: { parsed: ParsedEnvironment }) {
   const inferred = parsed.audit.filter((a) => a.confidence !== "header").length;
   return (
@@ -1392,7 +1813,7 @@ function ConfidencePill({ confidence, unit }: { confidence: string; unit: string
     confidence === "header" ? "good" : confidence === "unresolved" ? "bad" : confidence === "header-overridden" ? "warning" : "info";
   const label =
     confidence === "header"
-      ? unit ?? "—"
+      ? unit ?? "-"
       : confidence === "unresolved"
         ? "unresolved"
         : confidence === "header-overridden"
@@ -1407,7 +1828,7 @@ function ConfidencePill({ confidence, unit }: { confidence: string; unit: string
 
 function ReferencePanel() {
   return (
-    <Section title="Sizing reference" subtitle="The Nutanix guidance this tool applies — redundancy, ratios, storage, network, HA.">
+    <Section title="Sizing reference" subtitle="The Nutanix guidance this tool applies: redundancy, ratios, storage, network, HA.">
       <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
         {SIZING_REFERENCE.map((group) => (
           <div key={group.title}>
@@ -1472,7 +1893,7 @@ function Field({ label, htmlFor, helper, children }: { label: string; htmlFor: s
 function summaryText(parsed: ParsedEnvironment, plan: SizingPlan, settings: SizerSettings): string {
   const build = plan.consolidated;
   const lines = [
-    `Simple Sizer — ${parsed.fileName}`,
+    `Simple Sizer: ${parsed.fileName}`,
     "",
     "CURRENT ENVIRONMENT",
     `  Clusters: ${fmtInt(parsed.clusters)}   Hosts: ${fmtInt(parsed.hosts)}   VMs: ${fmtInt(parsed.all.vms)} (${fmtInt(parsed.poweredOn.vms)} on / ${fmtInt(parsed.poweredOff.vms)} off)`,
@@ -1484,14 +1905,14 @@ function summaryText(parsed: ParsedEnvironment, plan: SizingPlan, settings: Size
 
   if (plan.blockers.length) {
     lines.push(
-      "RECOMMENDATION WITHHELD — the parsed inputs failed validation:",
+      "RECOMMENDATION WITHHELD: the parsed inputs failed validation:",
       ...plan.blockers.map((b) => `  - ${b.field}: read ${b.observed}, expected ${b.expected}. ${b.detail}`),
       "",
     );
   } else {
     lines.push(
       "RECOMMENDED NUTANIX BUILD",
-      `  ${fmtInt(plan.totalNodes)} x ${plan.profile.label} — ${plan.profile.cores} cores / ${fmtRam(build.perNode.ramGiB)} / ${fmtStorage(build.perNode.storageTiB)} raw per node (${plan.profile.family})`,
+      `  ${fmtInt(plan.totalNodes)} x ${plan.profile.label}: ${plan.profile.cores} cores / ${fmtRam(build.perNode.ramGiB)} / ${fmtStorage(build.perNode.storageTiB)} raw per node (${plan.profile.family})`,
       `  ${fmtInt(plan.totalClusters)} cluster(s), RF${build.effectiveRf}, N+${build.failoverHosts}, ${build.licenseTier.tier}`,
       `  Totals: ${fmtInt(plan.totals.cores)} cores, ${fmtRam(plan.totals.ramGiB)}, ${fmtStorage(plan.totals.rawStorageTiB)} raw`,
       `  Headroom: CPU ${fmtNum(100 - build.headroom.cpuPct)}%, memory ${fmtNum(100 - build.headroom.ramPct)}%, capacity ${fmtNum(100 - build.headroom.storagePct)}%`,

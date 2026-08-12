@@ -235,6 +235,42 @@ describe("obfuscated exports", () => {
     assert.ok(parsed.clusterDetails[0].id, "cluster must carry an id");
   });
 
+  it("does not merge same-named clusters that live in different datacenters", () => {
+    // Two four-host "Production" clusters. Keyed on the name alone they collapse
+    // into one eight-host cluster, and every figure under it doubles.
+    const host = (name: string, dc: string) => ({
+      Host: name,
+      Cluster: "Production",
+      Datacenter: dc,
+      "# CPU": 2,
+      "Cores per CPU": 12,
+      "# Memory": 786432,
+    });
+    const parsed = parse("rvtools", {
+      vHost: [
+        host("east-1", "East"),
+        host("east-2", "East"),
+        host("east-3", "East"),
+        host("east-4", "East"),
+        host("west-1", "West"),
+        host("west-2", "West"),
+        host("west-3", "West"),
+        host("west-4", "West"),
+      ],
+      vInfo: rvVms.map((v, i) => ({
+        ...v,
+        Cluster: "Production",
+        Datacenter: i % 2 === 0 ? "East" : "West",
+        Host: i % 2 === 0 ? "east-1" : "west-1",
+      })),
+    });
+    assert.equal(parsed.clusterDetails.length, 2, "two datacenters must stay two clusters");
+    for (const cluster of parsed.clusterDetails) {
+      assert.equal(cluster.hosts, 4, `expected 4 hosts, got ${cluster.hosts} in ${cluster.name}`);
+    }
+    assert.equal(new Set(parsed.clusterDetails.map((c) => c.name)).size, 2, "labels must be distinguishable");
+  });
+
   it("gives every cluster a unique id even when display names repeat", () => {
     const parsed = parse("collector_excel", {
       vCluster: [

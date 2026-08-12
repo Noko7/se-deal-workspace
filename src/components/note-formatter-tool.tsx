@@ -299,7 +299,7 @@ export function NoteFormatterTool() {
                 placeholder={isMeeting ? "e.g. Acme Bank DR discovery" : "e.g. DR cluster rollout for Acme Bank"}
                 className="w-full"
               />
-              <p className="text-xs text-charcoal-500">Optional — auto-derived from your notes if left blank.</p>
+              <p className="text-xs text-charcoal-500">Optional. Auto-derived from your notes if left blank.</p>
             </div>
 
             <div className="space-y-1.5">

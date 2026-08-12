@@ -68,7 +68,7 @@ describe("formatNotes — meeting", () => {
 
   it("derives a meeting title from the date when none is given", () => {
     const result = formatNotes("Date: 2026-01-01\nNotes:\n- discussed roadmap", meetingOptions);
-    assert.equal(result.title, "Meeting Notes — 2026-01-01");
+    assert.equal(result.title, "Meeting Notes: 2026-01-01");
   });
 
   it("splits attendees on commas and 'and'", () => {

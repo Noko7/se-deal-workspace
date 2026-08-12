@@ -7,7 +7,16 @@
 // nothing is uploaded or persisted.
 
 import ExcelJS from "exceljs";
-import type { ParsedEnvironment, SizingPlan, SizerSettings } from "@/lib/simple-sizer-core";
+import {
+  applyAdjustment,
+  cpuStatisticLabel,
+  vmCpuContribution,
+  workloadCpuSummary,
+  type ParsedEnvironment,
+  type SizerSettings,
+  type SizingPlan,
+} from "@/lib/simple-sizer-core";
+import { SIZING_RULES, utilizationBasisLabel } from "@/lib/sizing-guidance";
 import { storageTB } from "@/lib/sizer-format";
 import { UNIT_FOOTNOTE } from "@/lib/sizer-format";
 
@@ -143,20 +152,28 @@ function buildSummary(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: Siz
     ws,
     ["Metric", "Value", "", ""],
     [
-      ["Datacenters", parsed.datacenters ?? "—", "", ""],
+      ["Datacenters", parsed.datacenters ?? "-", "", ""],
       ["Clusters", parsed.clusters, "", ""],
       ["Hosts", parsed.hosts, "", ""],
       ["Host physical cores", Math.round(parsed.totalCpuCores), "", ""],
       ["Host RAM (GB)", Math.round(parsed.totalMemoryGiB), "", ""],
       ["vCPU : pCore ratio", parsed.vcpuPcoreRatio, "", ""],
-      ["Snapshots", parsed.snapshots ?? "—", "", ""],
+      [
+        "Physical cores in use",
+        parsed.observed?.cpuPCores != null ? Math.round(parsed.observed.cpuPCores) : "not measured",
+        parsed.observed?.cpuPCores != null && parsed.totalCpuCores > 0
+          ? `${((parsed.observed.cpuPCores / parsed.totalCpuCores) * 100).toFixed(1)}% of installed`
+          : "",
+        parsed.observed ? `${utilizationBasisLabel(parsed.observed.basis)}, ${parsed.observed.source}` : "",
+      ],
+      ["Snapshots", parsed.snapshots ?? "-", "", ""],
     ],
     row,
   );
   row += 1;
 
   if (plan.blockers.length) {
-    section("⚠ Recommendation withheld — inputs failed validation");
+    section("Recommendation withheld: inputs failed validation");
     row = addTable(
       ws,
       ["Field", "Observed", "Expected", "Detail"],
@@ -198,9 +215,36 @@ function buildSummary(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: Siz
     ["Setting", "Value", "", ""],
     [
       ["Sized against", settings.workloadBasis === "poweredOn" ? "Powered-on VMs" : "All VMs", "", ""],
-      ["vCPU : pCore", `${settings.vcpuToPcoreRatio}:1`, "", ""],
-      ["Replication factor", settings.rf === "auto" ? "Auto (RF3 at 5+ nodes)" : `RF${settings.rf}`, "", ""],
-      ["HA failover", `N+${settings.failoverHosts}`, "", ""],
+      [
+        "CPU demand from",
+        `Per-VM ${cpuStatisticLabel(plan.consolidated.workload.cpu.statistic)}`,
+        workloadCpuSummary(plan.consolidated.workload.cpu, settings.targetUtilizationPct, settings.cpuStatistic),
+        "",
+      ],
+      ["Memory demand from", "Provisioned (always)", "Never sized from consumed memory, so a quiet estate cannot undersize it.", ""],
+      [
+        "Target utilization",
+        `${settings.targetUtilizationPct}%`,
+        "Workload plus CVM and Prism Central, across CPU, memory and capacity.",
+        "",
+      ],
+      [
+        "Cluster topology",
+        settings.nodesPerCluster === "auto"
+          ? `Auto (fill to ${SIZING_RULES.maxNodesPerCluster})`
+          : `${settings.nodesPerCluster} nodes per cluster`,
+        `${plan.totalClusters} cluster${plan.totalClusters === 1 ? "" : "s"}, ${plan.totalNodes} nodes in total.`,
+        "",
+      ],
+      ["VMs excluded by hand", plan.consolidated.workload.excludedVms, "", ""],
+      ["vCPU : pCore", `${settings.vcpuToPcoreRatio}:1`, "Only used for VMs with no telemetry.", ""],
+      [
+        "Replication factor",
+        settings.rf === "auto" ? `Auto (RF3 at ${SIZING_RULES.autoRf3AtNodes}+ nodes)` : `RF${settings.rf}`,
+        "",
+        "",
+      ],
+      ["HA failover", `N+${settings.failoverHosts}`, "Absorbed by the utilization target rather than added as a spare node.", ""],
       ["Storage basis", settings.storageBasis, "", ""],
       [
         "Data reduction",
@@ -208,7 +252,6 @@ function buildSummary(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: Siz
         "",
         "",
       ],
-      ["Rebuild reserve", "20% of raw capacity", "", ""],
     ],
     row,
   );
@@ -235,6 +278,8 @@ function buildClusters(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: Si
     "Powered off",
     "vCPU",
     "Host pCores",
+    "pCores in use",
+    "CPU used %",
     "vCPU:pCore",
     "Avg vCPU/VM",
     "VM RAM (GB)",
@@ -253,13 +298,17 @@ function buildClusters(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: Si
   const nodesByCluster = new Map(plan.perCluster.map(({ source, build }) => [source.id, build.nodes]));
   const rows: Cell[][] = parsed.clusterDetails.map((c) => [
     c.name,
-    c.datacenter ?? "—",
+    c.datacenter ?? "-",
     c.hosts,
     c.all.vms,
     c.poweredOn.vms,
     c.poweredOff.vms,
     c.all.vcpu,
     Math.round(c.totalCpuCores),
+    c.consumedCpuCores != null ? Math.round(c.consumedCpuCores) : null,
+    c.consumedCpuCores != null && c.totalCpuCores > 0
+      ? Number(((c.consumedCpuCores / c.totalCpuCores) * 100).toFixed(1))
+      : null,
     c.vcpuPcoreRatio,
     c.avgVcpuPerVm,
     Math.round(c.all.ramGiB),
@@ -305,7 +354,7 @@ function buildHardware(wb: ExcelJS.Workbook, parsed: ParsedEnvironment) {
         cluster.name,
         model.vendor ?? "Unknown",
         model.model,
-        model.cpuModel ?? "—",
+        model.cpuModel ?? "-",
         model.hostCount,
         model.socketsPerHost,
         model.coresPerSocket,
@@ -337,7 +386,7 @@ function buildHosts(wb: ExcelJS.Workbook, parsed: ParsedEnvironment) {
         host.name,
         host.vendor ?? "Unknown",
         host.model,
-        host.cpuModel ?? "—",
+        host.cpuModel ?? "-",
         host.sockets,
         host.coresPerSocket,
         host.cores,
@@ -360,13 +409,13 @@ function buildPlanSheet(wb: ExcelJS.Workbook, plan: SizingPlan) {
     ws,
     "Recommended cluster plan",
     plan.blockers.length
-      ? "Withheld — the parsed inputs failed validation. See the Summary sheet."
+      ? "Withheld: the parsed inputs failed validation. See the Summary sheet."
       : `${plan.totalNodes} nodes across ${plan.totalClusters} cluster(s) of ${plan.profile.label}.`,
     headers.length,
   );
 
   const rows: Cell[][] = plan.blockers.length
-    ? [["Recommendation withheld — see Summary", null, null, "", null, null, null, null, null, null, ""]]
+    ? [["Recommendation withheld, see Summary", null, null, "", null, null, null, null, null, null, ""]]
     : plan.targets.map((t) => [
         t.name,
         t.nodes,
@@ -403,15 +452,84 @@ function buildTopVms(wb: ExcelJS.Workbook, parsed: ParsedEnvironment) {
   autoWidth(ws, 11, 40);
 }
 
+/**
+ * Every VM the build was sized from, with what each one contributes and whether
+ * the SE kept it. This is the sheet a customer argues with, so it carries the
+ * measured usage next to the allocation rather than only the totals.
+ */
+function buildVmSheet(wb: ExcelJS.Workbook, parsed: ParsedEnvironment, plan: SizingPlan, settings: SizerSettings) {
+  const ws = wb.addWorksheet("Virtual Machines", { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
+  const headers = [
+    "Included",
+    "VM",
+    "Cluster",
+    "Power",
+    "Guest OS",
+    "vCPU",
+    "CPU used (cores)",
+    "Statistic",
+    "RAM (GB)",
+    "RAM used (GB)",
+    "Provisioned (TB)",
+    "Consumed (TB)",
+    "Edited",
+  ];
+  const excluded = parsed.vms.filter((vm) => settings.vmAdjustments[vm.id]?.excluded).length;
+  sheetTitle(
+    ws,
+    "Virtual machines",
+    `${parsed.vms.length} VMs in the export, ${parsed.vms.length - excluded} included in the build. CPU is sized from these rows, not from host utilization.`,
+    headers.length,
+  );
+
+  // Every row reports the statistic the build actually used, not whichever one
+  // the export happened to carry.
+  const statistic = plan.consolidated.workload.cpu.statistic;
+  const rows: Cell[][] = parsed.vms.map((raw) => {
+    const adjustment = settings.vmAdjustments[raw.id];
+    // Report the adjusted VM, so an edited vCPU shows the usage the build used
+    // rather than the export's untouched figure.
+    const vm = applyAdjustment(raw, settings.vmAdjustments) ?? raw;
+    const contribution = vmCpuContribution(vm, statistic, settings.vcpuToPcoreRatio);
+    const used = contribution.cores;
+    const edits = [
+      adjustment?.vcpu != null ? `vCPU ${raw.vcpu} to ${adjustment.vcpu}` : null,
+      adjustment?.ramGiB != null ? `RAM ${Math.round(raw.ramGiB)} to ${Math.round(adjustment.ramGiB)} GB` : null,
+      adjustment?.storageTiB != null
+        ? `storage ${storageTB(raw.storageProvisionedTiB)} to ${storageTB(adjustment.storageTiB)} TB`
+        : null,
+    ].filter(Boolean);
+    return [
+      adjustment?.excluded ? "No" : "Yes",
+      vm.name,
+      vm.clusterName ?? "-",
+      vm.poweredOn == null ? "unknown" : vm.poweredOn ? "On" : "Off",
+      vm.os,
+      vm.vcpu,
+      Number(used.toFixed(2)),
+      contribution.measured ? cpuStatisticLabel(statistic) : "allocated (no telemetry)",
+      Math.round(vm.ramGiB),
+      vm.ramUsedGiB == null ? null : Math.round(vm.ramUsedGiB),
+      storageTB(vm.storageProvisionedTiB),
+      storageTB(vm.storageConsumedTiB),
+      edits.join("; "),
+    ];
+  });
+
+  addTable(ws, headers, rows.length ? rows : [["", "No VM detail in this export", "", "", "", null, null, "", null, null, null, null, ""]], 4);
+  styleBody(ws, 5);
+  autoWidth(ws, 10, 40);
+}
+
 function buildAudit(wb: ExcelJS.Workbook, parsed: ParsedEnvironment) {
   const ws = wb.addWorksheet("Parsed Inputs", { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
   const headers = ["Field", "Sheet", "Column", "Unit read", "Confidence", "How it was decided"];
-  sheetTitle(ws, "Parsed inputs — validation", "Which column each number came from, and how its unit was determined.", headers.length);
+  sheetTitle(ws, "Parsed inputs: validation", "Which column each number came from, and how its unit was determined.", headers.length);
 
   let row = addTable(
     ws,
     headers,
-    parsed.audit.map((a) => [a.field, a.sheet, a.column ?? "— none found —", a.unit ?? "—", a.confidence, a.note]),
+    parsed.audit.map((a) => [a.field, a.sheet, a.column ?? "none found", a.unit ?? "-", a.confidence, a.note]),
     4,
   );
 
@@ -453,7 +571,7 @@ export async function buildSizerWorkbookBlob(
   settings: SizerSettings,
 ): Promise<Blob> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "SE Deal Workspace — Simple Sizer";
+  wb.creator = "SE Deal Workspace, Simple Sizer";
   wb.created = new Date();
 
   buildSummary(wb, parsed, plan, settings);
@@ -461,6 +579,7 @@ export async function buildSizerWorkbookBlob(
   buildHardware(wb, parsed);
   buildHosts(wb, parsed);
   buildPlanSheet(wb, plan);
+  buildVmSheet(wb, parsed, plan, settings);
   buildTopVms(wb, parsed);
   buildAudit(wb, parsed);
 

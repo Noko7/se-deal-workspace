@@ -215,7 +215,7 @@ export function resolveCapacity(
       totalGiB: null,
       perEntityGiB: null,
       confidence: "unresolved",
-      note: `"${header}" could not be read as a capacity in any unit — no interpretation gives a believable ${band.label}.${declaredNote}`,
+      note: `"${header}" could not be read as a capacity in any unit. No interpretation gives a believable ${band.label}.${declaredNote}`,
     };
   }
 
@@ -226,13 +226,13 @@ export function resolveCapacity(
     perEntityGiB: best.perEntity,
     confidence: declared ? "header-overridden" : "magnitude",
     note: declared
-      ? `"${header}" claims ${declared}, but that gives an impossible ${band.label} — read as ${best.unit} instead (${fmt(best.perEntity)} GiB ${band.label}).`
-      : `"${header}" carries no unit — inferred ${best.unit} from magnitude (${fmt(best.perEntity)} GiB ${band.label}).`,
+      ? `"${header}" claims ${declared}, but that gives an impossible ${band.label}, so it was read as ${best.unit} instead (${fmt(best.perEntity)} GiB ${band.label}).`
+      : `"${header}" carries no unit, so ${best.unit} was inferred from magnitude (${fmt(best.perEntity)} GiB ${band.label}).`,
   };
 }
 
 function fmt(value: number): string {
-  if (!Number.isFinite(value)) return "—";
+  if (!Number.isFinite(value)) return "-";
   if (value >= 100) return value.toFixed(0);
   if (value >= 1) return value.toFixed(1);
   return value.toFixed(3);
@@ -339,7 +339,7 @@ export function checkPlausibility(input: SanityInput): PlausibilityIssue[] {
         field: "vCPU : pCore ratio",
         observed: `${ratio.toFixed(1)}:1`,
         expected: "≤ 64:1",
-        detail: "Either vCPU is overstated or host cores are understated — one of the two columns is wrong.",
+        detail: "Either vCPU is overstated or host cores are understated. One of the two columns is wrong.",
       });
     }
   }

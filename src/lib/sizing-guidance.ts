@@ -6,9 +6,19 @@
 export type Rf = 2 | 3;
 export type StorageEfficiency = "none" | "compression" | "ecx";
 
+// How hard an observed-utilization figure is. A peak or 95th-percentile number
+// already contains the spikes; an average hides them.
+export type UtilizationBasis = "peak" | "p95" | "average";
+
 export const SIZING_RULES = {
   // RF2 needs ≥3 nodes (replica on a different node); RF3 needs ≥5.
   minNodesByRf: { 2: 3, 3: 5 } as Record<Rf, number>,
+  // Node count at which Auto steps RF2 up to RF3. RF3 *requires* 5 nodes, which
+  // is not the same as wanting it at 5: a 5-node cluster on RF3 pays a 50%
+  // capacity premium for a second-failure tolerance it rarely needs. Auto keeps
+  // RF2 until the cluster is large enough that a concurrent failure during a
+  // rebuild is a real risk.
+  autoRf3AtNodes: 16,
   // Block/rack awareness distributes replicas across chassis.
   minBlocksByRf: { 2: 3, 3: 5 } as Record<Rf, number>,
   // Planning cap. AOS itself allows 32 (`aosMaxNodesPerCluster`), but builds are
@@ -30,6 +40,32 @@ export const SIZING_RULES = {
 
 export function minNodesForRf(rf: Rf): number {
   return SIZING_RULES.minNodesByRf[rf];
+}
+
+/**
+ * Target CPU utilization for the new build when sizing from observed load.
+ *
+ * Observed cores are divided by this so the cluster lands with burst headroom
+ * instead of at the edge. A peak figure already carries the spikes, so it needs
+ * less padding than an average, which by definition sits below them.
+ */
+export const CPU_TARGET_UTILIZATION: Record<UtilizationBasis, number> = {
+  peak: 0.7,
+  p95: 0.7,
+  average: 0.5,
+};
+
+/**
+ * Least share of hosts that must report performance data before observed load
+ * is allowed to drive the build. A handful of reporting hosts in a large estate
+ * describes those hosts, not the workload.
+ */
+export const MIN_OBSERVED_COVERAGE = 0.5;
+
+export function utilizationBasisLabel(basis: UtilizationBasis): string {
+  if (basis === "peak") return "observed peak";
+  if (basis === "p95") return "95th percentile";
+  return "observed average";
 }
 
 export function recommendedClusterCount(nodeCount: number): number {
@@ -62,15 +98,15 @@ export type CvmReserve = { cores: number; ramGiB: number; note: string };
  */
 export function cvmReserveFor(nodeCores: number): CvmReserve {
   if (nodeCores >= 64) {
-    return { cores: 10, ramGiB: 48, note: "High-throughput node — 10 vCPU / 48 GB CVM." };
+    return { cores: 10, ramGiB: 48, note: "High-throughput node: 10 vCPU / 48 GB CVM." };
   }
   if (nodeCores >= 32) {
-    return { cores: 8, ramGiB: 32, note: "Standard node — 8 vCPU / 32 GB CVM." };
+    return { cores: 8, ramGiB: 32, note: "Standard node: 8 vCPU / 32 GB CVM." };
   }
   if (nodeCores >= 24) {
-    return { cores: 6, ramGiB: 32, note: "Small node — 6 vCPU / 32 GB CVM." };
+    return { cores: 6, ramGiB: 32, note: "Small node: 6 vCPU / 32 GB CVM." };
   }
-  return { cores: 4, ramGiB: 32, note: "Edge node — 4 vCPU / 32 GB CVM." };
+  return { cores: 4, ramGiB: 32, note: "Edge node: 4 vCPU / 32 GB CVM." };
 }
 
 export type PrismCentralReserve = {
@@ -245,21 +281,21 @@ export function validateBuild(input: {
   warnings.push(`For block (chassis) awareness, spread nodes across ≥ ${minBlocks} blocks.`);
 
   if (input.nodeCount - input.failoverHosts < 1) {
-    warnings.push("Failover reservation leaves no working node — add nodes or lower the reservation.");
+    warnings.push("Failover reservation leaves no working node. Add nodes or lower the reservation.");
   } else if (input.failoverHosts < 1) {
-    warnings.push("No HA failover headroom reserved — size for at least N+1.");
+    warnings.push("No HA failover headroom reserved. Size for at least N+1.");
   }
 
   if (input.nodeCount > SIZING_RULES.maxNodesPerCluster) {
     const count = recommendedClusterCount(input.nodeCount);
     warnings.push(
-      `Exceeds the ${SIZING_RULES.maxNodesPerCluster}-node planning maximum — split into ${count} clusters under one Prism Central.`,
+      `Exceeds the ${SIZING_RULES.maxNodesPerCluster}-node planning maximum. Split into ${count} clusters under one Prism Central.`,
     );
   }
 
   if (input.vcpuPcoreRatio > SIZING_RULES.vcpuPcoreBand.generalMax) {
     warnings.push(
-      `vCPU:pCore ${input.vcpuPcoreRatio}:1 exceeds the 6:1 guideline — expect CPU ready-time contention.`,
+      `vCPU:pCore ${input.vcpuPcoreRatio}:1 exceeds the 6:1 guideline. Expect CPU ready-time contention.`,
     );
   }
 

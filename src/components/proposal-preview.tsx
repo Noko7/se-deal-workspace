@@ -102,7 +102,7 @@ function Page({ children, pageNo, customer }: { children: React.ReactNode; pageN
       <div ref={contentRef} className="relative flex h-full flex-col overflow-hidden px-16 pb-24 pt-28">{children}</div>
       {overflowPx > 4 ? (
         <div className="proposal-overflow-badge absolute inset-x-16 bottom-16 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-semibold text-amber-800 shadow-sm">
-          Content overflows page {pageNo} by ~{Math.round(overflowPx)}px and will be cut off in the PDF — trim the text above.
+          Content overflows page {pageNo} by ~{Math.round(overflowPx)}px and will be cut off in the PDF. Trim the text above.
         </div>
       ) : null}
       <div className="absolute inset-x-16 bottom-9 flex justify-between text-[8px]" style={{ color: NUTANIX_HEX_SLATE }}>

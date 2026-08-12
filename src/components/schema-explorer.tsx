@@ -42,7 +42,7 @@ function FieldRow({ field }: { field: SchemaField }) {
             {field.type}
           </span>
           {field.custom ? (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Custom field — verify this API name against your Salesforce org">
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Custom field. Verify this API name against your Salesforce org">
               custom · verify
             </span>
           ) : (
@@ -87,7 +87,7 @@ export function SchemaExplorer() {
       <p className="text-xs text-charcoal-600">
         This is the shape we will map to Salesforce. Fields marked{" "}
         <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">custom · verify</span> use a
-        best-guess <code>__c</code> API name — confirm each one against your SFDC org before the live connection.
+        best-guess <code>__c</code> API name. Confirm each one against your SFDC org before the live connection.
       </p>
 
       <div className="space-y-3">

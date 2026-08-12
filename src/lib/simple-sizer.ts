@@ -1186,13 +1186,21 @@ function finalize(input: {
   };
 }
 
+/**
+ * Parse an export into an environment.
+ *
+ * Runs in the browser — the workbook bytes never leave the machine. Takes raw
+ * bytes rather than a Node Buffer so the same code serves a File read via
+ * `arrayBuffer()` on the client and a fixture in tests.
+ */
 export function parseSizerWorkbook(
-  fileBuffer: Buffer,
+  fileBytes: ArrayBuffer | Uint8Array,
   source: SizerSource,
   fileName: string,
   fileSizeBytes: number | null = null,
 ): ParsedEnvironment {
-  const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+  const bytes = fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes);
+  const workbook = XLSX.read(bytes, { type: "array" });
   if (!workbook.SheetNames.length) {
     throw new ParseWorkbookError("Workbook has no sheets.");
   }

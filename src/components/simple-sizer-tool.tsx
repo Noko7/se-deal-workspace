@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   HardDrive,
   RotateCcw,
+  ShieldCheck,
   SlidersHorizontal,
   TriangleAlert,
   Upload,
@@ -29,6 +30,7 @@ import {
   type StorageEfficiency,
   type WorkloadBasis,
 } from "@/lib/simple-sizer-core";
+import { parseSizerWorkbook } from "@/lib/simple-sizer";
 import { NODE_PROFILES } from "@/lib/node-profiles";
 import { KEY_RESOURCES, SIZING_REFERENCE, SIZING_RULES } from "@/lib/sizing-guidance";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
@@ -81,34 +83,20 @@ export function SimpleSizerTool() {
     setUploading(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.set("source", source);
-      form.set("file", file);
+      // Parsed here in the browser. The workbook bytes are never uploaded, so a
+      // customer's inventory never reaches the server or the network at all.
+      const bytes = await file.arrayBuffer();
+      // Yield a frame first so the skeleton paints before the parse blocks the
+      // main thread — a large export takes a moment.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
 
-      let response: Response;
-      try {
-        response = await fetch("/api/simple-sizer/analyze", { method: "POST", body: form });
-      } catch {
-        throw new Error("Couldn't reach the analyzer. Check your connection and try again.");
-      }
-
-      let data: { ok?: boolean; parsed?: ParsedEnvironment; error?: string };
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error(`The analyzer returned an unreadable response (HTTP ${response.status}). Confirm the file is a valid Excel export.`);
-      }
-
-      if (!response.ok || !data.ok || !data.parsed) {
-        throw new Error(data.error ?? `Unable to analyze the file (HTTP ${response.status}).`);
-      }
-      if (!Array.isArray(data.parsed.clusterDetails) || data.parsed.clusterDetails.length === 0) {
+      const result = parseSizerWorkbook(bytes, source, file.name, file.size);
+      if (!result.clusterDetails.length) {
         throw new Error("No clusters were found in that file. Check that it's the full export and matches the selected source type.");
       }
-
-      setParsed(data.parsed);
+      setParsed(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong analyzing the file.");
+      setError(e instanceof Error ? e.message : "Something went wrong reading the file.");
       setParsed(null);
     } finally {
       setUploading(false);
@@ -242,6 +230,15 @@ function ImportPanel({
             you only override what you disagree with.
           </p>
 
+          <p className="mt-4 flex max-w-[62ch] items-start gap-2.5 rounded-xl border border-charcoal-200 bg-charcoal-50 px-3.5 py-3 text-xs leading-relaxed text-charcoal-700">
+            <ShieldCheck {...ICON} className="mt-0.5 h-4 w-4 shrink-0 text-viz-storage" />
+            <span>
+              <span className="font-medium text-charcoal-900">Your file never leaves this machine.</span> The workbook is
+              read in your browser — it is not uploaded, not sent to a server, and not written to disk. Nothing is stored,
+              so closing this tab discards the analysis. Customer data stays with you.
+            </span>
+          </p>
+
           {/* Both controls share one row and one baseline: the label row, the
               control row, and the helper row line up across both columns. */}
           <div className="mt-6 grid gap-x-4 gap-y-2 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-rows-[auto_auto_auto]">
@@ -346,7 +343,7 @@ function ImportPanel({
                 <RailRow k="Sheets read" v={fmtInt(parsed.sheetsFound.length)} />
               </dl>
               <p className="mt-4 text-[11px] leading-relaxed text-charcoal-500">
-                Held in this browser tab only — no session storage, no server-side copy. Closing the tab discards it.
+                Read and held in this browser tab only. Closing the tab discards it.
               </p>
             </div>
           ) : (

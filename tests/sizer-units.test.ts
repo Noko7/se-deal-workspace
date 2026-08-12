@@ -268,15 +268,26 @@ describe("unit resolution primitives", () => {
   });
 
   it("overrides a header whose declared unit is physically impossible", () => {
-    // 200 VMs x 100 GiB, but the column is mislabelled TiB.
-    const raw = 200 * 100 * 1024; // MiB
-    const res = resolveCapacity("Capacity (TiB)", raw, 200, PLAUSIBLE.vmStorage);
+    // 200 VMs x 100 GiB each, but the column is mislabelled TiB.
+    const rows = Array.from({ length: 200 }, () => 100 * 1024); // MiB
+    const res = resolveCapacity("Capacity (TiB)", rows, 200, PLAUSIBLE.vmStorage);
     assert.equal(res.confidence, "header-overridden");
     assert.equal(res.unit, "MiB");
   });
 
+  it("ignores a corrupt outlier when inferring the unit", () => {
+    // A real masked Collector export carries one partition of 8,796,093,022,208
+    // MiB (8.4 EiB) — 99.99% of the column. Mean-based inference lets that single
+    // row flip the unit for the whole estate; the median must not budge.
+    const rows = Array.from({ length: 714 }, () => 100 * 1024); // 100 GiB each, in MiB
+    rows.push(8_796_093_022_208);
+    const res = resolveCapacity("Capacity (MiB)", rows, 714, PLAUSIBLE.vmStorage);
+    assert.equal(res.unit, "MiB", `outlier flipped the unit to ${res.unit}`);
+    assert.equal(res.confidence, "header");
+  });
+
   it("refuses to invent a value when nothing is plausible", () => {
-    const res = resolveCapacity("Capacity", 1e30, 200, PLAUSIBLE.vmStorage);
+    const res = resolveCapacity("Capacity", [1e30], 200, PLAUSIBLE.vmStorage);
     assert.equal(res.confidence, "unresolved");
     assert.equal(res.totalGiB, null);
   });

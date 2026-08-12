@@ -543,17 +543,24 @@ export function buildSizingPlan(parsed: ParsedEnvironment, settings: SizerSettin
     workload: clusterWorkload(cluster, settings),
   }));
 
-  // On Auto, standardise one node class across the whole estate — customers buy
-  // one part number, not a different platform per cluster. The class is chosen
-  // against every cluster's demand at once, plus the pooled demand.
+  // On Auto, standardise one node class across the estate — customers buy one
+  // part number, not a platform per cluster. It is chosen against the demands
+  // that will actually be built: the pooled demand when consolidating, or every
+  // cluster's demand when each becomes its own cluster. Scoring the per-cluster
+  // demands while consolidating lets a long tail of small source clusters outvote
+  // the build itself — 38 two-host clusters once dragged an 861 TB estate onto a
+  // 24-core node class it had no business using.
   let standardProfile = settingProfile;
   if (!standardProfile) {
     const seedRf: Rf = settings.rf === 3 ? 3 : 2;
-    const demands: NodeDemand[] = [
-      computeDemand(envWorkload, settings, seedRf),
-      ...clusterWorkloads.map(({ workload }) => computeDemand(workload, settings, seedRf)),
-    ];
-    standardProfile = chooseNodeProfile(demands, { failoverHosts, minNodes: minNodesForRf(seedRf) });
+    const demands: NodeDemand[] =
+      settings.planMode === "per-cluster"
+        ? clusterWorkloads.map(({ workload }) => computeDemand(workload, settings, seedRf))
+        : [computeDemand(envWorkload, settings, seedRf)];
+    standardProfile = chooseNodeProfile(demands.length ? demands : [computeDemand(envWorkload, settings, seedRf)], {
+      failoverHosts,
+      minNodes: minNodesForRf(seedRf),
+    });
   }
 
   const consolidated = sizeWorkload(envWorkload, settings, standardProfile);

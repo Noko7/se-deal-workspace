@@ -39,10 +39,14 @@ const TOP_VM_COUNT = 8;
 const TOP_VM_PER_CLUSTER = 5;
 const GUEST_OS_COUNT = 6;
 
+// "%" is preserved as a token rather than stripped. Without this, the candidate
+// "% Memory" collapses to "memory" and happily matches the *capacity* column
+// "Memory (KiB)" — which is how a host once reported 536,576,864% memory used.
 function norm(value: unknown): string {
   return String(value ?? "")
     .trim()
     .toLowerCase()
+    .replace(/%/g, "pct")
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
@@ -83,15 +87,13 @@ function firstHeader(headers: string[], candidates: string[]): string | null {
   for (const candidate of candidates) {
     const target = norm(candidate);
     if (target.length < 4) continue;
-    const hit = normalized.find(([n]) => n.includes(target));
+    // A percentage candidate may only land on a percentage header, and vice
+    // versa. Otherwise a loose substring lets a rate match a capacity.
+    const wantsPct = target.includes("pct");
+    const hit = normalized.find(([n]) => n.includes(target) && n.includes("pct") === wantsPct);
     if (hit) return hit[1];
   }
   return null;
-}
-
-function sumColumn(rows: Record<string, unknown>[], header: string | null): number {
-  if (!header) return 0;
-  return rows.reduce((sum, row) => sum + toNum(row[header]), 0);
 }
 
 function sheetByName(workbook: XLSX.WorkBook, names: string[]): { sheet: XLSX.WorkSheet; name: string } | null {
@@ -159,19 +161,46 @@ function readCapacity(
     audit.push({ field, sheet, column: null, unit: null, confidence: "unresolved", note: `No column matched for ${field}.` });
     return NO_CAPACITY;
   }
-  const resolution = resolveCapacity(header, sumColumn(rows, header), entities, band, prefer);
+  const values = rows.map((row) => toNum(row[header]));
+  const resolution = resolveCapacity(header, values, entities, band, prefer);
+  const unit: Unit | null = resolution.unit;
+
+  // Real exports carry corrupt rows. Once the unit is settled, any single row
+  // beyond what one entity could physically hold is discarded rather than
+  // allowed to dominate the total — and the drop is reported, never silent.
+  const ceilingGiB = band.max;
+  let dropped = 0;
+  let droppedGiB = 0;
+  if (unit) {
+    for (const value of values) {
+      const gib = toGiB(value, unit);
+      if (gib > ceilingGiB) {
+        dropped += 1;
+        droppedGiB += gib;
+      }
+    }
+  }
+
   audit.push({
     field,
     sheet,
     column: resolution.header,
     unit: resolution.unit,
     confidence: resolution.confidence,
-    note: resolution.note,
+    note:
+      dropped > 0
+        ? `${resolution.note} Discarded ${dropped} corrupt row${dropped === 1 ? "" : "s"} above ${Math.round(ceilingGiB / 1024).toLocaleString()} TiB (${Math.round(droppedGiB / 1024).toLocaleString()} TiB of impossible values).`
+        : resolution.note,
   });
-  const unit: Unit | null = resolution.unit;
+
   return {
     resolution,
-    valueGiB: unit ? (row) => toGiB(toNum(row[header]), unit) : () => 0,
+    valueGiB: unit
+      ? (row) => {
+          const gib = toGiB(toNum(row[header]), unit);
+          return gib > ceilingGiB ? 0 : gib;
+        }
+      : () => 0,
   };
 }
 
@@ -261,13 +290,49 @@ function rankTopVms(vms: TopVm[], limit = TOP_VM_COUNT): TopVm[] {
   return [...vms].sort((a, b) => b.vcpu - a.vcpu || b.ramGiB - a.ramGiB).slice(0, limit);
 }
 
-function averagePct(rows: Record<string, unknown>[], header: string | null): number | null {
-  if (!header || rows.length === 0) return null;
+/**
+ * Classify a "usage" column once for the whole sheet, from its magnitude.
+ *
+ * Exports disagree about what "CPU Usage" / "Memory Usage" means: RVTools writes
+ * a percentage, some tools write a 0–1 fraction, and Nutanix Collector writes an
+ * absolute amount. Reading an absolute as a percentage is how 511 GiB of memory
+ * became "536,576,864%", so the scale is derived rather than assumed — and when
+ * it can't be established, the figure is dropped instead of displayed.
+ */
+type UsageScale = "percent" | "fraction" | "absolute" | "empty";
+
+function classifyUsage(rows: Record<string, unknown>[], header: string | null): UsageScale {
+  if (!header || rows.length === 0) return "empty";
   const values = rows.map((row) => toNum(row[header])).filter((v) => v > 0);
-  if (!values.length) return null;
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
-  // Some exports store 0–1 fractions rather than 0–100.
-  return Number((avg <= 1 ? avg * 100 : avg).toFixed(1));
+  if (!values.length) return "empty";
+  const max = Math.max(...values);
+  if (max <= 1.5) return "fraction";
+  if (max <= 100) return "percent";
+  return "absolute";
+}
+
+/**
+ * Utilization reader for a whole sheet. The scale is settled once across every
+ * row — deciding it per row would let a single large value read as a percentage.
+ */
+function makeUtilization(
+  rows: Record<string, unknown>[],
+  header: string | null,
+  absoluteRatio?: (row: Record<string, unknown>) => number | null,
+): { perRow: (row: Record<string, unknown>) => number | null; average: number | null; scale: UsageScale } {
+  const scale = classifyUsage(rows, header);
+  const perRow = (row: Record<string, unknown>): number | null => {
+    if (!header || scale === "empty") return null;
+    const raw = toNum(row[header]);
+    if (!(raw > 0)) return null;
+    const pct =
+      scale === "fraction" ? raw * 100 : scale === "percent" ? raw : (absoluteRatio?.(row) ?? null);
+    if (pct == null || !Number.isFinite(pct) || pct <= 0 || pct > 100) return null;
+    return Number(pct.toFixed(1));
+  };
+  const values = rows.map(perRow).filter((v): v is number => v != null);
+  const average = values.length ? Number((values.reduce((s, v) => s + v, 0) / values.length).toFixed(1)) : null;
+  return { perRow, average, scale };
 }
 
 // Cluster names collide constantly in obfuscated exports ("##h" twice). Names
@@ -383,8 +448,8 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
   const hostSocketsCol = firstHeader(hostHeaders, ["CPUs", "# CPU", "Sockets", "CPU Sockets"]);
   const hostCoresPerCpuCol = firstHeader(hostHeaders, ["Cores per CPU", "Cores/CPU", "Cores per Socket"]);
   const hostTotalCoresCol = firstHeader(hostHeaders, ["CPU Cores", "# Cores", "Cores", "Total Cores"]);
-  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Utilization %", "CPU Util %", "% CPU"]);
-  const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Utilization %", "Mem Util %", "% Memory"]);
+  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Utilization %", "CPU Util %", "% CPU", "CPU Usage"]);
+  const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Utilization %", "Mem Util %", "% Memory", "Memory Usage"]);
 
   // Collector reports host "Memory Size" in decimal GB — the Collector-Formatter
   // converts it with 1e9/2^30, so decimal is the right default when the header
@@ -399,6 +464,21 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
     vhosts.name,
     "GB",
   );
+
+  // Collector writes host "Memory Usage" as an absolute amount, not a percentage.
+  // Resolve it as a capacity so it can be divided by the host's own memory; if it
+  // turns out to already be a percentage, this stays unused.
+  const hostMemUsage =
+    hostMemPctCol && classifyUsage(vhosts.rows, hostMemPctCol) === "absolute"
+      ? readCapacity(vhosts.rows, [hostMemPctCol], PLAUSIBLE.hostMemory, vhosts.rows.length, audit, "Host memory used", vhosts.name, "GB")
+      : null;
+  const hostMemUtil = makeUtilization(vhosts.rows, hostMemPctCol, (row) => {
+    if (!hostMemUsage) return null;
+    const capacityGiB = hostMemory.valueGiB(row);
+    const usedGiB = hostMemUsage.valueGiB(row);
+    return capacityGiB > 0 ? (usedGiB / capacityGiB) * 100 : null;
+  });
+  const hostCpuUtil = makeUtilization(vhosts.rows, hostCpuPctCol);
 
   const clusterNameByMoid = new Map<string, string>();
   const clusterDcByMoid = new Map<string, string>();
@@ -434,8 +514,8 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       coresPerSocket,
       cores,
       ramGiB: Number(hostMemory.valueGiB(row).toFixed(2)),
-      cpuUtilPct: hostCpuPctCol ? averagePct([row], hostCpuPctCol) : null,
-      memoryUtilPct: hostMemPctCol ? averagePct([row], hostMemPctCol) : null,
+      cpuUtilPct: hostCpuUtil.perRow(row),
+      memoryUtilPct: hostMemUtil.perRow(row),
     };
     hostsByCluster.set(clusterMoid, [...(hostsByCluster.get(clusterMoid) ?? []), record]);
   }
@@ -679,8 +759,8 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
     snapshots: vsnapshot.rows.length || null,
     guestOs: rankGuestOs(guestOsCounts),
     topVms: rankTopVms(topVmCandidates),
-    hostCpuUtilPct: averagePct(vhosts.rows, hostCpuPctCol),
-    hostMemoryUtilPct: averagePct(vhosts.rows, hostMemPctCol),
+    hostCpuUtilPct: hostCpuUtil.average,
+    hostMemoryUtilPct: hostMemUtil.average,
     hostCount: vhosts.rows.length,
     powerStateKnown,
     clusterDetails,
@@ -754,6 +834,18 @@ function parseGeneric(
     "MiB",
   );
 
+  // LiveOptics carries no host utilization on the inventory sheet — it lives in
+  // ESX Performance. Take it from there when present rather than inventing it.
+  const perfSheet = source === "liveoptics" ? rowsFromSheet(workbook, ["ESX Performance", "Host Performance"]) : { rows: [], name: "" };
+  const perfHeaders = headersFor(perfSheet.rows);
+  const perfCpuCol = firstHeader(perfHeaders, ["Average CPU %", "Avg CPU %", "CPU Usage %", "% CPU"]);
+  const perfMemCol = firstHeader(perfHeaders, ["Average Memory %", "Avg Memory %", "Memory Usage %", "% Memory"]);
+
+  const hostCpuUtil = makeUtilization(hostSheet.rows, hostCpuPctCol);
+  const hostMemUtil = makeUtilization(hostSheet.rows, hostMemPctCol);
+  const perfCpuUtil = makeUtilization(perfSheet.rows, perfCpuCol);
+  const perfMemUtil = makeUtilization(perfSheet.rows, perfMemCol);
+
   const hostsByCluster = new Map<string, HostRecord[]>();
   const dcByCluster = new Map<string, string>();
   for (const row of hostSheet.rows) {
@@ -772,8 +864,8 @@ function parseGeneric(
       coresPerSocket,
       cores,
       ramGiB: Number(hostMemory.valueGiB(row).toFixed(2)),
-      cpuUtilPct: hostCpuPctCol ? averagePct([row], hostCpuPctCol) : null,
-      memoryUtilPct: hostMemPctCol ? averagePct([row], hostMemPctCol) : null,
+      cpuUtilPct: hostCpuUtil.perRow(row),
+      memoryUtilPct: hostMemUtil.perRow(row),
     };
     hostsByCluster.set(clusterName, [...(hostsByCluster.get(clusterName) ?? []), record]);
     const dc = str(hostDcCol ? row[hostDcCol] : "");
@@ -997,8 +1089,8 @@ function parseGeneric(
     snapshots: snapshotSheet.rows.length || null,
     guestOs: rankGuestOs(guestOsCounts),
     topVms: rankTopVms(topVmCandidates),
-    hostCpuUtilPct: averagePct(hostSheet.rows, hostCpuPctCol),
-    hostMemoryUtilPct: averagePct(hostSheet.rows, hostMemPctCol),
+    hostCpuUtilPct: hostCpuUtil.average ?? perfCpuUtil.average,
+    hostMemoryUtilPct: hostMemUtil.average ?? perfMemUtil.average,
     hostCount: hostSheet.rows.length,
     powerStateKnown,
     clusterDetails,

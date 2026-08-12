@@ -37,6 +37,12 @@ yarn-error.log*
 # local admin config (connector status, encrypted LLM credentials)
 /data/local-config.json
 
+# Customer reference material lives in /docs and must never reach the remote:
+# Collector / RVTools / LiveOptics exports contain real estate inventory, even
+# when masked. Only the hand-written .md notes are tracked.
+/docs/**
+!/docs/*.md
+
 # vercel
 .vercel
 

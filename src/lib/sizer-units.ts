@@ -133,29 +133,55 @@ function adjustedScore(unit: Unit, distance: number, prefer?: Unit): number {
   return adjusted;
 }
 
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * A robust estimate of what one entity holds, in the column's own units.
+ *
+ * The mean is unusable here: real exports contain corrupt rows (one masked
+ * Collector file carries a single partition of 8,796,093,022,208 MiB — 8.4 EiB,
+ * 99.99% of that column's sum). A mean lets that one row decide the unit for the
+ * whole estate, which silently turned 783 TB of storage into 8.8 TB. The median
+ * row is unaffected by it; scaling by rows-per-entity turns it into a per-VM or
+ * per-host figure that the plausibility band can judge.
+ */
+function perEntityEstimate(values: number[], entities: number): number {
+  const positive = values.filter((v) => v > 0);
+  if (!positive.length) return 0;
+  const rowsPerEntity = positive.length / Math.max(1, entities);
+  return median(positive) * Math.max(1, rowsPerEntity);
+}
+
 /**
  * Resolve a capacity column to GiB.
  *
- * @param rawTotal   Sum of the column, in its own (unknown) units.
- * @param entities   Number of things the total is spread across (VMs, hosts…).
+ * @param values     Every value in the column, in its own (unknown) units.
+ * @param entities   Number of things the column is spread across (VMs, hosts…).
  * @param band       What one entity plausibly looks like.
  */
 export function resolveCapacity(
   header: string | null,
-  rawTotal: number,
+  values: number[],
   entities: number,
   band: Plausibility,
   prefer?: Unit,
 ): UnitResolution {
   if (!header) return unresolved(`No ${band.label} column found.`);
+  const rawTotal = values.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
   if (!(rawTotal > 0)) {
     return { header, unit: null, totalGiB: 0, perEntityGiB: 0, confidence: "unresolved", note: `"${header}" is empty or zero.` };
   }
-  const count = Math.max(1, entities);
   const declared = unitFromHeader(header);
+  // Judge the unit on the robust estimate, but report the real per-entity average.
+  const probe = perEntityEstimate(values, entities);
 
   if (declared) {
-    const perEntity = toGiB(rawTotal, declared) / count;
+    const perEntity = toGiB(probe, declared);
     if (score(perEntity, band) != null) {
       return {
         header,
@@ -172,7 +198,7 @@ export function resolveCapacity(
   // number. Fall back to magnitude.
   let best: { unit: Unit; distance: number; perEntity: number } | null = null;
   for (const unit of CANDIDATE_UNITS) {
-    const perEntity = toGiB(rawTotal, unit) / count;
+    const perEntity = toGiB(probe, unit);
     const raw = score(perEntity, band);
     if (raw == null) continue;
     const distance = adjustedScore(unit, raw, prefer);
@@ -181,7 +207,7 @@ export function resolveCapacity(
 
   if (!best) {
     const declaredNote = declared
-      ? ` Header claims ${declared}, which would mean ${fmt(toGiB(rawTotal, declared) / count)} GiB ${band.label}.`
+      ? ` Header claims ${declared}, which would mean ${fmt(toGiB(probe, declared))} GiB ${band.label}.`
       : "";
     return {
       header,

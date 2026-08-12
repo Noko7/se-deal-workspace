@@ -181,9 +181,11 @@ export function SimpleSizerTool() {
 
       {!uploading && parsed && plan ? (
         <>
+          {/* Reads as a narrative: what's in the file, what exists today, what we
+              propose, and finally how every number was read. */}
           <EnvironmentSummary parsed={parsed} />
-          <BuildPlan plan={plan} settings={settings} onSettings={setSettings} />
           <ExistingClusters parsed={parsed} plan={plan} />
+          <BuildPlan plan={plan} settings={settings} onSettings={setSettings} />
           <ParsedInputs parsed={parsed} />
         </>
       ) : null}

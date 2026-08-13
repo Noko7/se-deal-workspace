@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Loader2, Pencil, Receipt, RefreshCw, Sparkles, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Pencil, Receipt, RefreshCw, Sparkles, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ProposalDoc } from "@/lib/proposal-doc";
@@ -14,15 +14,41 @@ import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_
 import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
 import { Button } from "@/components/ui";
 
+// Fluid-CSS motion (MOTION_INTENSITY 6): a single easing curve and a tactile
+// press, applied to every interactive surface so the whole tool feels physical.
+// Compositor-only (transform), so it stays at 60fps on the print-heavy page.
+const TACTILE =
+  "transition-[transform,background-color,border-color,box-shadow,color] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:translate-y-[1px]";
+// A soft, accent-tinted diffusion shadow — depth without an outer neon glow.
+const SURFACE_SHADOW = "shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)]";
+
 // Shared style for selectable toggle chips. Selected reads as a tinted, outlined
 // chip (not a solid purple block) so a row of them stays clean and legible.
 function toggleClass(selected: boolean): string {
   return [
-    "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition",
+    "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold",
+    TACTILE,
+    "active:scale-[0.98]",
     selected
-      ? "border-iris-500 bg-iris-100 text-iris-700 ring-1 ring-iris-300"
-      : "border-charcoal-300 bg-white text-charcoal-700 hover:border-iris-400 hover:bg-iris-50",
+      ? "border-iris-400 bg-iris-100 text-iris-700 ring-1 ring-iris-200"
+      : "border-charcoal-300 bg-white text-charcoal-700 hover:-translate-y-px hover:border-iris-400 hover:bg-iris-50",
   ].join(" ");
+}
+
+// Non-spinner working indicator (three breathing dots). The skill bans generic
+// circular spinners for loading; this reuses the shared breathe keyframe.
+function WorkingDots({ className = "" }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 ${className}`} aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="sizer-breathe h-1.5 w-1.5 rounded-full bg-current"
+          style={{ animationDelay: `${i * 220}ms` }}
+        />
+      ))}
+    </span>
+  );
 }
 
 function measureDataUrl(data: string): Promise<{ w: number; h: number } | null> {
@@ -183,17 +209,64 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   }
 
   // --- Upload step -----------------------------------------------------------
+  // Anti-center-bias (DESIGN_VARIANCE 8): a left-aligned brief on a fractional
+  // grid, with the dropzone as the right-hand asset. Collapses to one column
+  // under md so it never scrolls sideways on phones.
   if (!doc) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-charcoal-900">Proposal Builder</h2>
-            <p className="text-xs text-charcoal-500">Turn a Nutanix Sizer export into a customer-ready brief and BOM deck.</p>
-          </div>
-          <HelpPopover />
-        </div>
+      <div className="grid items-stretch gap-6 md:grid-cols-[1.05fr_0.95fr]">
         <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+
+        <div className="sizer-rise flex flex-col" style={{ "--index": 0 } as React.CSSProperties}>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-iris-600">Solution Brief · BOM Deck</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-charcoal-900 md:text-2xl">
+                Turn a Sizer export into a customer-ready proposal.
+              </h2>
+              <p className="mt-1.5 max-w-[46ch] text-sm leading-relaxed text-charcoal-500">
+                Drop a Nutanix Sizer scenario and get an on-brand 2-page brief and a polished BOM deck — editable inline, exportable to PDF and PowerPoint.
+              </p>
+            </div>
+            <HelpPopover />
+          </div>
+
+          <ol className="mb-4 divide-y divide-charcoal-100 rounded-2xl border border-charcoal-200 bg-white">
+            {UPLOAD_STEPS.map((step, i) => (
+              <li
+                key={i}
+                className="sizer-rise flex items-start gap-3 px-4 py-3"
+                style={{ "--index": i + 1 } as React.CSSProperties}
+              >
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-iris-50 text-[11px] font-bold text-iris-700 ring-1 ring-iris-100">
+                  {i + 1}
+                </span>
+                <span className="text-[13px] leading-relaxed text-charcoal-600">{step}</span>
+              </li>
+            ))}
+          </ol>
+
+          <div className="mt-auto flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => loadScenario(buildSampleScenario(defaultSe))}
+              className={`inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-iris-700 ring-1 ring-iris-200 hover:-translate-y-px hover:bg-iris-50 ${TACTILE}`}
+            >
+              <Sparkles className="h-4 w-4" /> Load {SAMPLE_PROPOSAL_LABEL}
+            </button>
+            <span className="text-xs text-charcoal-400">No export handy? Start from a sample.</span>
+          </div>
+
+          {error ? (
+            <p
+              role="alert"
+              className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
+            >
+              <X className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </p>
+          ) : null}
+        </div>
+
         <button
           type="button"
           onClick={() => fileInput.current?.click()}
@@ -202,30 +275,28 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           aria-label="Upload or drop a Nutanix Sizer scenario JSON file"
-          className={`flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition ${
+          className={`sizer-rise flex min-h-[16rem] w-full flex-col items-start justify-center gap-4 rounded-2xl border-2 border-dashed p-8 text-left ${TACTILE} active:scale-[0.99] ${
             dragging
-              ? "border-iris-500 bg-iris-100 ring-2 ring-iris-300"
-              : "border-iris-300 bg-gradient-to-br from-iris-50 to-white hover:border-iris-400 dark:border-iris-500/50 dark:from-iris-100 dark:to-charcoal-50 dark:hover:border-iris-400"
+              ? "scale-[1.01] border-iris-500 bg-iris-100 ring-4 ring-iris-200/60"
+              : `border-charcoal-300 bg-white hover:-translate-y-0.5 hover:border-iris-400 hover:bg-iris-50/40 ${SURFACE_SHADOW} dark:border-iris-500/40 dark:bg-charcoal-50`
           }`}
+          style={{ "--index": 1 } as React.CSSProperties}
         >
-          <span className={`flex h-12 w-12 items-center justify-center rounded-full text-iris-600 transition ${dragging ? "scale-110 bg-iris-200" : "bg-iris-100"}`}>
-            <Upload className="h-6 w-6" />
+          <span
+            className={`flex h-14 w-14 items-center justify-center rounded-2xl text-iris-600 ${TACTILE} ${dragging ? "scale-110 bg-iris-200" : "bg-iris-100"}`}
+          >
+            <Upload className="h-7 w-7" strokeWidth={1.75} />
           </span>
-          <span className="text-base font-semibold text-charcoal-900">
-            {dragging ? "Drop the JSON to build the proposal" : "Upload a Nutanix Sizer scenario (JSON)"}
+          <span className="text-lg font-semibold tracking-tight text-charcoal-900">
+            {dragging ? "Drop to build the proposal" : "Drop a Sizer scenario"}
           </span>
-          <span className="max-w-md text-sm text-charcoal-500">
-            In sizer.nutanix.com open your scenario, then Actions, Export, JSON. Drag the file here or click to browse. We&apos;ll build
-            an on-brand 2-page Solution Brief and a polished BOM deck from it.
+          <span className="max-w-sm text-sm leading-relaxed text-charcoal-500">
+            In sizer.nutanix.com, open your scenario, then Actions → Export → JSON. Drag the file here, or click anywhere in this panel to browse.
+          </span>
+          <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-iris-600">
+            <FileJson className="h-4 w-4" /> Accepts .json
           </span>
         </button>
-        {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">{error}</p> : null}
-        <div className="flex items-center justify-center gap-2 text-sm text-charcoal-500">
-          <span>No export handy?</span>
-          <button onClick={() => loadScenario(buildSampleScenario(defaultSe))} className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 font-medium text-iris-600 ring-1 ring-iris-200 hover:bg-iris-50">
-            <Sparkles className="h-4 w-4" /> Load {SAMPLE_PROPOSAL_LABEL}
-          </button>
-        </div>
       </div>
     );
   }
@@ -236,16 +307,17 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
       <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
 
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-charcoal-200 bg-white p-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-iris-50 text-iris-600">
-            <FileJson className="h-5 w-5" />
+      <div className={`sizer-rise flex flex-wrap items-center gap-3 rounded-2xl border border-charcoal-200 bg-white p-3 ${SURFACE_SHADOW}`} style={{ "--index": 0 } as React.CSSProperties}>
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-iris-50 text-iris-600">
+            <FileJson className="h-5 w-5" strokeWidth={1.75} />
+            <span className="sizer-breathe absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-mantis ring-2 ring-white" aria-hidden />
           </span>
           <div>
             <EditableText
               inline
               value={doc.meta.customer}
-              className="text-sm font-semibold text-charcoal-900"
+              className="text-sm font-semibold tracking-tight text-charcoal-900"
               onCommit={(v) =>
                 patch((d) => {
                   const defaultTitle = d.options.externalStorage
@@ -271,26 +343,26 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         </span>
         <div className="flex flex-wrap items-center gap-2">
           {logo ? (
-            <span className="flex items-center gap-2 rounded-md border border-charcoal-300 bg-white px-2 py-1">
+            <span className="flex items-center gap-2 rounded-lg border border-charcoal-300 bg-white px-2 py-1">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logo} alt="logo" className="h-6 w-auto max-w-[90px] object-contain" />
-              <button onClick={() => setLogo(null)} className="text-charcoal-400 hover:text-rose-600" aria-label="Remove logo">
+              <button onClick={() => setLogo(null)} className={`rounded bg-transparent text-charcoal-400 hover:text-rose-600 ${TACTILE}`} aria-label="Remove logo">
                 <X className="h-3.5 w-3.5" />
               </button>
             </span>
           ) : (
-            <Button tone="secondary" onClick={() => logoInput.current?.click()}>
-              <span className="flex items-center gap-1.5"><ImagePlus className="h-4 w-4" /> Customer logo</span>
+            <Button tone="secondary" className={TACTILE} onClick={() => logoInput.current?.click()}>
+              <span className="flex items-center gap-1.5"><ImagePlus className="h-4 w-4" strokeWidth={1.75} /> Customer logo</span>
             </Button>
           )}
-          <Button tone="secondary" onClick={() => fileInput.current?.click()}>
-            <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" /> Change file</span>
+          <Button tone="secondary" className={TACTILE} onClick={() => fileInput.current?.click()}>
+            <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" strokeWidth={1.75} /> Change file</span>
           </Button>
-          <Button onClick={exportPdf} disabled={exporting !== null}>
-            <span className="flex items-center gap-1.5">{exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} 2-Pager PDF</span>
+          <Button className={TACTILE} onClick={exportPdf} disabled={exporting !== null}>
+            <span className="flex items-center gap-1.5">{exporting === "pdf" ? <WorkingDots /> : <FileDown className="h-4 w-4" strokeWidth={1.75} />} 2-Pager PDF</span>
           </Button>
-          <Button onClick={exportPptx} disabled={exporting !== null}>
-            <span className="flex items-center gap-1.5">{exporting === "pptx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} BOM .pptx</span>
+          <Button className={TACTILE} onClick={exportPptx} disabled={exporting !== null}>
+            <span className="flex items-center gap-1.5">{exporting === "pptx" ? <WorkingDots /> : <Download className="h-4 w-4" strokeWidth={1.75} />} BOM .pptx</span>
           </Button>
           <HelpPopover />
         </div>
@@ -298,7 +370,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
 
       <div className="grid items-start gap-4 xl:grid-cols-[380px_1fr]">
         {/* Editor — flows the full height of the page (no internal scroll cap). */}
-        <div className="space-y-3 pr-1">
+        <div className="sizer-rise space-y-3 pr-1" style={{ "--index": 1 } as React.CSSProperties}>
           <Section title="Deal type" icon={<FileText className="h-4 w-4" />} defaultOpen>
             {/* Switching to external storage reframes the customer-facing copy. */}
             <div>
@@ -361,6 +433,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                 type="checkbox"
                 checked={doc.options?.includeSoftwareSlides ?? true}
                 onChange={(e) => patch((d) => ((d.options ??= { includeSoftwareSlides: true, externalStorage: false, externalStorageVendor: "Pure Storage" }), (d.options.includeSoftwareSlides = e.target.checked), d))}
+                className="h-4 w-4 accent-iris-500"
               />
               Include full NCI editions comparison + support slides in the .pptx
             </label>
@@ -368,41 +441,50 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         </div>
 
         {/* Preview */}
-        <div className="space-y-3">
+        <div className="sizer-rise space-y-3" style={{ "--index": 2 } as React.CSSProperties}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-lg border border-charcoal-300 bg-charcoal-100 p-1 text-sm">
-              <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-300" : "text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
-                <FileText className="h-4 w-4" /> 2-Pager (PDF)
+            <div className="inline-flex rounded-xl border border-charcoal-300 bg-charcoal-100 p-1 text-sm">
+              <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold ${TACTILE} ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "bg-transparent text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
+                <FileText className="h-4 w-4" strokeWidth={1.75} /> 2-Pager (PDF)
               </button>
-              <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold transition ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-300" : "text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
-                <Layers className="h-4 w-4" /> BOM Deck
+              <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold ${TACTILE} ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "bg-transparent text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
+                <Layers className="h-4 w-4" strokeWidth={1.75} /> BOM Deck
               </button>
             </div>
 
-            {tab === "twopager" ? (
-              <div className="inline-flex items-center gap-1 rounded-lg border border-charcoal-300 bg-white p-1 text-xs">
-                <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} disabled={zoom <= 0.5} className="rounded-md p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Zoom out" title="Zoom out">
-                  <ZoomOut className="h-4 w-4" />
-                </button>
-                <button onClick={() => setZoom(1)} className="min-w-[3.5rem] rounded-md px-2 py-1 text-center font-semibold text-charcoal-800 hover:bg-charcoal-100" title="Reset to fit width">
-                  {Math.round(zoom * 100)}%
-                </button>
-                <button onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.1) * 10) / 10))} disabled={zoom >= 2} className="rounded-md p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Zoom in" title="Zoom in">
-                  <ZoomIn className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
+            <div className="flex items-center gap-2">
+              <span className="hidden items-center gap-1.5 text-[11px] font-medium text-charcoal-400 sm:flex">
+                <span className="sizer-breathe h-2 w-2 rounded-full bg-mantis" aria-hidden />
+                {exporting ? "Preparing export" : "Live preview"}
+              </span>
+              {tab === "twopager" ? (
+                <div className="inline-flex items-center gap-1 rounded-xl border border-charcoal-300 bg-white p-1 text-xs">
+                  <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} disabled={zoom <= 0.5} className={`rounded-lg bg-transparent p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40 ${TACTILE}`} aria-label="Zoom out" title="Zoom out">
+                    <ZoomOut className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                  <button onClick={() => setZoom(1)} className={`min-w-[3.5rem] rounded-lg bg-transparent px-2 py-1 text-center font-semibold text-charcoal-800 hover:bg-charcoal-100 ${TACTILE}`} title="Reset to fit width">
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <button onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.1) * 10) / 10))} disabled={zoom >= 2} className={`rounded-lg bg-transparent p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40 ${TACTILE}`} aria-label="Zoom in" title="Zoom in">
+                    <ZoomIn className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          {tab === "twopager" ? (
-            <div className="rounded-xl border border-charcoal-200 bg-charcoal-100 p-4">
-              <PreviewScaler zoom={zoom}>
-                <ProposalTwoPager doc={doc} logo={logo} editable patch={patch} />
-              </PreviewScaler>
-            </div>
-          ) : (
-            <ProposalBomPreview doc={doc} />
-          )}
+          {/* Export shimmer scrim: a layout-matched sweep instead of a spinner. */}
+          <div className={`relative rounded-2xl ${exporting ? "sizer-shimmer" : ""}`}>
+            {tab === "twopager" ? (
+              <div className={`rounded-2xl border border-charcoal-200 bg-charcoal-100 p-4 ${SURFACE_SHADOW}`}>
+                <PreviewScaler zoom={zoom}>
+                  <ProposalTwoPager doc={doc} logo={logo} editable patch={patch} />
+                </PreviewScaler>
+              </div>
+            ) : (
+              <ProposalBomPreview doc={doc} />
+            )}
+          </div>
         </div>
       </div>
 
@@ -460,6 +542,13 @@ function PreviewScaler({ children, zoom = 1 }: { children: React.ReactNode; zoom
   );
 }
 
+// Concise, no-jargon steps for the upload screen's left column.
+const UPLOAD_STEPS: string[] = [
+  "In Sizer, set the licensing (NCI edition, NCI-C for external storage, or EUC) — this tool reads it from your export.",
+  "Export the scenario as JSON: Actions → Export → JSON.",
+  "Drop the file on the right, then review, edit inline, and export to PDF or PowerPoint.",
+];
+
 // A small "?" button that reveals plain, no-jargon usage steps. Closes on
 // Escape or an outside click, and is fully keyboard reachable.
 const HELP_STEPS: string[] = [
@@ -496,9 +585,9 @@ function HelpPopover({ align = "right" }: { align?: "left" | "right" }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label="How to use the Proposal Builder"
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-charcoal-300 bg-white text-iris-600 transition hover:border-iris-400 hover:bg-iris-50 hover:text-iris-700"
+        className={`flex h-10 w-10 items-center justify-center rounded-full border border-charcoal-300 bg-white text-iris-600 hover:-translate-y-px hover:border-iris-400 hover:bg-iris-50 hover:text-iris-700 ${TACTILE}`}
       >
-        <HelpCircle className="h-6 w-6" />
+        <HelpCircle className="h-6 w-6" strokeWidth={1.75} />
       </button>
       {open ? (
         <div
@@ -534,15 +623,15 @@ function HelpPopover({ align = "right" }: { align?: "left" | "right" }) {
 function Section({ title, icon, defaultOpen, children }: { title: string; icon: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   return (
-    <div className="rounded-lg border border-charcoal-200 bg-white">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition hover:bg-charcoal-50">
-        <span className="flex items-center gap-2 text-sm font-semibold text-charcoal-800">
-          <span className="text-iris-500">{icon}</span>
+    <div className="overflow-hidden rounded-2xl border border-charcoal-200 bg-white">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className={`flex w-full items-center justify-between bg-transparent px-3.5 py-3 text-left hover:bg-charcoal-50 ${TACTILE}`}>
+        <span className="flex items-center gap-2 text-sm font-semibold tracking-tight text-charcoal-800">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-iris-50 text-iris-600">{icon}</span>
           {title}
         </span>
-        <ChevronDown className={`h-4 w-4 text-charcoal-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-4 w-4 text-charcoal-400 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180 text-iris-500" : ""}`} strokeWidth={1.75} />
       </button>
-      {open ? <div className="space-y-3 border-t border-charcoal-100 px-3 py-3">{children}</div> : null}
+      {open ? <div className="space-y-3 border-t border-charcoal-100 px-3.5 py-3.5">{children}</div> : null}
     </div>
   );
 }
@@ -552,11 +641,12 @@ function structuredCloneSafe<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, value, onChange, helper }: { label: string; value: string; onChange: (v: string) => void; helper?: string }) {
   return (
-    <label className="block space-y-1">
+    <label className="block space-y-1.5">
       <span className="text-xs font-medium text-charcoal-700">{label}</span>
       <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full" />
+      {helper ? <span className="block text-[11px] text-charcoal-400">{helper}</span> : null}
     </label>
   );
 }
@@ -612,7 +702,7 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
     });
 
   return (
-    <div className="rounded-lg border border-charcoal-200 bg-charcoal-50/60 p-3">
+    <div className="rounded-2xl border border-charcoal-200 bg-charcoal-50/60 p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-xs font-bold uppercase tracking-wide text-iris-700">Included software</p>
         <label className="flex items-center gap-1.5 text-xs font-medium text-charcoal-600">
@@ -643,7 +733,7 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
           const cat = LICENSE_CATALOG[l.product];
           const base = isBasePlatform(l.product);
           return (
-            <div key={l.id} className={`rounded-md border p-2 ${base ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"}`}>
+            <div key={l.id} className={`rounded-xl border p-2.5 ${base ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"}`}>
               <div className="flex items-center gap-2">
                 {/* Brand icon where one exists; EUC and NCI-C fall back to a text badge. */}
                 {hasBrandIcon(l.product) ? (
@@ -655,7 +745,7 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
                 <span className="text-xs font-semibold text-charcoal-800">{cat.label}{base ? " (base)" : ""}</span>
                 <span className="ml-auto truncate text-[11px] text-charcoal-500">{cat.category}</span>
                 {!base ? (
-                  <button onClick={() => removeLine(l.id)} className="text-charcoal-400 hover:text-rose-600" aria-label="Remove line">
+                  <button onClick={() => removeLine(l.id)} className={`rounded bg-transparent text-charcoal-400 hover:text-rose-600 ${TACTILE}`} aria-label="Remove line">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 ) : null}

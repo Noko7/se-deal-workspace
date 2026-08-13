@@ -424,10 +424,14 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {doc.scenario.clusters.map((c) => (
-          <div key={c.name} className="rounded-xl border border-charcoal-200 bg-white p-4 shadow-sm">
+        {doc.scenario.clusters.map((c, ci) => (
+          <div
+            key={c.name}
+            className="sizer-rise rounded-2xl border border-charcoal-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5"
+            style={{ "--index": ci } as React.CSSProperties}
+          >
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-charcoal-900">{c.name}</h4>
+              <h4 className="text-sm font-bold tracking-tight text-charcoal-900">{c.name}</h4>
               <span className="rounded-full bg-iris-50 px-2 py-0.5 text-[11px] font-medium text-iris-700">{c.nodes} nodes</span>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -464,9 +468,9 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
       </div>
 
       <div>
-        <h4 className="mb-2 text-sm font-bold text-charcoal-900">Node Spec Sheets</h4>
+        <h4 className="mb-2 text-sm font-bold tracking-tight text-charcoal-900">Node Spec Sheets</h4>
         <div className="grid gap-3 md:grid-cols-2">
-          {uniqueModels.map((m) => {
+          {uniqueModels.map((m, mi) => {
             const front = hardwareImageFor(m.sku);
             const rear = hardwareRearImageFor(m.sku);
             const plat = platformSpecFor(m.sku);
@@ -474,7 +478,11 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
             const empty = emptyDriveSlots(m.sku, m.drives);
             const bays = plat?.maxDriveBays ?? null;
             return (
-              <div key={m.sku} className="rounded-xl border border-charcoal-200 bg-white p-4 shadow-sm">
+              <div
+                key={m.sku}
+                className="sizer-rise rounded-2xl border border-charcoal-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5"
+                style={{ "--index": mi } as React.CSSProperties}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-bold text-charcoal-900">{m.sku}</p>

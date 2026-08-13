@@ -903,9 +903,10 @@ function BuildPlan({
                 }
               />
               <p className="mt-5 max-w-[62ch] text-sm leading-relaxed text-charcoal-600">
-                {plan.profile.family}. {plan.profile.blurb} Sized on {driverText}: {build.fit.nodesForCpu} node
-                {build.fit.nodesForCpu === 1 ? "" : "s"} for CPU, {build.fit.nodesForRam} for memory,{" "}
-                {build.fit.nodesForStorage} for capacity, each at the {settings.targetUtilizationPct}% target.
+                {plan.profile.family}. {plan.profile.blurb} Sized by {driverText} at the{" "}
+                {settings.targetUtilizationPct}% target — the binding constraint. In isolation each dimension
+                would need {build.fit.nodesForCpu} for CPU, {build.fit.nodesForRam} for memory, and{" "}
+                {build.fit.nodesForStorage} for capacity.
                 {build.rfUpgraded ? ` Stepped up to RF3 at ${SIZING_RULES.autoRf3AtNodes}+ nodes per cluster.` : ""}
               </p>
               <CpuBasisNote build={build} settings={settings} />

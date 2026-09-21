@@ -66,7 +66,16 @@ export type ProposalCluster = {
     ssdTiB: number;
     hddTiB: number;
   };
-  utilization: { cpu: number | null; ram: number | null; storage: number | null }; // %
+  // Percentages. `storage` is the capacity-weighted blend of the SSD and HDD
+  // tiers, so it lines up with the usable figure (ssdTiB + hddTiB) the deck
+  // prints beside it. The per-tier values are kept for the detail line.
+  utilization: {
+    cpu: number | null;
+    ram: number | null;
+    storage: number | null;
+    ssd: number | null;
+    hdd: number | null;
+  };
   failover: { nMinus1: number | null; nMinus2: number | null }; // overall % at N-1 / N-2
   models: NodeModel[];
   license: { edition: string; cores: number | null; termMonths: number | null } | null;
@@ -326,6 +335,23 @@ function parseLicense(cblInfo: unknown[]): ProposalCluster["license"] {
   return null;
 }
 
+// Sizer reports utilization per storage tier. The deck shows one "Usable
+// Storage" figure that sums both tiers, so the matching percentage has to be
+// weighted by each tier's share of that capacity -- taking the SSD number alone
+// overstates utilization on any hybrid cluster.
+function blendStorageUtilization(
+  ssdPct: number | null,
+  hddPct: number | null,
+  capacity: ProposalCluster["capacity"],
+): number | null {
+  const ssdCap = capacity.ssdTiB;
+  const hddCap = capacity.hddTiB;
+  if (ssdPct != null && hddPct != null && ssdCap + hddCap > 0) {
+    return (ssdPct * ssdCap + hddPct * hddCap) / (ssdCap + hddCap);
+  }
+  return ssdPct ?? hddPct;
+}
+
 function parseCapacity(cap: unknown): ProposalCluster["capacity"] {
   const c = isObj(cap) ? cap : {};
   return {
@@ -368,7 +394,9 @@ function parseCluster(raw: unknown): ProposalCluster | null {
     utilization: {
       cpu: numOf(cur.cpu),
       ram: numOf(cur.ram),
-      storage: numOf(cur.ssd) ?? numOf(cur.hdd),
+      storage: blendStorageUtilization(numOf(cur.ssd), numOf(cur.hdd), capacity),
+      ssd: numOf(cur.ssd),
+      hdd: numOf(cur.hdd),
     },
     failover: {
       nMinus1: numOf(overall.utilizationPercentageForNminus1),

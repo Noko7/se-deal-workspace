@@ -1,11 +1,22 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Pencil, Receipt, RefreshCw, Sparkles, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
-import { applyDealMode, buildProposalDoc, EXTERNAL_STORAGE_VENDORS, purchasedProducts, type ProposalDoc } from "@/lib/proposal-doc";
-import { buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
+import {
+  addHardwareOption,
+  applyDealMode,
+  buildProposalDoc,
+  EXTERNAL_STORAGE_VENDORS,
+  optionComparison,
+  purchasedProducts,
+  recommendedOption,
+  removeHardwareOption,
+  setRecommendedOption,
+  type ProposalDoc,
+} from "@/lib/proposal-doc";
+import { buildSampleAlternateScenario, buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
@@ -92,37 +103,98 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
   const [dragging, setDragging] = useState(false);
+  // Which proposed hardware option the BOM tab is showing. Falls back to the
+  // recommended one whenever the id no longer exists.
+  const [previewOptionId, setPreviewOptionId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const addInput = useRef<HTMLInputElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
 
-  function loadScenario(scenario: ProposalScenario) {
-    const built = buildProposalDoc(scenario);
+  function loadScenarios(scenarios: { scenario: ProposalScenario; sourceFile: string | null }[]) {
+    if (!scenarios.length) return;
+    let built = buildProposalDoc(scenarios[0].scenario, scenarios[0].sourceFile);
     if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") built.meta.preparedBy = defaultSe;
+    for (const s of scenarios.slice(1)) built = addHardwareOption(built, s.scenario, s.sourceFile);
     setDoc(built);
+    setPreviewOptionId(null);
     setError(null);
   }
 
-  async function handleFile(file: File) {
-    if (file.type && !/json/i.test(file.type) && !/\.json$/i.test(file.name)) {
-      setDoc(null);
-      setError("That is not a JSON file. Export your scenario from sizer.nutanix.com as JSON and try again.");
+  // Parse every dropped file. Each valid Sizer export becomes one proposed
+  // hardware option, so an SE can compare an NX build against an OEM build (or a
+  // distributed build against a consolidated one) in a single deck.
+  async function readSizerFiles(files: File[]): Promise<{
+    parsed: { scenario: ProposalScenario; sourceFile: string }[];
+    failures: { name: string; message: string }[];
+  }> {
+    const parsed: { scenario: ProposalScenario; sourceFile: string }[] = [];
+    const failures: { name: string; message: string }[] = [];
+    for (const file of files) {
+      if (file.type && !/json/i.test(file.type) && !/\.json$/i.test(file.name)) {
+        failures.push({ name: file.name, message: "Not a JSON file." });
+        continue;
+      }
+      try {
+        parsed.push({ scenario: parseSizerScenario(JSON.parse(await file.text())), sourceFile: file.name });
+      } catch (err) {
+        failures.push({
+          name: file.name,
+          message: err instanceof Error ? err.message : "Could not read that file.",
+        });
+      }
+    }
+    return { parsed, failures };
+  }
+
+  // Report partial success honestly: load what parsed, name what did not.
+  function reportFailures(failures: { name: string; message: string }[], loadedCount: number) {
+    if (!failures.length) {
+      setError(null);
       return;
     }
-    try {
-      const text = await file.text();
-      const json = JSON.parse(text);
-      loadScenario(parseSizerScenario(json));
-    } catch (err) {
-      setDoc(null);
-      setError(err instanceof Error ? err.message : "Could not read that file. Upload a Nutanix Sizer scenario JSON export.");
+    if (!loadedCount) {
+      setError(failures.length === 1 ? failures[0].message : `None of the ${failures.length} files could be read as a Nutanix Sizer export.`);
+      return;
     }
+    setError(`Skipped ${failures.length} file${failures.length > 1 ? "s" : ""}: ${failures.map((f) => f.name).join(", ")}`);
+  }
+
+  async function handleFiles(files: File[], mode: "replace" | "add") {
+    if (!files.length) return;
+    const { parsed, failures } = await readSizerFiles(files);
+
+    if (mode === "replace") {
+      if (!parsed.length) {
+        setDoc(null);
+        reportFailures(failures, 0);
+        return;
+      }
+      loadScenarios(parsed);
+      reportFailures(failures, parsed.length);
+      return;
+    }
+
+    if (parsed.length) {
+      setDoc((d) => {
+        if (!d) return d;
+        let next = structuredCloneSafe(d);
+        for (const p of parsed) next = addHardwareOption(next, p.scenario, p.sourceFile);
+        return next;
+      });
+    }
+    reportFailures(failures, parsed.length);
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
-    await handleFile(file);
+    await handleFiles(files, "replace");
+  }
+
+  async function onAddFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await handleFiles(files, "add");
   }
 
   // Shared drag-and-drop handlers for the upload dropzone.
@@ -137,8 +209,8 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) void handleFile(file);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length) void handleFiles(files, "replace");
   }
 
   function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -168,8 +240,11 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
     if (!doc) return;
     setExporting("pptx");
     try {
+      // Every proposed option contributes node spec sheets, so collect renders
+      // across all of them rather than only the recommended build.
       const skus = new Set<string>();
-      doc.scenario.clusters.forEach((c) => c.models.forEach((m) => skus.add(m.sku)));
+      const scenarios = doc.hardwareOptions?.length ? doc.hardwareOptions.map((o) => o.scenario) : [doc.scenario];
+      scenarios.forEach((s) => s.clusters.forEach((c) => c.models.forEach((m) => skus.add(m.sku))));
       const images: Record<string, ImgAsset> = {};
       const rearImages: Record<string, ImgAsset> = {};
       const brand: ProposalBrandImages = { productIcons: {} };
@@ -192,6 +267,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           if (asset) brand.productIcons![p] = asset;
         }),
         loadImageAsset("/brand/deck-cover.png").then((a) => { if (a) brand.coverBg = a; }),
+        loadImageAsset("/brand/deck-section.jpg").then((a) => { if (a) brand.sectionBg = a; }),
         loadImageAsset("/brand/nutanix-wordmark-white.png").then((a) => { if (a) brand.wordmarkWhite = a; }),
         loadImageAsset("/brand/nutanix-mark-black.png").then((a) => { if (a) brand.markBlack = a; }),
         usesPure ? loadImageAsset("/brand/pure-storage.png").then((a) => { if (a) brand.pureLogo = a; }) : Promise.resolve(),
@@ -215,7 +291,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   if (!doc) {
     return (
       <div className="grid items-stretch gap-6 md:grid-cols-[1.05fr_0.95fr]">
-        <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+        <input ref={fileInput} type="file" multiple accept="application/json,.json" className="hidden" onChange={onFile} />
 
         <div className="sizer-rise flex flex-col" style={{ "--index": 0 } as React.CSSProperties}>
           <div className="mb-3 flex items-start justify-between gap-3">
@@ -225,7 +301,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                 Turn a Sizer export into a customer-ready proposal.
               </h2>
               <p className="mt-1.5 max-w-[46ch] text-sm leading-relaxed text-charcoal-500">
-                Drop a Nutanix Sizer scenario and get an on-brand 2-page brief and a polished BOM deck — editable inline, exportable to PDF and PowerPoint.
+                Drop one Nutanix Sizer scenario, or several to put competing hardware builds side by side. You get an on-brand 2-page brief and a polished deck — editable inline, exportable to PDF and PowerPoint.
               </p>
             </div>
             <HelpPopover />
@@ -248,12 +324,17 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
 
           <div className="mt-auto flex flex-wrap items-center gap-3">
             <button
-              onClick={() => loadScenario(buildSampleScenario(defaultSe))}
+              onClick={() =>
+                loadScenarios([
+                  { scenario: buildSampleScenario(defaultSe), sourceFile: null },
+                  { scenario: buildSampleAlternateScenario(defaultSe), sourceFile: null },
+                ])
+              }
               className={`inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-iris-700 ring-1 ring-iris-200 hover:-translate-y-px hover:bg-iris-50 ${TACTILE}`}
             >
               <Sparkles className="h-4 w-4" /> Load {SAMPLE_PROPOSAL_LABEL}
             </button>
-            <span className="text-xs text-charcoal-400">No export handy? Start from a sample.</span>
+            <span className="text-xs text-charcoal-400">No export handy? The sample loads two hardware options to compare.</span>
           </div>
 
           {error ? (
@@ -274,7 +355,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           onDragEnter={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          aria-label="Upload or drop a Nutanix Sizer scenario JSON file"
+          aria-label="Upload or drop one or more Nutanix Sizer scenario JSON files"
           className={`sizer-rise flex min-h-[16rem] w-full flex-col items-start justify-center gap-4 rounded-2xl border-2 border-dashed p-8 text-left ${TACTILE} active:scale-[0.99] ${
             dragging
               ? "scale-[1.01] border-iris-500 bg-iris-100 ring-4 ring-iris-200/60"
@@ -288,13 +369,13 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
             <Upload className="h-7 w-7" strokeWidth={1.75} />
           </span>
           <span className="text-lg font-semibold tracking-tight text-charcoal-900">
-            {dragging ? "Drop to build the proposal" : "Drop a Sizer scenario"}
+            {dragging ? "Drop to build the proposal" : "Drop your Sizer scenarios"}
           </span>
           <span className="max-w-sm text-sm leading-relaxed text-charcoal-500">
-            In sizer.nutanix.com, open your scenario, then Actions → Export → JSON. Drag the file here, or click anywhere in this panel to browse.
+            In sizer.nutanix.com, open your scenario, then Actions → Export → JSON. Drag the files here, or click anywhere in this panel to browse.
           </span>
           <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-iris-600">
-            <FileJson className="h-4 w-4" /> Accepts .json
+            <FileJson className="h-4 w-4" /> Accepts .json · drop several to compare hardware
           </span>
         </button>
       </div>
@@ -302,9 +383,15 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   }
 
   // --- Builder ---------------------------------------------------------------
+  // The option the BOM tab is showing. A stale id (after a removal) resolves
+  // back to the recommended build rather than blanking the preview.
+  const previewedOption =
+    doc.hardwareOptions?.find((o) => o.id === previewOptionId) ?? recommendedOption(doc) ?? null;
+
   return (
     <div className="space-y-4">
-      <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+      <input ref={fileInput} type="file" multiple accept="application/json,.json" className="hidden" onChange={onFile} />
+      <input ref={addInput} type="file" multiple accept="application/json,.json" className="hidden" onChange={onAddFiles} />
       <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={onLogo} />
 
       <div className={`sizer-rise flex flex-wrap items-center gap-3 rounded-2xl border border-charcoal-200 bg-white p-3 ${SURFACE_SHADOW}`} style={{ "--index": 0 } as React.CSSProperties}>
@@ -335,6 +422,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
             />
             <p className="text-xs text-charcoal-500">
               {doc.scenario.totals.clusters} clusters · {doc.scenario.totals.nodes} nodes · {doc.scenario.totals.cores} cores
+              {doc.hardwareOptions?.length > 1 ? ` · ${doc.hardwareOptions.length} hardware options` : ""}
             </p>
           </div>
         </div>
@@ -355,8 +443,11 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
               <span className="flex items-center gap-1.5"><ImagePlus className="h-4 w-4" strokeWidth={1.75} /> Customer logo</span>
             </Button>
           )}
+          <Button tone="secondary" className={TACTILE} onClick={() => addInput.current?.click()}>
+            <span className="flex items-center gap-1.5"><Plus className="h-4 w-4" strokeWidth={1.75} /> Add hardware</span>
+          </Button>
           <Button tone="secondary" className={TACTILE} onClick={() => fileInput.current?.click()}>
-            <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" strokeWidth={1.75} /> Change file</span>
+            <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" strokeWidth={1.75} /> Start over</span>
           </Button>
           <Button className={TACTILE} onClick={exportPdf} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pdf" ? <WorkingDots /> : <FileDown className="h-4 w-4" strokeWidth={1.75} />} 2-Pager PDF</span>
@@ -371,6 +462,26 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       <div className="grid items-start gap-4 xl:grid-cols-[380px_1fr]">
         {/* Editor — flows the full height of the page (no internal scroll cap). */}
         <div className="sizer-rise space-y-3 pr-1" style={{ "--index": 1 } as React.CSSProperties}>
+          {error ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
+            >
+              <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </p>
+          ) : null}
+
+          <Section title="Hardware options" icon={<Server className="h-4 w-4" />} defaultOpen>
+            <HardwareOptionsEditor
+              doc={doc}
+              patch={patch}
+              onAdd={() => addInput.current?.click()}
+              previewOptionId={previewOptionId}
+              onPreview={setPreviewOptionId}
+            />
+          </Section>
+
           <Section title="Deal type" icon={<FileText className="h-4 w-4" />} defaultOpen>
             {/* Switching to external storage reframes the customer-facing copy. */}
             <div>
@@ -428,15 +539,38 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           <Section title="Software scope" icon={<Receipt className="h-4 w-4" />} defaultOpen>
             <LicensingEditor doc={doc} patch={patch} />
             <Field label="Support term" value={doc.meta.supportTerm} onChange={(v) => patch((d) => ((d.meta.supportTerm = v), d))} />
-            <label className="flex items-center gap-2 text-xs font-medium text-charcoal-700">
-              <input
-                type="checkbox"
-                checked={doc.options?.includeSoftwareSlides ?? true}
-                onChange={(e) => patch((d) => ((d.options ??= { includeSoftwareSlides: true, externalStorage: false, externalStorageVendor: "Pure Storage" }), (d.options.includeSoftwareSlides = e.target.checked), d))}
-                className="h-4 w-4 accent-iris-500"
-              />
-              Include full NCI editions comparison + support slides in the .pptx
-            </label>
+
+            <div className="space-y-2 border-t border-charcoal-100 pt-3">
+              <p className="text-[11px] font-semibold text-charcoal-600">Licensing pages in the .pptx</p>
+              <label className="flex items-start gap-2 text-xs font-medium text-charcoal-700">
+                <input
+                  type="checkbox"
+                  checked={doc.options?.includeSoftwareSlides ?? true}
+                  onChange={(e) => patch((d) => ((d.options.includeSoftwareSlides = e.target.checked), d))}
+                  className="mt-0.5 h-4 w-4 accent-iris-500"
+                />
+                <span>
+                  Support program comparison
+                  <span className="block text-[11px] font-normal text-charcoal-400">Coverage and response commitments.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-xs font-medium text-charcoal-700">
+                <input
+                  type="checkbox"
+                  checked={doc.options?.includeAllLicensingPages ?? false}
+                  onChange={(e) => patch((d) => ((d.options.includeAllLicensingPages = e.target.checked), d))}
+                  className="mt-0.5 h-4 w-4 accent-iris-500"
+                />
+                <span>
+                  Every product in the portfolio
+                  <span className="block text-[11px] font-normal text-charcoal-400">
+                    {doc.options?.includeAllLicensingPages
+                      ? "All 11 products get an edition ladder and capability matrix."
+                      : "Off: only the products this design licenses get licensing pages."}
+                  </span>
+                </span>
+              </label>
+            </div>
           </Section>
         </div>
 
@@ -457,6 +591,32 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                 <span className="sizer-breathe h-2 w-2 rounded-full bg-mantis" aria-hidden />
                 {exporting ? "Preparing export" : "Live preview"}
               </span>
+              {/* Which hardware option the BOM preview is showing. Only earns its
+                  place on screen once there is more than one to choose from. */}
+              {tab === "bom" && doc.hardwareOptions?.length > 1 ? (
+                <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-charcoal-300 bg-white p-1 text-xs">
+                  {doc.hardwareOptions.map((o) => {
+                    const active = previewedOption?.id === o.id;
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => setPreviewOptionId(o.id)}
+                        aria-pressed={active}
+                        title={o.name}
+                        className={`rounded-lg px-2.5 py-1 font-semibold ${TACTILE} ${
+                          active ? "bg-iris-100 text-iris-700 ring-1 ring-iris-200" : "bg-transparent text-charcoal-600 hover:bg-charcoal-100"
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">
+                          {o.label}
+                          {o.recommended ? <Star className="h-3 w-3 fill-current text-iris-500" strokeWidth={1.75} /> : null}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
               {tab === "twopager" ? (
                 <div className="inline-flex items-center gap-1 rounded-xl border border-charcoal-300 bg-white p-1 text-xs">
                   <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} disabled={zoom <= 0.5} className={`rounded-lg bg-transparent p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40 ${TACTILE}`} aria-label="Zoom out" title="Zoom out">
@@ -482,7 +642,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                 </PreviewScaler>
               </div>
             ) : (
-              <ProposalBomPreview doc={doc} />
+              <ProposalBomPreview doc={doc} scenario={previewedOption?.scenario} />
             )}
           </div>
         </div>
@@ -650,6 +810,155 @@ function Field({ label, value, onChange, helper }: { label: string; value: strin
     </label>
   );
 }
+
+// Manage the proposed hardware builds: rename them, pick which one the proposal
+// recommends, and drop the ones that did not make the cut. One option is always
+// recommended, and the last remaining option cannot be removed — a proposal has
+// to describe some hardware.
+function HardwareOptionsEditor({
+  doc,
+  patch,
+  onAdd,
+  previewOptionId,
+  onPreview,
+}: {
+  doc: ProposalDoc;
+  patch: (u: (d: ProposalDoc) => ProposalDoc) => void;
+  onAdd: () => void;
+  previewOptionId: string | null;
+  onPreview: (id: string) => void;
+}) {
+  const options = doc.hardwareOptions ?? [];
+  const multi = options.length > 1;
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] leading-relaxed text-charcoal-500">
+        {multi
+          ? "The deck opens with a side-by-side comparison, then covers each build in full. The recommended option drives the executive summary and the per-core licensing quantity."
+          : "Add a second Sizer export to propose an alternative build. The deck will compare them side by side."}
+      </p>
+
+      <div className="space-y-2">
+        {options.map((o) => {
+          const t = o.scenario.totals;
+          const previewing = previewOptionId === o.id;
+          return (
+            <div
+              key={o.id}
+              className={`rounded-xl border p-2.5 ${
+                o.recommended ? "border-iris-200 bg-iris-50/60" : "border-charcoal-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`flex h-5 shrink-0 items-center rounded px-1.5 text-[10px] font-extrabold ${
+                    o.recommended ? "bg-iris-600 text-white" : "bg-charcoal-200 text-charcoal-700"
+                  }`}
+                >
+                  {o.label.replace("Option ", "")}
+                </span>
+                <EditableText
+                  inline
+                  value={o.name}
+                  className="min-w-0 flex-1 truncate text-xs font-semibold text-charcoal-800"
+                  onCommit={(v) =>
+                    patch((d) => {
+                      const target = d.hardwareOptions.find((x) => x.id === o.id);
+                      if (target) target.name = v || target.name;
+                      return d;
+                    })
+                  }
+                />
+                {multi ? (
+                  <button
+                    onClick={() => patch((d) => removeHardwareOption(d, o.id))}
+                    className={`rounded bg-transparent text-charcoal-400 hover:text-rose-600 ${TACTILE}`}
+                    aria-label={`Remove ${o.label}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+
+              <p className="mt-1 text-[11px] text-charcoal-500">
+                {t.clusters} clusters · {t.nodes} nodes · {fmtCompact(t.cores)} cores · {fmtCompact(t.ramGiB)} GB
+              </p>
+              {o.sourceFile ? (
+                <p className="truncate text-[10px] text-charcoal-400" title={o.sourceFile}>
+                  {o.sourceFile}
+                </p>
+              ) : null}
+
+              {multi ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => patch((d) => setRecommendedOption(d, o.id))}
+                    aria-pressed={o.recommended}
+                    disabled={o.recommended}
+                    className={`${toggleClass(o.recommended)} disabled:cursor-default`}
+                  >
+                    <Star className={`h-3 w-3 ${o.recommended ? "fill-current text-iris-500" : "text-charcoal-400"}`} strokeWidth={1.75} />
+                    {o.recommended ? "Recommended" : "Recommend"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPreview(o.id)}
+                    aria-pressed={previewing}
+                    className={toggleClass(previewing)}
+                  >
+                    <Layers className="h-3 w-3" strokeWidth={1.75} />
+                    Preview
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={onAdd}
+        className={`flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-charcoal-300 bg-white px-3 py-2 text-xs font-semibold text-charcoal-600 hover:-translate-y-px hover:border-iris-400 hover:bg-iris-50/50 hover:text-iris-700 ${TACTILE}`}
+      >
+        <Plus className="h-3.5 w-3.5" strokeWidth={2} /> Add another Sizer export
+      </button>
+
+      {multi ? (
+        <div className="rounded-xl border border-charcoal-200 bg-white p-2.5">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-iris-700">Side by side</p>
+          <dl className="space-y-1">
+            {optionComparison(doc)
+              .filter((m) => m.label !== "Platform" && m.label !== "Node models")
+              .map((m) => (
+                <div key={m.label} className="flex items-baseline gap-2 border-b border-charcoal-100 pb-1 last:border-0">
+                  <dt className="w-24 shrink-0 text-[10px] text-charcoal-500">{m.label}</dt>
+                  <dd className="flex min-w-0 flex-1 gap-2">
+                    {m.values.map((v, i) => (
+                      <span
+                        key={i}
+                        className={`min-w-0 flex-1 truncate text-[10px] ${
+                          options[i]?.recommended ? "font-semibold text-charcoal-900" : "text-charcoal-500"
+                        }`}
+                        title={v}
+                      >
+                        {v}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Thousands separators for the compact option summaries.
+const fmtCompact = (n: number) => Math.round(n).toLocaleString("en-US");
 
 function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: ProposalDoc) => ProposalDoc) => void }) {
   const lines = doc.licensing.lines;

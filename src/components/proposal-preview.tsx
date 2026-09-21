@@ -7,9 +7,11 @@ import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor,
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { EDITION_TAGLINE, type EditionKey } from "@/lib/nci-editions";
 import { LICENSE_CATALOG } from "@/lib/license-catalog";
+import type { ProposalScenario } from "@/lib/sizer-import";
 import {
   basePlatformLabel,
   basePlatformLine,
+  capacityRows,
   cpuSummary,
   hardwareRollup,
   memorySummary,
@@ -417,14 +419,19 @@ export function ProposalTwoPager({
   );
 }
 
-/** Per-cluster + node spec preview that mirrors the BOM deck content. */
-export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
+/**
+ * Per-cluster + node spec preview that mirrors the BOM deck content. `scenario`
+ * selects which proposed hardware option is being previewed; it defaults to the
+ * recommended one that `doc.scenario` mirrors.
+ */
+export function ProposalBomPreview({ doc, scenario }: { doc: ProposalDoc; scenario?: ProposalScenario }) {
+  const shown = scenario ?? doc.scenario;
   const seen = new Set<string>();
-  const uniqueModels = doc.scenario.clusters.flatMap((c) => c.models).filter((m) => (seen.has(m.sku) ? false : (seen.add(m.sku), true)));
+  const uniqueModels = shown.clusters.flatMap((c) => c.models).filter((m) => (seen.has(m.sku) ? false : (seen.add(m.sku), true)));
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {doc.scenario.clusters.map((c, ci) => (
+        {shown.clusters.map((c, ci) => (
           <div
             key={c.name}
             className="sizer-rise rounded-2xl border border-charcoal-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5"
@@ -434,18 +441,35 @@ export function ProposalBomPreview({ doc }: { doc: ProposalDoc }) {
               <h4 className="text-sm font-bold tracking-tight text-charcoal-900">{c.name}</h4>
               <span className="rounded-full bg-iris-50 px-2 py-0.5 text-[11px] font-medium text-iris-700">{c.nodes} nodes</span>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              {[
-                { l: "Cores", v: fmtInt(c.capacity.cores), u: c.utilization.cpu },
-                { l: "RAM", v: `${fmtInt(c.capacity.ramGiB)}G`, u: c.utilization.ram },
-                { l: "Storage", v: tib(c.capacity.ssdTiB + c.capacity.hddTiB), u: c.utilization.storage },
-              ].map((m) => (
-                <div key={m.l} className="rounded-lg bg-charcoal-50 px-1.5 py-2">
-                  <p className="text-[13px] font-bold text-charcoal-900">{m.v}</p>
-                  <p className="text-[10px] text-charcoal-500">{m.l}</p>
-                  {m.u != null ? <p className="text-[10px] font-medium text-iris-600">{m.u}%</p> : null}
-                </div>
-              ))}
+            {/* Same rows, precision and phrasing the .pptx exporter uses, so the
+                preview and the deck can never disagree about a number. */}
+            <div className="mt-3 divide-y divide-charcoal-100 border-y border-charcoal-100">
+              {capacityRows(c).map((row) => {
+                const over = (row.pct ?? 0) > 100;
+                return (
+                  <div key={row.label} className="py-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[10px] text-charcoal-500">{row.label}</span>
+                      <span className={`text-[10px] font-medium ${over ? "text-rose-700" : "text-charcoal-500"}`}>
+                        {row.pctLabel ? `${row.pctLabel} utilized` : ""}
+                      </span>
+                    </div>
+                    <p className="text-[13px] font-bold text-charcoal-900">{row.value}</p>
+                    {row.pct != null ? (
+                      <div className="mt-1 h-1 w-full bg-charcoal-100">
+                        <div
+                          className="h-1"
+                          style={{
+                            width: `${Math.min(Math.max(row.pct, 0), 100)}%`,
+                            background: over ? cssHex(NUTANIX.coral) : PURPLE,
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    {row.detail ? <p className="mt-1 text-[9px] text-charcoal-400">{row.detail}</p> : null}
+                  </div>
+                );
+              })}
             </div>
             <div className="mt-3 space-y-1.5">
               {c.models.map((m, i) => (

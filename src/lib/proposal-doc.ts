@@ -38,6 +38,22 @@ export type HardwareVendor = "Nutanix" | "Dell" | "Cisco" | "HPE" | "Lenovo" | "
 export type ExternalStorageVendor = "Pure Storage" | "Dell PowerStore";
 export const EXTERNAL_STORAGE_VENDORS: ExternalStorageVendor[] = ["Pure Storage", "Dell PowerStore"];
 
+// One proposed hardware build. A deal often puts two or three of these in front
+// of a customer -- the same workload sized on NX versus an OEM platform, or a
+// distributed build versus a consolidated one -- each arriving as its own Sizer
+// JSON export. Exactly one option is `recommended`; that option's scenario is
+// mirrored into `doc.scenario`, which remains the single source the narrative,
+// rollups and two-pager read from.
+export type HardwareOption = {
+  id: string;
+  label: string; // "Option A" — positional, reassigned on add/remove
+  name: string; // editable display name, e.g. "Nutanix NX-8170-G10"
+  vendor: HardwareVendor;
+  sourceFile: string | null; // the uploaded filename, for provenance
+  recommended: boolean;
+  scenario: ProposalScenario;
+};
+
 export type ProposalDoc = {
   meta: {
     customer: string;
@@ -53,11 +69,16 @@ export type ProposalDoc = {
   };
   options: {
     includeSoftwareSlides: boolean; // full NCI editions comparison + support
+    // Render a licensing page for every product in the portfolio rather than
+    // only the ones this design licenses.
+    includeAllLicensingPages: boolean;
     // External-storage deal: positions the design as Nutanix compute (AHV/NCI)
     // running against an external enterprise array, which reframes the copy.
     externalStorage: boolean;
     externalStorageVendor: ExternalStorageVendor;
   };
+  // Always at least one entry. doc.scenario mirrors the recommended option.
+  hardwareOptions: HardwareOption[];
   contacts: Contact[];
   executiveSummary: string;
   challengesIntro: string;
@@ -172,6 +193,57 @@ export function storageSummary(m: NodeModel): string {
   return m.drives
     .map((d) => `${d.perNode}× ${d.sizeTB} TB ${d.kind}`)
     .join(" + ");
+}
+
+/**
+ * Print a utilization percentage at a single, declared precision: one decimal,
+ * with a trailing ".0" trimmed. Sizer reports figures like 61.43076923076923,
+ * so interpolating the raw number produces a nonsense label, and rounding to a
+ * whole number quietly misstates the design.
+ */
+export function formatPct(pct: number): string {
+  return pct.toFixed(1).replace(/\.0$/, "");
+}
+
+// One row of the cluster capacity block: what was sized, and how much of it the
+// workload consumes.
+export type CapacityRow = {
+  label: string;
+  value: string;
+  pct: number | null; // raw, unrounded — drives the bar width
+  pctLabel: string | null; // rendered percentage, e.g. "61.4%"
+  detail: string | null; // per-tier breakdown, when the blend hides detail
+};
+
+/**
+ * The canonical CPU / memory / storage rows for a cluster. The preview and the
+ * .pptx exporter both read this, so the two can never disagree about either the
+ * number or the way it is phrased.
+ */
+export function capacityRows(c: ProposalCluster): CapacityRow[] {
+  const u = c.utilization;
+  const usableTiB = c.capacity.ssdTiB + c.capacity.hddTiB;
+
+  // Show the tier split only when both tiers carry capacity — otherwise the
+  // blended figure is simply the one tier's number and a breakdown adds noise.
+  const hybrid = c.capacity.ssdTiB > 0 && c.capacity.hddTiB > 0 && u.ssd != null && u.hdd != null;
+  const storageDetail = hybrid
+    ? `Flash ${formatPct(u.ssd as number)}% of ${tib(c.capacity.ssdTiB)} · HDD ${formatPct(u.hdd as number)}% of ${tib(c.capacity.hddTiB)}`
+    : null;
+
+  const row = (label: string, value: string, pct: number | null, detail: string | null = null): CapacityRow => ({
+    label,
+    value,
+    pct,
+    pctLabel: pct == null ? null : `${formatPct(pct)}%`,
+    detail,
+  });
+
+  return [
+    row("CPU Cores", fmtInt(c.capacity.cores), u.cpu),
+    row("Memory", `${fmtInt(c.capacity.ramGiB)} GB`, u.ram),
+    row("Usable Storage", tib(usableTiB), u.storage, storageDetail),
+  ];
 }
 
 function clusterSummaryLine(c: ProposalCluster): string {
@@ -327,7 +399,7 @@ function detectExternalStorageVendor(scenario: ProposalScenario): ExternalStorag
 }
 
 /** Build a ready-to-edit proposal with defaults derived from the scenario. */
-export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
+export function buildProposalDoc(scenario: ProposalScenario, sourceFile: string | null = null): ProposalDoc {
   const t = scenario.totals;
 
   // Auto-detect an external-storage build (e.g. Nutanix compute + Pure FlashArray)
@@ -357,6 +429,7 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
     },
     options: {
       includeSoftwareSlides: true,
+      includeAllLicensingPages: false,
       externalStorage: externalStorageDetected,
       externalStorageVendor: detectedVendor,
     },
@@ -376,9 +449,144 @@ export function buildProposalDoc(scenario: ProposalScenario): ProposalDoc {
       termYears: 3,
       lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) })],
     },
+    hardwareOptions: [newHardwareOption(scenario, 0, sourceFile, true)],
     scenario,
   };
   return built;
+}
+
+// --- multiple hardware options ----------------------------------------------
+
+/** Positional label for an option: 0 -> "Option A". Wraps past 26 as "Option AA". */
+export function optionLabel(index: number): string {
+  let n = index;
+  let s = "";
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `Option ${s}`;
+}
+
+/**
+ * Readable default name for an option. Naming every SKU stops being useful past
+ * a couple of models, so a mixed build is described by its shape instead. The
+ * SE can rename it; the full model list is on the comparison slide regardless.
+ */
+export function defaultOptionName(scenario: ProposalScenario): string {
+  const skus = [...new Set(scenario.clusters.flatMap((c) => c.models.map((m) => m.sku)))];
+  const vendor = detectVendor(scenario);
+  if (!skus.length) return `${vendor} platform`;
+  if (skus.length <= 2) return `${vendor} ${skus.join(" + ")}`;
+  return `${vendor} mixed build · ${skus.length} models, ${fmtInt(scenario.totals.nodes)} nodes`;
+}
+
+let optionCounter = 0;
+export function newHardwareOption(
+  scenario: ProposalScenario,
+  index: number,
+  sourceFile: string | null = null,
+  recommended = false,
+): HardwareOption {
+  return {
+    id: `hw_${Date.now().toString(36)}_${(optionCounter++).toString(36)}`,
+    label: optionLabel(index),
+    name: defaultOptionName(scenario),
+    vendor: detectVendor(scenario),
+    sourceFile,
+    recommended,
+    scenario,
+  };
+}
+
+/** The recommended option, falling back to the first when a doc is hand-edited. */
+export function recommendedOption(doc: ProposalDoc): HardwareOption | null {
+  if (!doc.hardwareOptions?.length) return null;
+  return doc.hardwareOptions.find((o) => o.recommended) ?? doc.hardwareOptions[0];
+}
+
+// Keep labels positional (A, B, C...) and guarantee exactly one recommendation.
+function normalizeOptions(options: HardwareOption[]): HardwareOption[] {
+  const hasRecommended = options.some((o) => o.recommended);
+  return options.map((o, i) => ({
+    ...o,
+    label: optionLabel(i),
+    recommended: hasRecommended ? o.recommended : i === 0,
+  }));
+}
+
+// Mirror the recommended option into the fields derived from a single scenario,
+// so the narrative, rollups and per-core licensing quantity all describe the
+// build the customer is actually being pointed at.
+function syncToRecommended(doc: ProposalDoc): ProposalDoc {
+  const rec = recommendedOption(doc);
+  if (!rec) return doc;
+  const previousCores = Math.round(doc.scenario.totals.cores);
+  doc.scenario = rec.scenario;
+  doc.meta.vendor = rec.vendor;
+
+  // Re-quantify the base platform against the new build. Editions and add-on
+  // quantities are deliberate SE choices, so they are left alone; the base
+  // per-core count is a direct function of the hardware and would otherwise go
+  // stale the moment the recommendation changes.
+  const base = doc.licensing.lines.find((l) => isBasePlatform(l.product));
+  if (base && base.qty === previousCores) base.qty = Math.round(rec.scenario.totals.cores);
+  return doc;
+}
+
+/** Append a parsed scenario as a new option. The first upload stays recommended. */
+export function addHardwareOption(doc: ProposalDoc, scenario: ProposalScenario, sourceFile: string | null): ProposalDoc {
+  const existing = doc.hardwareOptions ?? [];
+  const next = [...existing, newHardwareOption(scenario, existing.length, sourceFile, existing.length === 0)];
+  doc.hardwareOptions = normalizeOptions(next);
+  return syncToRecommended(doc);
+}
+
+/** Remove an option. Removing the recommended one promotes the first remaining. */
+export function removeHardwareOption(doc: ProposalDoc, id: string): ProposalDoc {
+  const remaining = (doc.hardwareOptions ?? []).filter((o) => o.id !== id);
+  if (!remaining.length) return doc; // a proposal always describes some hardware
+  if (!remaining.some((o) => o.recommended)) remaining[0] = { ...remaining[0], recommended: true };
+  doc.hardwareOptions = normalizeOptions(remaining);
+  return syncToRecommended(doc);
+}
+
+/** Point the proposal at a different option. */
+export function setRecommendedOption(doc: ProposalDoc, id: string): ProposalDoc {
+  doc.hardwareOptions = (doc.hardwareOptions ?? []).map((o) => ({ ...o, recommended: o.id === id }));
+  return syncToRecommended(doc);
+}
+
+// One row of the side-by-side option comparison.
+export type OptionComparisonMetric = {
+  label: string;
+  /** Values positionally aligned with doc.hardwareOptions. */
+  values: string[];
+};
+
+/** Metrics table for the "Hardware Options" comparison slide. */
+export function optionComparison(doc: ProposalDoc): OptionComparisonMetric[] {
+  const opts = doc.hardwareOptions ?? [];
+  const metric = (label: string, pick: (o: HardwareOption) => string): OptionComparisonMetric => ({
+    label,
+    values: opts.map(pick),
+  });
+  return [
+    metric("Platform", (o) => o.name),
+    metric("Clusters", (o) => fmtInt(o.scenario.totals.clusters)),
+    metric("Nodes", (o) => fmtInt(o.scenario.totals.nodes)),
+    metric("CPU cores", (o) => fmtInt(o.scenario.totals.cores)),
+    metric("Memory", (o) => `${fmtInt(o.scenario.totals.ramGiB)} GB`),
+    metric("Usable storage", (o) => tib(o.scenario.totals.ssdTiB + o.scenario.totals.hddTiB)),
+    metric("Node models", (o) => {
+      const skus = [...new Set(o.scenario.clusters.flatMap((c) => c.models.map((m) => m.sku)))];
+      return skus.join(", ") || "—";
+    }),
+    metric("Headroom at N-1", (o) => {
+      const pcts = o.scenario.clusters.map((c) => c.failover.nMinus1).filter((p): p is number => p != null);
+      return pcts.length ? `${formatPct(Math.max(...pcts))}% peak` : "—";
+    }),
+  ];
 }
 
 // Helpers reused by the preview + exporters.

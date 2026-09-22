@@ -1,4 +1,5 @@
 import type { NodeModel, ProposalCluster, ProposalScenario } from "@/lib/sizer-import";
+import type { ParsedEnvironment } from "@/lib/simple-sizer-core";
 import { editionFromLicense, type EditionKey } from "@/lib/nci-editions";
 import { isBasePlatform, LICENSE_CATALOG, newLicenseLine, type LicenseLine } from "@/lib/license-catalog";
 import type { ProductKey } from "@/lib/nutanix-icons";
@@ -37,6 +38,16 @@ export type HardwareVendor = "Nutanix" | "Dell" | "Cisco" | "HPE" | "Lenovo" | "
 // the most common, with Dell PowerStore also supported.
 export type ExternalStorageVendor = "Pure Storage" | "Dell PowerStore";
 export const EXTERNAL_STORAGE_VENDORS: ExternalStorageVendor[] = ["Pure Storage", "Dell PowerStore"];
+
+// A parsed customer environment plus where it came from. The parse itself is
+// the Simple Sizer's `ParsedEnvironment`, reused verbatim so the proposal and
+// the sizer can never disagree about what an export says.
+export type CurrentEnvironment = {
+  parsed: ParsedEnvironment;
+  sourceFile: string;
+  /** "collector_excel" | "rvtools" | "liveoptics", carried for slide provenance. */
+  source: ParsedEnvironment["source"];
+};
 
 // One proposed hardware build. A deal often puts two or three of these in front
 // of a customer -- the same workload sized on NX versus an OEM platform, or a
@@ -79,6 +90,11 @@ export type ProposalDoc = {
   };
   // Always at least one entry. doc.scenario mirrors the recommended option.
   hardwareOptions: HardwareOption[];
+  // The customer's estate as it runs today, parsed from a Nutanix Collector,
+  // RVTools or LiveOptics export by the Simple Sizer's parser. Optional: a
+  // proposal is complete without it, and it only exists once an SE uploads one.
+  // Holding it here is what lets the deck compare today against the proposal.
+  environment: CurrentEnvironment | null;
   contacts: Contact[];
   executiveSummary: string;
   challengesIntro: string;
@@ -450,9 +466,16 @@ export function buildProposalDoc(scenario: ProposalScenario, sourceFile: string 
       lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) })],
     },
     hardwareOptions: [newHardwareOption(scenario, 0, sourceFile, true)],
+    environment: null,
     scenario,
   };
   return built;
+}
+
+/** Attach (or replace) the customer's current estate on a proposal. */
+export function setEnvironment(doc: ProposalDoc, environment: CurrentEnvironment | null): ProposalDoc {
+  doc.environment = environment;
+  return doc;
 }
 
 // --- multiple hardware options ----------------------------------------------

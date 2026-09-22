@@ -43,6 +43,10 @@ yarn-error.log*
 /docs/**
 !/docs/*.md
 
+# Customer QBR/Health sample downloads used for local parser dev — real customer
+# data, must never reach the remote.
+/samples/**
+
 # vercel
 .vercel
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Download, FileDown, FileJson, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Boxes, Check, ChevronDown, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import {
@@ -13,9 +13,14 @@ import {
   purchasedProducts,
   recommendedOption,
   removeHardwareOption,
+  setEnvironment,
   setRecommendedOption,
+  type CurrentEnvironment,
   type ProposalDoc,
 } from "@/lib/proposal-doc";
+import { parseSizerWorkbook } from "@/lib/simple-sizer";
+import type { SizerSource } from "@/lib/simple-sizer-core";
+import { fmtInt, fmtRam } from "@/lib/sizer-format";
 import { buildSampleAlternateScenario, buildSampleScenario, SAMPLE_PROPOSAL_LABEL } from "@/lib/proposal-sample";
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
@@ -479,6 +484,13 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
               onAdd={() => addInput.current?.click()}
               previewOptionId={previewOptionId}
               onPreview={setPreviewOptionId}
+            />
+          </Section>
+
+          <Section title="Current environment" icon={<Boxes className="h-4 w-4" />} defaultOpen>
+            <CurrentEnvironmentEditor
+              environment={doc.environment}
+              onSet={(env) => patch((d) => setEnvironment(d, env))}
             />
           </Section>
 
@@ -959,6 +971,276 @@ function HardwareOptionsEditor({
 
 // Thousands separators for the compact option summaries.
 const fmtCompact = (n: number) => Math.round(n).toLocaleString("en-US");
+
+// The three inventory exports the Simple Sizer parser understands. Detection is
+// manual — the workbooks look similar enough that guessing is unreliable — so
+// the SE tells us which one they are handing over.
+const ENV_SOURCES: { value: SizerSource; label: string }[] = [
+  { value: "collector_excel", label: "Collector" },
+  { value: "rvtools", label: "RVTools" },
+  { value: "liveoptics", label: "LiveOptics" },
+];
+
+// Full provenance labels for the parsed summary.
+const ENV_SOURCE_LABEL: Record<SizerSource, string> = {
+  collector_excel: "Nutanix Collector",
+  rvtools: "VMware RVTools",
+  liveoptics: "Dell LiveOptics",
+};
+
+const MAX_ENV_BYTES = 30 * 1024 * 1024; // 30 MB, matching the Simple Sizer cap.
+
+// The customer's estate as it runs today, parsed from a Nutanix Collector,
+// VMware RVTools or Dell LiveOptics Excel export. This is separate from the
+// proposed-hardware Sizer JSON above: it describes what the customer has now and
+// anchors a "Current environment" deck section against the proposed build.
+//
+// Privacy is the point here. The workbook is read entirely in this browser via
+// the Simple Sizer's parser and is never uploaded, so a customer's inventory
+// never reaches the server or the network — the same promise the Simple Sizer
+// makes on screen.
+function CurrentEnvironmentEditor({
+  environment,
+  onSet,
+}: {
+  environment: CurrentEnvironment | null;
+  onSet: (env: CurrentEnvironment | null) => void;
+}) {
+  const [source, setSource] = useState<SizerSource>("collector_excel");
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function ingest(file: File) {
+    if (parsing) return;
+    // Same gate as the Simple Sizer: only real .xlsx/.xls workbooks. A raw
+    // Collector ZIP or a CSV can't be read here, and saying so up front beats a
+    // cryptic parser error further down.
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      setError("That needs to be an .xlsx or .xls export. ZIPs and CSVs aren't supported here.");
+      return;
+    }
+    if (file.size === 0) {
+      setError("That file is empty. Re-export from the source tool and try again.");
+      return;
+    }
+    if (file.size > MAX_ENV_BYTES) {
+      setError("That file is over 30 MB. Trim the export or split it before uploading.");
+      return;
+    }
+
+    setParsing(true);
+    setError(null);
+    try {
+      // Parsed here in the browser. The workbook bytes are never uploaded, so a
+      // customer's inventory never reaches the server or the network at all.
+      const bytes = await file.arrayBuffer();
+      // Yield a frame first so the reading state paints before the parse blocks
+      // the main thread — a large export takes a moment.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+      const parsed = parseSizerWorkbook(bytes, source, file.name, file.size);
+      if (!parsed.clusterDetails.length) {
+        throw new Error("No clusters were found in that file. Check that it's the full export and matches the selected export type.");
+      }
+      onSet({ parsed, sourceFile: file.name, source: parsed.source });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong reading the file.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) void ingest(file);
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void ingest(file);
+  }
+
+  return (
+    <div className="space-y-3">
+      <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onPick} />
+
+      <p className="text-[11px] leading-relaxed text-charcoal-500">
+        Add the customer&apos;s estate as it runs today, from a Nutanix Collector, VMware RVTools or Dell LiveOptics export.
+        It anchors a Current environment section against the proposed build. Optional — a proposal is complete without it.
+      </p>
+
+      {/* Privacy promise, kept accurate: this parse happens in the browser and
+          nothing is uploaded. Mirrors the Simple Sizer's on-screen copy. */}
+      <p className="flex items-start gap-2 rounded-xl border border-charcoal-200 bg-charcoal-50 px-3 py-2 text-[11px] leading-relaxed text-charcoal-600">
+        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mantis" strokeWidth={1.75} />
+        <span>
+          <span className="font-semibold text-charcoal-800">Your file never leaves this machine.</span> The workbook is read
+          in your browser, not uploaded to a server. Nothing is stored, so closing this tab discards it.
+        </span>
+      </p>
+
+      {environment ? (
+        <EnvironmentSummary
+          environment={environment}
+          onRemove={() => {
+            onSet(null);
+            setError(null);
+          }}
+        />
+      ) : (
+        <>
+          {/* Manual source pick, using the shared chip styling so it reads the
+              same as the licensing and deal-type selectors above. */}
+          <div>
+            <p className="mb-1 text-[11px] font-semibold text-charcoal-600">
+              Export type <span className="font-normal text-charcoal-400">(match your file)</span>
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {ENV_SOURCES.map((s) => {
+                const selected = source === s.value;
+                return (
+                  <button key={s.value} type="button" onClick={() => setSource(s.value)} aria-pressed={selected} className={toggleClass(selected)}>
+                    <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${selected ? "border-iris-500 bg-iris-500 text-white" : "border-charcoal-300"}`}>
+                      {selected ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {parsing ? (
+            <EnvironmentReadingSkeleton />
+          ) : (
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!dragging) setDragging(true);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                if (!dragging) setDragging(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragging(false);
+              }}
+              onDrop={onDrop}
+              aria-label="Upload or drop a Collector, RVTools or LiveOptics Excel export"
+              className={`flex w-full flex-col items-start gap-2 rounded-xl border-2 border-dashed p-4 text-left ${TACTILE} active:scale-[0.99] ${
+                dragging
+                  ? "scale-[1.005] border-iris-500 bg-iris-100 ring-4 ring-iris-200/60"
+                  : "border-charcoal-300 bg-white hover:-translate-y-px hover:border-iris-400 hover:bg-iris-50/40"
+              }`}
+            >
+              <span className={`flex h-9 w-9 items-center justify-center rounded-lg text-iris-600 ${TACTILE} ${dragging ? "scale-105 bg-iris-200" : "bg-iris-100"}`}>
+                <FileSpreadsheet className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <span className="text-xs font-semibold text-charcoal-800">
+                {dragging ? "Drop to read the estate" : "Drop an Excel export, or click to browse"}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-charcoal-400">
+                <Upload className="h-3 w-3" strokeWidth={1.75} /> .xlsx or .xls, up to 30 MB
+              </span>
+            </button>
+          )}
+
+          {error ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
+            >
+              <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Compact read-out of a parsed estate. Hairline-ruled rows rather than a grid of
+// boxes, matching the rest of the editor column. Every figure is read straight
+// off the ParsedEnvironment so it can never disagree with the Simple Sizer.
+function EnvironmentSummary({ environment, onRemove }: { environment: CurrentEnvironment; onRemove: () => void }) {
+  const p = environment.parsed;
+  const rows: { k: string; v: string; sub?: string }[] = [
+    { k: "Source", v: ENV_SOURCE_LABEL[environment.source] },
+    { k: "Clusters", v: fmtInt(p.clusters) },
+    { k: "Hosts", v: fmtInt(p.hosts) },
+    {
+      k: "VMs",
+      v: fmtInt(p.all.vms),
+      sub: p.powerStateKnown ? `${fmtInt(p.poweredOn.vms)} on · ${fmtInt(p.poweredOff.vms)} off` : "power state not in export",
+    },
+    { k: "Total cores", v: fmtInt(p.totalCpuCores) },
+    { k: "Memory", v: fmtRam(p.totalMemoryGiB) },
+  ];
+
+  return (
+    <div className="rounded-xl border border-iris-200 bg-iris-50/60 p-2.5">
+      <div className="flex items-center gap-2">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-iris-600 ring-1 ring-iris-200">
+          <FileSpreadsheet className="h-3 w-3" strokeWidth={1.75} />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-charcoal-800" title={environment.sourceFile}>
+          {environment.sourceFile}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className={`rounded bg-transparent text-charcoal-400 hover:text-rose-600 ${TACTILE}`}
+          aria-label="Remove current environment"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <dl className="mt-2 divide-y divide-charcoal-100 border-t border-charcoal-200/70 text-[11px]">
+        {rows.map((r) => (
+          <div key={r.k} className="flex items-baseline justify-between gap-3 py-1.5">
+            <dt className="shrink-0 text-charcoal-500">{r.k}</dt>
+            <dd className="min-w-0 text-right">
+              <span className="font-semibold tabular-nums text-charcoal-900">{r.v}</span>
+              {r.sub ? <span className="ml-1.5 text-[10px] font-normal text-charcoal-400">{r.sub}</span> : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <p className="mt-2 text-[10px] leading-relaxed text-charcoal-400">
+        Read and held in this browser tab only. It will anchor the Current environment deck section.
+      </p>
+    </div>
+  );
+}
+
+// Loading state for the estate parse: a shimmer skeleton over the breathing
+// dots, never a generic spinner (per the design skill).
+function EnvironmentReadingSkeleton() {
+  return (
+    <div className="rounded-xl border border-charcoal-200 bg-white p-4" aria-busy="true" aria-live="polite">
+      <div className="flex items-center gap-2">
+        <WorkingDots className="text-iris-500" />
+        <span className="text-xs font-medium text-charcoal-600">Reading the export</span>
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="sizer-shimmer h-2.5 w-2/3 rounded-full bg-charcoal-100" />
+        <div className="sizer-shimmer h-2.5 w-1/2 rounded-full bg-charcoal-100" />
+        <div className="sizer-shimmer h-2.5 w-3/4 rounded-full bg-charcoal-100" />
+      </div>
+    </div>
+  );
+}
 
 function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: ProposalDoc) => ProposalDoc) => void }) {
   const lines = doc.licensing.lines;

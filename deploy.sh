@@ -2,13 +2,10 @@
 #
 # Deploy the current working tree to the live app.
 #
-# The app runs as the systemd unit `se-deal-workspace.service` in production
-# mode (`next start`), which serves the prebuilt `.next` directory and does NOT
-# hot-reload from source. So "deploying" means: rebuild, then restart the
-# service so it loads the new build.
-#
-# The unit has `Restart=always` and runs as this same user, so we can restart it
-# WITHOUT sudo simply by killing its main process and letting systemd respawn it.
+# Staging runs under pm2 as `se-deal-staging` (see ecosystem.config.js) in
+# production mode (`next start`), which serves the prebuilt `.next` directory and
+# does NOT hot-reload from source. So "deploying" means: rebuild, then
+# `pm2 restart` so the server loads the new build.
 #
 # Order matters: build FIRST, restart immediately AFTER. Never leave a running
 # server pointed at a half-replaced `.next` (that 404s the hashed CSS/JS chunks
@@ -17,7 +14,7 @@
 # Note: no `set -u` — sourcing nvm.sh references unset vars and would abort.
 set -eo pipefail
 
-SERVICE="se-deal-workspace.service"
+APP="se-deal-staging"
 PORT="${PORT:-3000}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -42,26 +39,22 @@ command -v npm >/dev/null 2>&1 || { echo "ERROR: npm not found on PATH" >&2; exi
 echo "==> Building production bundle"
 npm run build
 
-echo "==> Restarting $SERVICE (kill main process -> systemd Restart=always respawns)"
-PID="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
-if [ -n "$PID" ] && [ "$PID" != "0" ]; then
-  kill "$PID" 2>/dev/null || true
+echo "==> Restarting $APP under pm2"
+if pm2 describe "$APP" >/dev/null 2>&1; then
+  pm2 restart "$APP" --update-env
 else
-  echo "    (no running main PID found; relying on systemd to start it)"
+  pm2 start ecosystem.config.js
 fi
+pm2 save >/dev/null
 
-echo "==> Waiting for service to come back up"
+echo "==> Waiting for the server to come back up"
+UP=""
 for i in $(seq 1 30); do
   sleep 1
-  STATE="$(systemctl is-active "$SERVICE" 2>/dev/null || true)"
-  if [ "$STATE" = "active" ] && curl -s -o /dev/null --max-time 2 "http://localhost:$PORT/"; then
-    break
-  fi
+  if curl -s -o /dev/null --max-time 2 "http://localhost:$PORT/"; then UP=1; break; fi
 done
-
-STATE="$(systemctl is-active "$SERVICE" 2>/dev/null || true)"
-if [ "$STATE" != "active" ]; then
-  echo "ERROR: $SERVICE is not active (state: $STATE)" >&2
+if [ -z "$UP" ]; then
+  echo "ERROR: $APP did not answer on port $PORT. Check: pm2 logs $APP" >&2
   exit 1
 fi
 

@@ -9,6 +9,7 @@
 import * as XLSX from "xlsx";
 import {
   emptyPowerSlice,
+  type HostNic,
   type HostRecord,
   type ObservedLoad,
   type ParseAudit,
@@ -78,6 +79,51 @@ function headersFor(rows: Record<string, unknown>[]): string[] {
     for (const key of Object.keys(row)) seen.add(key);
   }
   return Array.from(seen);
+}
+
+// Physical NICs per host. Optional and additive: no export is required to carry
+// them, and nothing here feeds the sizing maths.
+const NIC_COUNT_HEADERS = ["# NICs", "NICs", "NIC Count", "Number of NICs", "Num NICs", "# Network Adapters", "Network Adapters"];
+const NIC_SHEETS = ["vNIC", "vNICs", "vPNIC", "vHostNIC", "vPhysicalNIC", "Host NICs", "NICs"];
+
+function buildNicLookup(workbook: XLSX.WorkBook): (hostKeys: string[]) => HostNic[] {
+  const sheet = rowsFromSheet(workbook, NIC_SHEETS);
+  if (!sheet.rows.length) return () => [];
+  const headers = headersFor(sheet.rows);
+  const hostCol = firstHeader(headers, ["Host", "Host Name", "Hostname", "Host MOID"]);
+  const nameCol = firstHeader(headers, ["Device", "Network Adapter", "Adapter", "NIC", "Name"]);
+  const speedCol = firstHeader(headers, ["Speed (Mbps)", "Link Speed", "Speed"]);
+  const driverCol = firstHeader(headers, ["Driver"]);
+  const macCol = firstHeader(headers, ["MAC", "MAC Address"]);
+  if (!hostCol) return () => [];
+  const byHost = new Map<string, HostNic[]>();
+  for (const row of sheet.rows) {
+    const key = str(row[hostCol]).toLowerCase();
+    if (!key) continue;
+    const speed = speedCol ? toNum(row[speedCol]) : 0;
+    const nic: HostNic = {
+      name: str(nameCol ? row[nameCol] : "") || `nic-${(byHost.get(key)?.length ?? 0) + 1}`,
+      speedMbps: speed > 0 ? speed : null,
+      driver: str(driverCol ? row[driverCol] : "") || null,
+      mac: str(macCol ? row[macCol] : "") || null,
+    };
+    byHost.set(key, [...(byHost.get(key) ?? []), nic]);
+  }
+  return (hostKeys) => {
+    for (const k of hostKeys) {
+      const hit = byHost.get(k.toLowerCase());
+      if (hit) return hit;
+    }
+    return [];
+  };
+}
+
+function hostNics(
+  count: number,
+  adapters: HostNic[],
+): { count: number | null; adapters: HostNic[] } | null {
+  const n = count > 0 ? count : adapters.length > 0 ? adapters.length : null;
+  return n == null ? null : { count: n, adapters };
 }
 
 function firstHeader(headers: string[], candidates: string[]): string | null {
@@ -564,6 +610,8 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
   const hostTotalCoresCol = firstHeader(hostHeaders, ["CPU Cores", "# Cores", "Total Cores"]);
   const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Usage"]);
   const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Usage"]);
+  const hostNicCountCol = firstHeader(hostHeaders, NIC_COUNT_HEADERS);
+  const nicsFor = buildNicLookup(workbook);
 
   const hostMemory = readCapacity(
     vhosts.rows,
@@ -629,6 +677,10 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       ramGiB: Number(hostMemory.valueGiB(row).toFixed(3)),
       cpuUtilPct: hostCpuUtil.perRow(row),
       memoryUtilPct: hostMemUtil.perRow(row),
+      nics: hostNics(
+        hostNicCountCol ? toNum(row[hostNicCountCol]) : 0,
+        nicsFor([str(hostNameCol ? row[hostNameCol] : ""), hostMoid]),
+      ),
     };
     hostsByCluster.set(clusterMoid, [...(hostsByCluster.get(clusterMoid) ?? []), record]);
   }
@@ -1126,6 +1178,8 @@ function parseGeneric(
   const hostTotalCoresCol = firstHeader(hostHeaders, ["# Cores", "CPU Cores"]);
   const hostCpuPctCol = firstHeader(hostHeaders, ["CPU usage %"]);
   const hostMemPctCol = firstHeader(hostHeaders, ["Memory usage %"]);
+  const hostNicCountCol = firstHeader(hostHeaders, NIC_COUNT_HEADERS);
+  const nicsFor = buildNicLookup(workbook);
   const hostMemory = readCapacity(
     hostSheet.rows,
     spec.hostMemoryCols,
@@ -1201,6 +1255,7 @@ function parseGeneric(
       ramGiB: Number(hostMemory.valueGiB(row).toFixed(3)),
       cpuUtilPct: hostCpuUtil.perRow(row) ?? perf?.cpu ?? null,
       memoryUtilPct: hostMemUtil.perRow(row) ?? perf?.mem ?? null,
+      nics: hostNics(hostNicCountCol ? toNum(row[hostNicCountCol]) : 0, nicsFor([hostName])),
     };
     hostsByCluster.set(clusterKey, [...(hostsByCluster.get(clusterKey) ?? []), record]);
     if (!clusterMeta.has(clusterKey)) clusterMeta.set(clusterKey, { name: clusterName, datacenter: datacenter || null });

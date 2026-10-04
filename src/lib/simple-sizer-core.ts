@@ -47,6 +47,13 @@ export type ClusterHardwareModel = {
 
 // A single physical host, kept so the Existing Clusters view can list hardware
 // exhaustively rather than only in aggregate.
+export type HostNic = {
+  name: string;
+  speedMbps: number | null;
+  driver: string | null;
+  mac: string | null;
+};
+
 export type HostRecord = {
   name: string;
   model: string;
@@ -58,6 +65,10 @@ export type HostRecord = {
   ramGiB: number;
   cpuUtilPct: number | null;
   memoryUtilPct: number | null;
+  // Physical NICs, when the export carries them. `count` comes from a host
+  // column, `adapters` from a per-NIC sheet; either may be missing. Inventory
+  // context only; never a sizing input.
+  nics?: { count: number | null; adapters: HostNic[] } | null;
 };
 
 // What the parser read, and how it decided. Surfaced in the UI so an SE can

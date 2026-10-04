@@ -1,6 +1,7 @@
 // Shared presentation helpers for the NX sizer page and its PDF report.
+// capacityLines feeds the on-screen "Capacity math" section only; the PDF
+// leaves the itemised math out.
 
-import { findNxModel } from "@/lib/nx-catalog";
 import { AHV_PRESETS, CVM_PCORES_PER_NODE, SIZING_CONSTANTS, cvmRamGiBFor, type NxRecommendation } from "@/lib/nx-sizer";
 import { fmtInt, fmtNum, fmtRam, tibToTB } from "@/lib/sizer-format";
 
@@ -10,7 +11,7 @@ export function driveLabel(drives: { media: string; count: number; sizeTB: numbe
   return drives.map((d) => `${d.count} x ${d.sizeTB} TB ${d.media}`).join(" + ");
 }
 
-/** The itemised CPU / memory / storage math, shared by the page and the PDF. */
+/** The itemised CPU / memory / storage math shown on the sizer page. */
 export function capacityLines(rec: NxRecommendation): { title: string; rows: [string, string, boolean?][] }[] {
   const fit = rec.fit!;
   const cap = fit.capacity;
@@ -71,9 +72,4 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
       ],
     },
   ];
-}
-
-export function modelLabel(sku: string): string {
-  const m = findNxModel(sku);
-  return m ? `${m.sku} (${m.formFactor}, ${m.socketsPerNode}-socket ${m.vendor} ${m.cpuFamily})` : sku;
 }

@@ -371,12 +371,33 @@ body {
 }
 
 /* Simple Sizer — off-screen print surface for the sizing report. Content flows
-   across portrait Letter pages; tables avoid splitting where they fit. */
+   across portrait Letter pages; each section is kept whole (see @media print).
+   The report always prints light, so pin the tokens .dark would flip. */
 .sizer-print-root {
   position: fixed;
   left: -10000px;
   top: 0;
   width: 816px;
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #313131;
+  --color-charcoal-50: #f7f7f7;
+  --color-charcoal-100: #f0f0f0;
+  --color-charcoal-200: #d7d7d7;
+  --color-charcoal-300: #bfbfbf;
+  --color-charcoal-400: #a6a6a6;
+  --color-charcoal-500: #8e8e8e;
+  --color-charcoal-600: #757575;
+  --color-charcoal-700: #5d5d5d;
+  --color-charcoal-800: #444444;
+  --color-charcoal-900: #2c2c2c;
+  --color-iris-50: #f3f0ff;
+  --color-iris-100: #e0e1ff;
+  --color-iris-600: #6d4de2;
+  --color-iris-700: #5e3fc2;
+}
+.dark .sizer-print-root .bg-white {
+  background-color: #ffffff;
 }
 .sizer-print-root .sizer-report {
   padding: 48px 56px;
@@ -411,17 +432,48 @@ body {
   body:has(> .sizer-print-root) > :not(.sizer-print-root) {
     display: none !important;
   }
+  html:has(> body > .sizer-print-root),
+  body:has(> .sizer-print-root) {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  /* In normal flow (not absolute) so the named page and its margins apply and
+     the browser fragments it cleanly; width follows the @page content box
+     (8.5in - 2 x 0.6in = 7.3in) instead of overflowing it at 816px. */
   .sizer-print-root {
     page: sizerpage;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 816px !important;
+    position: static !important;
+    width: auto !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .sizer-print-root .sizer-report {
     padding: 0;
+    orphans: 3;
+    widows: 3;
+  }
+  /* Nothing is cut mid-section: a section, table, row, list item or the
+     recommendation card that does not fit on the current page moves whole to
+     the next (9.9in of usable height per page under the 0.55in margins).
+     Legacy page-break-* kept alongside for older print engines. */
+  .sizer-print-root .sizer-report > header,
+  .sizer-print-root .sizer-report section,
+  .sizer-print-root .sizer-report table,
+  .sizer-print-root .sizer-report tr,
+  .sizer-print-root .sizer-report li,
+  .sizer-print-root .sizer-report dl,
+  .sizer-print-root .sizer-report footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .sizer-print-root .sizer-report h1,
+  .sizer-print-root .sizer-report h2,
+  .sizer-print-root .sizer-report thead {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .sizer-print-root .sizer-report thead {
+    display: table-header-group;
   }
   .proposal-print-root {
     position: absolute !important;

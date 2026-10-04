@@ -92,7 +92,7 @@ export function SimpleSizerTool() {
           <div className="bg-white p-6 md:p-8">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-viz-compute">Simple Sizer</p>
             <h1 className="mt-2 max-w-[22ch] text-2xl font-semibold tracking-tighter text-charcoal-900 md:text-3xl">
-              NX hardware from a VM export.
+              Size Anything. Fast.
             </h1>
             <p className="mt-2 max-w-[52ch] text-sm leading-relaxed text-charcoal-600">
               Import a Collector, RVTools or LiveOptics export. CPU, memory and storage per node come back with the
@@ -606,6 +606,8 @@ function WorkloadPanel({ parsed, rec }: { parsed: ParsedEnvironment; rec: NxReco
 
 const PAGE = 40;
 
+type VmSortKey = "name" | "vcpu" | "cores" | "ram" | "consumed" | "provisioned";
+
 function VmTable({
   parsed,
   settings,
@@ -617,12 +619,61 @@ function VmTable({
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
+  const [sortKey, setSortKey] = useState<VmSortKey>("name");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("asc");
+  const [power, setPower] = useState<"all" | "on" | "off">("all");
+  const [inclusion, setInclusion] = useState<"all" | "included" | "excluded">("all");
+  const [cluster, setCluster] = useState("all");
+  const clusters = useMemo(
+    () => Array.from(new Set(parsed.vms.map((vm) => vm.clusterName).filter((c): c is string => !!c))).sort(),
+    [parsed.vms],
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? parsed.vms.filter((vm) => vm.name.toLowerCase().includes(q) || (vm.clusterName ?? "").toLowerCase().includes(q)) : parsed.vms;
-  }, [parsed.vms, query]);
+    const value = (vm: VmRecord): number => {
+      const a = settings.vmAdjustments[vm.id] ?? {};
+      switch (sortKey) {
+        case "vcpu":
+          return a.vcpu ?? vm.vcpu;
+        case "cores":
+          return vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis).cores;
+        case "ram":
+          return a.ramGiB ?? vm.ramGiB;
+        case "consumed":
+          return a.storageTiB ?? vm.storageConsumedTiB;
+        case "provisioned":
+          return a.storageTiB ?? vm.storageProvisionedTiB;
+        default:
+          return 0;
+      }
+    };
+    const rows = parsed.vms.filter((vm) => {
+      if (q && !vm.name.toLowerCase().includes(q) && !(vm.clusterName ?? "").toLowerCase().includes(q)) return false;
+      if (power === "on" && vm.poweredOn !== true) return false;
+      if (power === "off" && vm.poweredOn !== false) return false;
+      if (cluster !== "all" && vm.clusterName !== cluster) return false;
+      const off = isExcluded(vm, settings.vmAdjustments);
+      if (inclusion === "included" && off) return false;
+      if (inclusion === "excluded" && !off) return false;
+      return true;
+    });
+    const dir = sortDir === "desc" ? -1 : 1;
+    return [...rows].sort((a, b) =>
+      sortKey === "name" ? dir * a.name.localeCompare(b.name) : dir * (value(a) - value(b)) || a.name.localeCompare(b.name),
+    );
+  }, [parsed.vms, query, power, cluster, inclusion, sortKey, sortDir, settings]);
+  const headerSort = (key: VmSortKey) => {
+    if (key === sortKey) setSortDir(sortDir === "desc" ? "asc" : "desc");
+    else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+    setPage(0);
+  };
+  const sortMark = (key: VmSortKey) => (key === sortKey ? (sortDir === "desc" ? " ↓" : " ↑") : "");
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
-  const rows = filtered.slice(page * PAGE, page * PAGE + PAGE);
+  const safePage = Math.min(page, pages - 1);
+  const rows = filtered.slice(safePage * PAGE, safePage * PAGE + PAGE);
   const adjust = (vm: VmRecord, patch: VmAdjustment) => {
     const next = { ...settings.vmAdjustments, [vm.id]: { ...settings.vmAdjustments[vm.id], ...patch } };
     onSettings({ ...settings, vmAdjustments: next });
@@ -644,6 +695,64 @@ function VmTable({
             className="h-10 w-64"
           />
         </Field>
+        <Field label="Sort by" htmlFor="vm-sort">
+          <select
+            id="vm-sort"
+            value={sortKey}
+            onChange={(e) => {
+              setSortKey(e.target.value as VmSortKey);
+              setPage(0);
+            }}
+            className="h-10 w-40"
+          >
+            <option value="name">Name</option>
+            <option value="vcpu">vCPU</option>
+            <option value="cores">CPU cores</option>
+            <option value="ram">RAM</option>
+            <option value="consumed">Consumed storage</option>
+            <option value="provisioned">Provisioned storage</option>
+          </select>
+        </Field>
+        <Field label="Order" htmlFor="vm-order">
+          <select
+            id="vm-order"
+            value={sortDir}
+            onChange={(e) => {
+              setSortDir(e.target.value as "desc" | "asc");
+              setPage(0);
+            }}
+            className="h-10 w-40"
+          >
+            <option value="desc">{sortKey === "name" ? "Z to A" : "Highest first"}</option>
+            <option value="asc">{sortKey === "name" ? "A to Z" : "Lowest first"}</option>
+          </select>
+        </Field>
+        <Field label="Power" htmlFor="vm-power">
+          <select id="vm-power" value={power} onChange={(e) => { setPower(e.target.value as "all" | "on" | "off"); setPage(0); }} className="h-10 w-32">
+            <option value="all">All</option>
+            <option value="on">Powered on</option>
+            <option value="off">Powered off</option>
+          </select>
+        </Field>
+        <Field label="Included" htmlFor="vm-incl">
+          <select id="vm-incl" value={inclusion} onChange={(e) => { setInclusion(e.target.value as "all" | "included" | "excluded"); setPage(0); }} className="h-10 w-32">
+            <option value="all">All</option>
+            <option value="included">Included</option>
+            <option value="excluded">Excluded</option>
+          </select>
+        </Field>
+        {clusters.length > 1 ? (
+          <Field label="Cluster" htmlFor="vm-cluster">
+            <select id="vm-cluster" value={cluster} onChange={(e) => { setCluster(e.target.value); setPage(0); }} className="h-10 w-48">
+              <option value="all">All clusters</option>
+              {clusters.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
         {Object.keys(settings.vmAdjustments).length ? (
           <button
             type="button"
@@ -659,13 +768,13 @@ function VmTable({
           <thead>
             <tr className="border-b border-charcoal-200 text-left text-xs text-charcoal-500">
               <th className="py-2 pr-3 font-medium">Include</th>
-              <th className="py-2 pr-3 font-medium">VM</th>
+              <th className="py-2 pr-3 font-medium"><button type="button" onClick={() => headerSort("name")} className="font-medium hover:text-charcoal-900">VM{sortMark("name")}</button></th>
               <th className="py-2 pr-3 font-medium">Power</th>
-              <th className="py-2 pr-3 text-right font-medium">vCPU</th>
-              <th className="py-2 pr-3 text-right font-medium">CPU cores</th>
-              <th className="py-2 pr-3 text-right font-medium">RAM (GB)</th>
-              <th className="py-2 pr-3 text-right font-medium">Consumed (TB)</th>
-              <th className="py-2 text-right font-medium">Provisioned (TB)</th>
+              <th className="py-2 pr-3 text-right font-medium"><button type="button" onClick={() => headerSort("vcpu")} className="font-medium hover:text-charcoal-900">vCPU{sortMark("vcpu")}</button></th>
+              <th className="py-2 pr-3 text-right font-medium"><button type="button" onClick={() => headerSort("cores")} className="font-medium hover:text-charcoal-900">CPU cores{sortMark("cores")}</button></th>
+              <th className="py-2 pr-3 text-right font-medium"><button type="button" onClick={() => headerSort("ram")} className="font-medium hover:text-charcoal-900">RAM (GB){sortMark("ram")}</button></th>
+              <th className="py-2 pr-3 text-right font-medium"><button type="button" onClick={() => headerSort("consumed")} className="font-medium hover:text-charcoal-900">Consumed (TB){sortMark("consumed")}</button></th>
+              <th className="py-2 text-right font-medium"><button type="button" onClick={() => headerSort("provisioned")} className="font-medium hover:text-charcoal-900">Provisioned (TB){sortMark("provisioned")}</button></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-charcoal-100">

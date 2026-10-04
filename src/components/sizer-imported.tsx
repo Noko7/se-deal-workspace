@@ -6,7 +6,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Boxes, Camera, ChevronDown, HardDrive } from "lucide-react";
-import type { ParsedCluster, ParsedEnvironment, VmRecord, VolumeGroupRecord } from "@/lib/simple-sizer-core";
+import type { HostRecord, ParsedCluster, ParsedEnvironment, VmRecord, VolumeGroupRecord } from "@/lib/simple-sizer-core";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
 import { Meter, RankedBars, SplitMeter, Stat, VizKey } from "@/components/sizer-viz";
 import { StatusPill } from "@/components/ui";
@@ -456,11 +456,33 @@ function ClusterRow({
   );
 }
 
+function speedLabel(mbps: number | null): string {
+  if (mbps == null) return "";
+  return mbps >= 1000 ? `${fmtNum(mbps / 1000, mbps % 1000 === 0 ? 0 : 1)} GbE` : `${fmtInt(mbps)} Mb`;
+}
+
+/** NIC count with each adapter's speed and driver on hover; "-" when the export has none. */
+function NicCell({ nics }: { nics: HostRecord["nics"] | null }) {
+  if (!nics) return <span className="text-charcoal-400">-</span>;
+  const detail = nics.adapters.map((a) => [a.name, speedLabel(a.speedMbps), a.driver].filter(Boolean).join(" · ")).join("\n");
+  const speeds = Array.from(new Set(nics.adapters.map((a) => speedLabel(a.speedMbps)).filter(Boolean)));
+  return (
+    <span title={detail || undefined} className="whitespace-nowrap">
+      <span className="font-medium text-charcoal-900">{fmtInt(nics.count)}</span>
+      {speeds.length ? <span className="text-charcoal-500"> × {speeds.join(", ")}</span> : null}
+    </span>
+  );
+}
+
 function HostList({ cluster }: { cluster: ParsedCluster }) {
+  const anyNics = cluster.hostRecords.some((h) => h.nics);
   const pct = (v: number | null) => (v == null ? "-" : `${fmtNum(v)}%`);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[52rem] text-xs">
+      {anyNics ? null : (
+        <p className="mb-2 text-[11px] text-charcoal-500">This export has no NIC columns or NIC sheet, so NICs show a dash.</p>
+      )}
+      <table className="w-full min-w-[60rem] text-xs">
         <thead>
           <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
             <Th>Host</Th>
@@ -469,6 +491,7 @@ function HostList({ cluster }: { cluster: ParsedCluster }) {
             <Th right>Sockets × cores</Th>
             <Th right>Cores</Th>
             <Th right>Memory</Th>
+            <Th>NICs</Th>
             <Th right>CPU used</Th>
             <Th right>Memory used</Th>
           </tr>
@@ -491,6 +514,9 @@ function HostList({ cluster }: { cluster: ParsedCluster }) {
               </td>
               <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtInt(h.cores)}</td>
               <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtRam(h.ramGiB)}</td>
+              <td className="px-3 text-charcoal-700">
+                <NicCell nics={h.nics ?? null} />
+              </td>
               <td className="px-3 text-right tabular-nums text-charcoal-700">{pct(h.cpuUtilPct)}</td>
               <td className="pl-3 text-right tabular-nums text-charcoal-700">{pct(h.memoryUtilPct)}</td>
             </tr>

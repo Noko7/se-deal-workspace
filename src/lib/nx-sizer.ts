@@ -159,6 +159,9 @@ export type NxSizerSettings = {
   rf: Rf;
   // Nodes the cluster must survive losing: N+0, N+1 (default), N+2.
   failoverNodes: 0 | 1 | 2;
+  // Share of usable CPU, memory and storage the workload may consume with every
+  // node up (0.5 = land at about 50%). 1 sizes to the failover limit only.
+  targetUtilization: number;
   prismCentral: PcProfileId;
   ahvPreset: "current" | "legacy";
   flowVirtualNetworking: boolean;
@@ -177,6 +180,7 @@ export const DEFAULT_NX_SETTINGS: NxSizerSettings = {
   compressionSavings: 0,
   rf: 2,
   failoverNodes: 1,
+  targetUtilization: 0.5,
   prismCentral: "none",
   ahvPreset: "current",
   flowVirtualNetworking: false,
@@ -500,7 +504,10 @@ export type ClusterPlan = {
 export type NxFit = {
   config: NodeConfig;
   capacity: NodeCapacity;
+  // Nodes each resource needs if filled to 100% of usable capacity.
   nodesFor: { cpu: number; ram: number; storage: number };
+  // Nodes each resource needs to land at the target utilization with all nodes up.
+  nodesForTarget: { cpu: number; ram: number; storage: number };
   workingNodes: number;
   driver: "cpu" | "ram" | "storage" | "minimum";
   clusters: ClusterPlan[];
@@ -542,14 +549,23 @@ export function fitConfig(config: NodeConfig, demand: NxDemand, workload: NxWork
     ram: needed(demand.ram.total, capacity.ram.usable),
     storage: needed(demand.storage.rawTiB, capacity.storage.usable),
   };
-  const working = Math.max(1, nodesFor.cpu, nodesFor.ram, nodesFor.storage);
+  const target = Math.min(1, Math.max(0.1, settings.targetUtilization ?? 1));
+  const nodesForTarget = {
+    cpu: needed(demand.cpu.total, capacity.cpu.usable * target),
+    ram: needed(demand.ram.total, capacity.ram.usable * target),
+    storage: needed(demand.storage.rawTiB, capacity.storage.usable * target),
+  };
+  // All nodes up must land at the target, and the demand must still fit on the
+  // nodes left after the failover nodes are lost (at 100%).
+  const allUp = Math.max(nodesForTarget.cpu, nodesForTarget.ram, nodesForTarget.storage);
+  const working = Math.max(1, nodesFor.cpu, nodesFor.ram, nodesFor.storage, allUp - settings.failoverNodes);
   const clusters = Number.isFinite(working) ? planClusters(working, settings.failoverNodes, settings.rf) : [];
   const totalNodes = clusters.reduce((s, c) => s + c.nodes, 0);
   const driver: NxFit["driver"] = clusters.some((c) => c.raisedToMinimum)
     ? "minimum"
-    : nodesFor.storage > Math.max(nodesFor.cpu, nodesFor.ram)
+    : nodesForTarget.storage > Math.max(nodesForTarget.cpu, nodesForTarget.ram)
       ? "storage"
-      : nodesFor.ram >= nodesFor.cpu
+      : nodesForTarget.ram >= nodesForTarget.cpu
         ? "ram"
         : "cpu";
 
@@ -574,6 +590,7 @@ export function fitConfig(config: NodeConfig, demand: NxDemand, workload: NxWork
     config,
     capacity,
     nodesFor,
+    nodesForTarget,
     workingNodes: working,
     driver,
     clusters,

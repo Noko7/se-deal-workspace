@@ -49,7 +49,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
         {fit.clusters.length === 1
           ? ` in one cluster, RF${s.rf}, N+${s.failoverNodes}.`
           : ` in ${fit.clusters.length} clusters of ${fit.clusters.map((k) => k.nodes).join(", ")} nodes, RF${s.rf}, each N+${s.failoverNodes}.`}{" "}
-        The node count is set by {fit.driver === "minimum" ? `the RF${s.rf} minimum node count` : `${fit.driver.toUpperCase()} demand`}.
+        The node count is set by {fit.driver === "minimum" ? `the RF${s.rf} minimum node count` : `${fit.driver.toUpperCase()} workload`}.
       </p>
       <Table
         head={["Per-node hardware requirement", "Value"]}
@@ -63,7 +63,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
         ]}
       />
       <Table
-        head={["Cluster totals", "Installed", "Usable after overhead", "Demand"]}
+        head={["Cluster totals", "Installed", "Usable after overhead", "Workload"]}
         rows={[
           ["Physical cores", fmtInt(fit.totalNodes * c.cores), fmtInt(fit.totalNodes * fit.capacity.cpu.usable), fmtNum(rec.demand.cpu.total, 2)],
           ["Memory", fmtRam(fit.totalNodes * c.ramGiB), fmtRam(fit.totalNodes * fit.capacity.ram.usable), fmtRam(rec.demand.ram.total)],
@@ -132,7 +132,8 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             "ext4: 1.8% HDD, 2.6% flash under 4 TB, 1.8% flash 4 TB and over",
           ],
           ["AHV CPU", "None charged", "No fixed AHV CPU percentage is applied"],
-          ["Failover", `N+${s.failoverNodes}: demand must fit on ${working} of ${fit.totalNodes} nodes`, "CPU, memory and storage"],
+          ["Target utilization", `${Math.round(s.targetUtilization * 100)}% of usable capacity with every node up`, "Nodes are added until CPU, memory and storage each land at or under the target"],
+          ["Failover", `N+${s.failoverNodes}: workload must fit on ${working} of ${fit.totalNodes} nodes`, "CPU, memory and storage"],
         ]}
       />
 

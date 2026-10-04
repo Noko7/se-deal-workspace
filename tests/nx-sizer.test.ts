@@ -51,7 +51,8 @@ function env(vms: VmRecord[], extra: Record<string, unknown> = {}): ParsedEnviro
   return { vms, powerStateKnown: true, volumeGroups: [], plausibility: [], ...extra } as unknown as ParsedEnvironment;
 }
 
-const settings = (over: Partial<NxSizerSettings> = {}): NxSizerSettings => ({ ...DEFAULT_NX_SETTINGS, ...over });
+// Existing rules are checked at the failover limit (target 1); the 50% target has its own tests.
+const settings = (over: Partial<NxSizerSettings> = {}): NxSizerSettings => ({ ...DEFAULT_NX_SETTINGS, targetUtilization: 1, ...over });
 
 function close(actual: number, expected: number, what: string, eps = 1e-6) {
   assert.ok(Math.abs(actual - expected) <= eps, `${what}: got ${actual}, expected ${expected}`);
@@ -683,5 +684,30 @@ describe("source-cluster CVMs", () => {
     const back = buildWorkload(parsed, settings({ vmAdjustments: { [cvm.id]: { excluded: false } } }));
     assert.equal(back.runningVms, 2);
     assert.deepEqual(back.sourceCvmsExcluded, []);
+  });
+});
+
+describe("target utilization", () => {
+  const small = node({ cores: 16, ramGiB: 256 });
+
+  it("defaults to 50%", () => {
+    assert.equal(DEFAULT_NX_SETTINGS.targetUtilization, 0.5);
+  });
+
+  it("sizes so all nodes up land at the target", () => {
+    // 45 cores / (10 x 0.5) = 9 nodes all up (8 working + 1 failover).
+    const fit = fitConfig(small, demand({ cpu: 45 }), noLargeVm, settings({ targetUtilization: 0.5 }));
+    assert.equal(fit.nodesForTarget.cpu, 9);
+    assert.equal(fit.totalNodes, 9);
+    close((45 / (10 * fit.totalNodes)) * 100, 50, "all-up CPU", 1);
+  });
+
+  it("recommended builds land at or under about 50% with every node up", () => {
+    const rec = recommendNx(env(Array.from({ length: 30 }, () => vm({ vcpu: 8, ramGiB: 32 }))), settings({ targetUtilization: 0.5 }));
+    assert.ok(rec.utilization);
+    assert.ok(rec.utilization.cpu.allUp <= 50 + 1e-6);
+    assert.ok(rec.utilization.ram.allUp <= 50 + 1e-6);
+    assert.ok(rec.utilization.storage.allUp <= 50 + 1e-6);
+    assert.ok(rec.utilization.cpu.failover <= 100 + 1e-6);
   });
 });

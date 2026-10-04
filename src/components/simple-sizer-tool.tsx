@@ -20,6 +20,7 @@ import {
 } from "@/lib/nx-sizer";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage, gibToGB, tibToTB } from "@/lib/sizer-format";
 import { SizingReport } from "@/components/nx-sizing-report";
+import { ImportedPanel } from "@/components/sizer-imported";
 import { capacityLines, driveLabel, type ReportMeta } from "@/lib/nx-report";
 
 const ICON = { strokeWidth: 1.5 } as const;
@@ -194,6 +195,7 @@ export function SimpleSizerTool() {
 
       {!parsing && parsed && rec ? (
         <>
+          <ImportedPanel parsed={parsed} />
           <Issues rec={rec} />
           {rec.fit ? <Recommendation rec={rec} /> : null}
           {rec.fit ? <CapacityMath rec={rec} /> : null}
@@ -360,6 +362,15 @@ function SizeFor({
                 {m.sku}
               </option>
             ))}
+          </select>
+        </Field>
+        <Field label="Target utilization" htmlFor="opt-tu" helper="Share of usable CPU, memory and storage consumed with every node up.">
+          <select id="opt-tu" value={settings.targetUtilization} onChange={(e) => set("targetUtilization", Number(e.target.value))} className="h-10 w-full">
+            <option value={0.5}>50%</option>
+            <option value={0.6}>60%</option>
+            <option value={0.7}>70%</option>
+            <option value={0.8}>80%</option>
+            <option value={1}>No target (failover limit only)</option>
           </select>
         </Field>
         <Field label="Failover" htmlFor="opt-fo" helper="Nodes the cluster must survive losing.">

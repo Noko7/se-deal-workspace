@@ -29,7 +29,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
         [`Usable on ${working} working nodes`, fmtInt(cap.cpu.usable * working)],
         [s.cpuBasis === "utilization" ? `VMs (${rec.workload.cpuMeasuredVms} at p95, ${rec.workload.cpuFallbackVms} at vCPU/${s.vcpuPerPcore})` : `VMs (vCPU / ${s.vcpuPerPcore})`, fmtNum(d.cpu.vmCores, 2)],
         ...(d.cpu.pcCores ? ([[`Prism Central`, fmtNum(d.cpu.pcCores, 2)]] as [string, string][]) : []),
-        ["Demand", fmtNum(d.cpu.total, 2), true],
+        ["Workload", fmtNum(d.cpu.total, 2), true],
       ],
     },
     {
@@ -44,7 +44,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
         [s.memoryBasis === "consumed" ? `VMs, consumed (${rec.workload.ramMeasuredVms} measured)` : "VMs, provisioned", fmtRam(d.ram.vmGiB)],
         ["AHV per-VM overhead", fmtRam(d.ram.vmOverheadGiB)],
         ...(d.ram.pcGiB ? ([["Prism Central (+ overhead)", fmtRam(d.ram.pcGiB + d.ram.pcOverheadGiB)]] as [string, string][]) : []),
-        ["Demand", fmtRam(d.ram.total), true],
+        ["Workload", fmtRam(d.ram.total), true],
       ],
     },
     {
@@ -67,7 +67,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
           ? ([[`Compression (-${Math.round(d.storage.compressionSavings * 100)}%)`, `-${tb(d.storage.logicalTiB - d.storage.afterCompressionTiB)}`]] as [string, string][])
           : []),
         [`x RF${s.rf}`, tb(d.storage.rawTiB - d.storage.afterCompressionTiB)],
-        ["Demand (raw)", tb(d.storage.rawTiB), true],
+        ["Workload (raw)", tb(d.storage.rawTiB), true],
       ],
     },
   ];

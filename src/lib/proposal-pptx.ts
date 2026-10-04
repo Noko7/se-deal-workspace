@@ -13,9 +13,18 @@ import {
   purchasedProducts,
   recommendedOption,
   storageSummary,
+  type CurrentEnvironment,
   type HardwareOption,
   type ProposalDoc,
 } from "./proposal-doc";
+import {
+  environmentClusters,
+  environmentRollup,
+  hostGroups,
+  migrationComparison,
+  osDistribution,
+} from "./proposal-environment";
+import { fmtRam } from "./sizer-format";
 import type { ProposalCluster, ProposalScenario } from "./sizer-import";
 import { LICENSE_CATALOG } from "./license-catalog";
 import { drivesPerNode, emptyDriveSlots, platformSpecFor } from "./hardware-images";
@@ -83,6 +92,15 @@ const CAP_DETAIL_OFFSET = 0.84;
 // which spills overflow onto a bare slide with no title, rule or page number.
 // 17 rows at 0.24in plus the header fit the body area with room for a wrap.
 const MATRIX_ROWS_PER_PAGE = 17;
+
+const PART_WORDS = ["one", "two", "three", "four", "five", "six", "seven"];
+
+// How the uploaded export is described on the current-estate slides.
+const ENV_SOURCE_LABEL: Record<CurrentEnvironment["source"], string> = {
+  collector_excel: "Nutanix Collector",
+  rvtools: "RVTools",
+  liveoptics: "LiveOptics",
+};
 
 type Slide = {
   addText: (t: unknown, o: unknown) => void;
@@ -178,6 +196,11 @@ export async function exportProposalToPptx(
     page += 1;
     return pptx.addSlide() as unknown as Slide;
   };
+
+  // Section dividers are numbered in the order they are emitted, because the
+  // current-estate section only exists when an environment export was uploaded.
+  let partIndex = 0;
+  const nextPart = () => `Part ${PART_WORDS[partIndex++] ?? String(partIndex)}`;
 
   // Standard content-slide chrome: kicker, title, optional subtitle, brand mark,
   // hairline, and footer. No filled header band — the rule carries the structure.
@@ -485,7 +508,7 @@ export async function exportProposalToPptx(
     ]);
     slide.addText(
       multiOption
-        ? `Figures describe ${recommended.label} — ${recommended.name}.`
+        ? `Figures describe ${recommended.label}, ${recommended.name}.`
         : `Figures describe the proposed ${recommended.name} build.`,
       {
         x: MARGIN,
@@ -500,9 +523,14 @@ export async function exportProposalToPptx(
     );
   }
 
-  // --- 3. The design ---------------------------------------------------------
+  // --- 3. Where the customer is today ----------------------------------------
+  // Only when an environment export was uploaded. Without one the deck reads
+  // exactly as it did before, rather than carrying empty scaffolding.
+  if (doc.environment) addCurrentEnvironmentSection(doc.environment);
+
+  // --- 4. The design ---------------------------------------------------------
   addDivider(
-    "Part one",
+    nextPart(),
     "The proposed design",
     multiOption
       ? `${options.length} hardware builds sized against the same workload, cluster by cluster.`
@@ -516,6 +544,259 @@ export async function exportProposalToPptx(
     for (const cluster of option.scenario.clusters) addClusterSlide(option, cluster);
   }
 
+  // --- current estate --------------------------------------------------------
+  //
+  // Everything here is read from the uploaded Collector / RVTools / LiveOptics
+  // export via proposal-environment.ts. Where that export could not supply a
+  // figure the helpers return null, and these slides print "Not in export"
+  // rather than a zero that would read as a measurement.
+  function addCurrentEnvironmentSection(environment: CurrentEnvironment) {
+    const sourceLabel = ENV_SOURCE_LABEL[environment.source] ?? "environment export";
+    addDivider(
+      nextPart(),
+      "Where you are today",
+      `The current estate as reported by ${sourceLabel}, and how the proposal compares.`,
+    );
+    addEnvironmentOverview(environment, sourceLabel);
+    addEnvironmentHardware(environment, sourceLabel);
+    addEnvironmentClusters(environment, sourceLabel);
+    addMigrationComparison(environment);
+  }
+
+  // A function declaration, not a const arrow: the estate section is emitted
+  // above this point in the file and would hit the temporal dead zone.
+  function pctOrUnknown(v: number | null): string {
+    return v == null ? "Not in export" : `${formatPct(v)}%`;
+  }
+
+  function addEnvironmentOverview(environment: CurrentEnvironment, sourceLabel: string) {
+    const slide = newSlide();
+    const r = environmentRollup(environment);
+    addChrome(slide, "Current estate", "Environment Overview", `${sourceLabel}  ·  ${environment.sourceFile}`);
+
+    addMetricBand(slide, BODY_TOP + 0.06, [
+      { v: fmtInt(r.clusters), l: "Clusters" },
+      { v: fmtInt(r.hosts), l: "Hosts" },
+      { v: fmtInt(r.vms), l: "Virtual machines" },
+      { v: fmtInt(r.cpuCores), l: "CPU cores" },
+      { v: fmtRam(r.memoryGiB), l: "Memory" },
+    ]);
+
+    const colGap = 0.5;
+    const colW = (CONTENT_W - colGap) / 2;
+    const rx = MARGIN + colW + colGap;
+    const top = BODY_TOP + 1.5;
+
+    // Left: guest OS mix. Declared pitch of 0.44 against 0.36 of content.
+    eyebrow(slide, "Guest operating systems", MARGIN, top, colW);
+    hairline(slide, MARGIN, top + 0.3, colW, NUTANIX.mist);
+    const os = osDistribution(environment, 6);
+    if (!os.length) {
+      slide.addText("No guest operating system detail in this export.", {
+        x: MARGIN, y: top + 0.44, w: colW, h: 0.3,
+        fontFace: NUTANIX_FONT.body, fontSize: 11, italic: true, color: NUTANIX.slate, valign: "middle",
+      });
+    }
+    const OS_PITCH = 0.44;
+    os.forEach((o, i) => {
+      const y = top + 0.44 + i * OS_PITCH;
+      slide.addText(o.name, {
+        x: MARGIN, y, w: colW * 0.62, h: 0.26,
+        fontFace: NUTANIX_FONT.body, fontSize: 11, color: NUTANIX.ink, valign: "middle",
+      });
+      slide.addText(`${fmtInt(o.count)}  ·  ${formatPct(o.pct)}%`, {
+        x: MARGIN + colW * 0.62, y, w: colW * 0.38, h: 0.26, align: "right",
+        fontFace: NUTANIX_FONT.body, fontSize: 10.5, color: NUTANIX.gray, valign: "middle",
+      });
+      const barW = colW * (Math.min(Math.max(o.pct, 0), 100) / 100);
+      slide.addShape(SHAPE.rect, { x: MARGIN, y: y + 0.28, w: colW, h: 0.055, fill: { color: TRACK }, line: { type: "none" } });
+      if (barW > 0.005) {
+        slide.addShape(SHAPE.rect, { x: MARGIN, y: y + 0.28, w: barW, h: 0.055, fill: { color: NUTANIX.purple }, line: { type: "none" } });
+      }
+    });
+
+    // Right: how hard the estate is actually working, plus the shape of it.
+    eyebrow(slide, "Observed load", rx, top, colW);
+    hairline(slide, rx, top + 0.3, colW, NUTANIX.mist);
+    const facts: [string, string][] = [
+      ["Host CPU utilization", pctOrUnknown(r.cpuUtilPct)],
+      ["Host memory utilization", pctOrUnknown(r.memoryUtilPct)],
+      ["vCPU allocated", fmtInt(r.vcpuAllocated)],
+      ["vCPU per physical core", `${r.vcpuPerCoreRatio.toFixed(1)}:1`],
+      ["Powered on / off", environment.parsed.powerStateKnown ? `${fmtInt(r.poweredOnVms)} / ${fmtInt(r.poweredOffVms)}` : "Not in export"],
+      ["Snapshots", r.snapshots == null ? "Not in export" : fmtInt(r.snapshots)],
+      ["Datacenters", r.datacenters == null ? "Not in export" : fmtInt(r.datacenters)],
+    ];
+    const FACT_PITCH = 0.44;
+    facts.forEach(([label, value], i) => {
+      const y = top + 0.44 + i * FACT_PITCH;
+      slide.addText(label, {
+        x: rx, y, w: colW * 0.6, h: 0.32,
+        fontFace: NUTANIX_FONT.body, fontSize: 11, color: NUTANIX.gray, valign: "middle",
+      });
+      slide.addText(value, {
+        x: rx + colW * 0.6, y, w: colW * 0.4, h: 0.32, align: "right",
+        fontFace: NUTANIX_FONT.heading, fontSize: 12, bold: true, color: NUTANIX.ink, valign: "middle",
+      });
+      if (i < facts.length - 1) hairline(slide, rx, y + FACT_PITCH - 0.06, colW, NUTANIX.mist);
+    });
+  }
+
+  function addEnvironmentHardware(environment: CurrentEnvironment, sourceLabel: string) {
+    const slide = newSlide();
+    const groups = hostGroups(environment);
+    addChrome(slide, "Current estate", "Existing Host Hardware", `${groups.length} distinct configuration${groups.length === 1 ? "" : "s"} across ${fmtInt(environmentRollup(environment).hosts)} hosts`);
+
+    if (!groups.length) {
+      slide.addText("No per-host hardware detail in this export.", {
+        x: MARGIN, y: BODY_TOP + 0.4, w: CONTENT_W, h: 0.4,
+        fontFace: NUTANIX_FONT.heading, fontSize: 15, bold: true, color: NUTANIX.ink, valign: "middle",
+      });
+      slide.addText(`${sourceLabel} did not include the host inventory columns this section needs.`, {
+        x: MARGIN, y: BODY_TOP + 0.86, w: 7.4, h: 0.6,
+        fontFace: NUTANIX_FONT.body, fontSize: 11.5, color: NUTANIX.gray, lineSpacingMultiple: 1.25, valign: "top",
+      });
+      return;
+    }
+
+    const aligns: ("left" | "right")[] = ["left", "left", "right", "right", "right", "right", "right"];
+    const header = tableHeader(
+      ["Hardware", "CPU", "Hosts", "Sockets", "Cores/host", "Memory/host", "Total cores"],
+      aligns,
+    );
+    const body = groups.map((g, ri) =>
+      [
+        g.vendorModel,
+        g.cpuModel,
+        fmtInt(g.hosts),
+        fmtInt(g.socketsPerHost),
+        fmtInt(g.coresPerHost),
+        fmtRam(g.ramPerHostGiB),
+        fmtInt(g.totalCores),
+      ].map((c, ci) => ({
+        text: c,
+        options: {
+          color: ci === 0 ? NUTANIX.ink : NUTANIX.gray,
+          fill: { color: ri % 2 ? TINT : "FFFFFF" },
+          fontFace: NUTANIX_FONT.body,
+          fontSize: 10,
+          bold: ci === 0,
+          align: aligns[ci],
+          valign: "middle",
+        },
+      })),
+    );
+    slide.addTable([header, ...body], {
+      x: MARGIN, y: BODY_TOP, w: CONTENT_W,
+      colW: [3.1, 2.9, 0.85, 0.95, 1.2, 1.35, 1.623],
+      border: { type: "solid", color: "FFFFFF", pt: 0 },
+      rowH: 0.34,
+      autoPage: true, autoPageRepeatHeader: true, autoPageHeaderRows: 1,
+    });
+  }
+
+  function addEnvironmentClusters(environment: CurrentEnvironment, sourceLabel: string) {
+    const lines = environmentClusters(environment);
+    if (!lines.length) return;
+    const slide = newSlide();
+    addChrome(slide, "Current estate", "Existing Clusters", `${fmtInt(lines.length)} cluster${lines.length === 1 ? "" : "s"} in ${sourceLabel}`);
+
+    const aligns: ("left" | "right")[] = ["left", "right", "right", "right", "right", "right", "left"];
+    const header = tableHeader(["Cluster", "Hosts", "VMs", "Cores", "Memory", "CPU used", "Hardware"], aligns);
+    const body = lines.map((c, ri) =>
+      [
+        c.datacenter ? `${c.name}  (${c.datacenter})` : c.name,
+        fmtInt(c.hosts),
+        fmtInt(c.vms),
+        fmtInt(c.cores),
+        fmtRam(c.memoryGiB),
+        pctOrUnknown(c.cpuUtilPct),
+        c.hardware,
+      ].map((cell, ci) => ({
+        text: cell,
+        options: {
+          color: ci === 0 ? NUTANIX.ink : NUTANIX.gray,
+          fill: { color: ri % 2 ? TINT : "FFFFFF" },
+          fontFace: NUTANIX_FONT.body,
+          fontSize: 10,
+          bold: ci === 0,
+          align: aligns[ci],
+          valign: "middle",
+        },
+      })),
+    );
+    slide.addTable([header, ...body], {
+      x: MARGIN, y: BODY_TOP, w: CONTENT_W,
+      colW: [2.75, 0.85, 0.9, 1.0, 1.3, 1.25, 3.923],
+      border: { type: "solid", color: "FFFFFF", pt: 0 },
+      rowH: 0.34,
+      autoPage: true, autoPageRepeatHeader: true, autoPageHeaderRows: 1,
+    });
+  }
+
+  // The bridge slide: today against the recommended build. Same column grammar
+  // as the hardware-options comparison so the deck does not change shape here.
+  function addMigrationComparison(environment: CurrentEnvironment) {
+    const slide = newSlide();
+    const rows = migrationComparison(environment, recommended.scenario);
+    addChrome(
+      slide,
+      "Current estate",
+      "Today Versus the Proposal",
+      multiOption ? `Compared against ${recommended.label}, ${recommended.name}` : recommended.name,
+    );
+
+    const labelW = 2.9;
+    const colW = (CONTENT_W - labelW) / 3;
+    const headings = ["Today", "Proposed", "Change"];
+    headings.forEach((h, i) => {
+      const x = MARGIN + labelW + i * colW;
+      slide.addShape(SHAPE.rect, {
+        x: x + 0.14, y: BODY_TOP + 0.08, w: colW - 0.28, h: 0.03,
+        fill: { color: i === 1 ? NUTANIX.purple : NUTANIX.line }, line: { type: "none" },
+      });
+      slide.addText(h, {
+        x: x + 0.14, y: BODY_TOP + 0.18, w: colW - 0.28, h: 0.32,
+        fontFace: NUTANIX_FONT.heading, fontSize: 13, bold: true,
+        color: i === 1 ? NUTANIX.purple : NUTANIX.ink, valign: "middle",
+      });
+    });
+
+    // Footnotes reserve their own strip, so the rows can never grow into them.
+    const notes = [...new Set(rows.map((r) => r.note).filter((n): n is string => Boolean(n)))];
+    const notesH = notes.length ? 0.3 * notes.length + 0.12 : 0;
+    const ROWS_TOP = BODY_TOP + 0.66;
+    const PITCH = Math.min(0.58, (BODY_BOTTOM - notesH - 0.1 - ROWS_TOP) / Math.max(1, rows.length));
+
+    rows.forEach((r, ri) => {
+      const y = ROWS_TOP + ri * PITCH;
+      hairline(slide, MARGIN, y, CONTENT_W, NUTANIX.line);
+      slide.addText(r.metric, {
+        x: MARGIN, y: y + 0.06, w: labelW - 0.2, h: PITCH - 0.12,
+        fontFace: NUTANIX_FONT.body, fontSize: 11, color: NUTANIX.gray, valign: "middle",
+      });
+      [r.current, r.proposed, r.delta ?? "n/a"].forEach((v, ci) => {
+        slide.addText(v, {
+          x: MARGIN + labelW + ci * colW + 0.14, y: y + 0.06, w: colW - 0.28, h: PITCH - 0.12,
+          fontFace: ci === 2 ? NUTANIX_FONT.body : NUTANIX_FONT.heading,
+          fontSize: ci === 2 ? 10.5 : 12,
+          bold: ci === 1,
+          italic: ci === 2,
+          color: ci === 1 ? NUTANIX.ink : NUTANIX.gray,
+          valign: "middle",
+        });
+      });
+    });
+    hairline(slide, MARGIN, ROWS_TOP + rows.length * PITCH, CONTENT_W);
+
+    notes.forEach((n, i) => {
+      slide.addText(n, {
+        x: MARGIN, y: BODY_BOTTOM - notesH + i * 0.3, w: CONTENT_W, h: 0.28,
+        fontFace: NUTANIX_FONT.body, fontSize: 8.5, color: NUTANIX.slate, valign: "middle",
+      });
+    });
+  }
+
   // --- option comparison -----------------------------------------------------
   function addOptionComparison() {
     const slide = newSlide();
@@ -523,7 +804,7 @@ export async function exportProposalToPptx(
       slide,
       "Hardware",
       "Hardware Options",
-      `${options.length} builds for the same workload — ${recommended.label} is recommended`,
+      `${options.length} builds for the same workload. ${recommended.label} is recommended`,
     );
 
     const metrics = optionComparison(doc);
@@ -851,7 +1132,7 @@ export async function exportProposalToPptx(
   }
 
   // --- 4. Platform -----------------------------------------------------------
-  addDivider("Part two", "The platform", "Node specifications and the components that make up each build.");
+  addDivider(nextPart(), "The platform", "Node specifications and the components that make up each build.");
 
   // Node spec sheets — unique SKUs across every proposed option.
   const seen = new Set<string>();
@@ -1033,7 +1314,7 @@ export async function exportProposalToPptx(
 
   // --- 5. Software and licensing --------------------------------------------
   addDivider(
-    "Part three",
+    nextPart(),
     "Software and licensing",
     "What the design licenses, how each product is metered, and what every edition includes.",
   );
@@ -1202,7 +1483,7 @@ export async function exportProposalToPptx(
 
   function matrixCell(v: Cell): { text: string; color: string } {
     if (v === true) return { text: "Included", color: "3F5E0A" };
-    if (v === false) return { text: "—", color: NUTANIX.slate };
+    if (v === false) return { text: "No", color: NUTANIX.slate };
     if (v === "addon") return { text: "Add-on", color: "9A3B27" };
     return { text: String(v), color: NUTANIX.ink };
   }
@@ -1384,7 +1665,7 @@ export async function exportProposalToPptx(
         valign: "middle",
       });
       SUPPORT_PROGRAMS.forEach((p, ci) => {
-        slide.addText(p.rows[ri]?.value ?? "—", {
+        slide.addText(p.rows[ri]?.value ?? "n/a", {
           x: MARGIN + labelW + ci * colW + 0.14,
           y: y + 0.06,
           w: colW - 0.28,
@@ -1412,7 +1693,7 @@ export async function exportProposalToPptx(
   }
 
   // --- 6. Delivery -----------------------------------------------------------
-  addDivider("Part four", "Getting to production", "Deployment workstreams, enablement, and the prerequisites to confirm.");
+  addDivider(nextPart(), "Getting to production", "Deployment workstreams, enablement, and the prerequisites to confirm.");
 
   // Implementation plan: four workstreams as vertical lanes divided by rules.
   {

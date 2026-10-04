@@ -156,14 +156,20 @@ export type MigrationRow = {
   proposed: string;   // formatted for display
   /** Short human delta, e.g. "12 fewer hosts" or "2.4x consolidation". null when not meaningful. */
   delta: string | null;
+  /**
+   * Basis caveat, printed as a slide footnote. Set only where the two sides are
+   * not like-for-like, so a reader is never left to assume they are.
+   */
+  note?: string;
 };
 
 // A signed count difference phrased honestly: the proposal is not spun, so a
 // build with more of something says "more", never dressed up as headroom.
-function countDelta(current: number, proposed: number, noun: string): string {
+function countDelta(current: number, proposed: number, singular: string, plural = `${singular}s`): string {
   const diff = proposed - current;
   if (diff === 0) return "no change";
   const n = Math.abs(diff);
+  const noun = n === 1 ? singular : plural;
   return diff < 0 ? `${fmtInt(n)} fewer ${noun}` : `${fmtInt(n)} more ${noun}`;
 }
 
@@ -172,8 +178,10 @@ export function migrationComparison(env: CurrentEnvironment, scenario: ProposalS
   const t = scenario.totals;
   const rows: MigrationRow[] = [];
 
-  // Proposed usable capacity sums both storage tiers, matching the figure the
-  // rest of the deck prints; current is the export's provisioned VM storage.
+  // Sum of both storage tiers as the Sizer export reports them. Deliberately NOT
+  // called usable: whether that export field is raw drive capacity or a
+  // post-replication figure is unverified, so this module states where the
+  // number came from instead of asserting what it means.
   const proposedStorageTiB = t.ssdTiB + t.hddTiB;
 
   // Servers: physical hosts today against proposed Nutanix nodes.
@@ -181,14 +189,14 @@ export function migrationComparison(env: CurrentEnvironment, scenario: ProposalS
     metric: "Servers",
     current: `${fmtInt(p.hosts)} hosts`,
     proposed: `${fmtInt(t.nodes)} nodes`,
-    delta: countDelta(p.hosts, t.nodes, "servers"),
+    delta: countDelta(p.hosts, t.nodes, "server"),
   });
 
   rows.push({
     metric: "CPU cores",
     current: fmtInt(p.totalCpuCores),
     proposed: fmtInt(t.cores),
-    delta: countDelta(Math.round(p.totalCpuCores), Math.round(t.cores), "cores"),
+    delta: countDelta(Math.round(p.totalCpuCores), Math.round(t.cores), "core"),
   });
 
   // Memory delta is stated in the same GB/TB units the row shows, and only when
@@ -201,20 +209,28 @@ export function migrationComparison(env: CurrentEnvironment, scenario: ProposalS
     delta: memDiff === 0 ? "no change" : `${fmtRam(Math.abs(memDiff))} ${memDiff < 0 ? "less" : "more"}`,
   });
 
-  // Storage delta compares provisioned-today against proposed-usable, in TB.
+  // The two storage figures are not like-for-like: today's is what the guests
+  // have allocated, the proposal's is what the Sizer export reports for the
+  // build. The comparison still answers the question an SE is asked (does
+  // today's data fit?), so it stays, but the basis is spelled out rather than
+  // implied by putting two numbers side by side.
   const storageDiffTiB = proposedStorageTiB - p.totalStorageTiB;
   rows.push({
     metric: "Storage",
     current: fmtStorage(p.totalStorageTiB),
     proposed: fmtStorage(proposedStorageTiB),
-    delta: storageDiffTiB === 0 ? "no change" : `${fmtStorage(Math.abs(storageDiffTiB))} ${storageDiffTiB < 0 ? "less" : "more"}`,
+    // No delta. Subtracting a figure of one basis from a figure of another
+    // produces a number that looks authoritative and means nothing, which is
+    // the worst outcome on a slide a customer will read closely.
+    delta: null,
+    note: "Storage today is capacity allocated to VMs in the export. The proposed figure is the capacity reported by the Sizer scenario, on a different basis, so the two are shown side by side rather than differenced.",
   });
 
   rows.push({
     metric: "Clusters",
     current: fmtInt(p.clusters),
     proposed: fmtInt(t.clusters),
-    delta: countDelta(p.clusters, t.clusters, "clusters"),
+    delta: countDelta(p.clusters, t.clusters, "cluster"),
   });
 
   // VM count only appears when the Sizer export carried one; otherwise both
@@ -224,25 +240,25 @@ export function migrationComparison(env: CurrentEnvironment, scenario: ProposalS
       metric: "Virtual machines",
       current: fmtInt(p.totalVms),
       proposed: fmtInt(t.vmCount),
-      delta: countDelta(p.totalVms, t.vmCount, "VMs"),
+      // Deliberately no delta: the Sizer figure is the workload the scenario
+      // was sized for, not a proposal to run fewer machines. Differencing them
+      // would read as "we are removing VMs", which is not what is on offer.
+      delta: null,
+      note: "The proposed VM count is the workload the Sizer scenario was sized for, which may cover part of the estate.",
     });
   }
 
   // Consolidation is only meaningful with real hosts and real nodes on both
   // sides; a ratio over a zero denominator is not a fact about the design.
-  if (p.hosts > 0 && t.nodes > 0) {
-    const ratio = p.hosts / t.nodes;
-    const delta =
-      ratio > 1
-        ? `${ratio.toFixed(1)}x consolidation`
-        : ratio < 1
-          ? `${(1 / ratio).toFixed(1)}x more servers`
-          : "1:1";
+  // A consolidation row only when the footprint actually shrinks. Printing
+  // "1.2x more servers" under a heading that says "Consolidation" contradicts
+  // itself, and the Servers row above already states the change either way.
+  if (p.hosts > 0 && t.nodes > 0 && p.hosts > t.nodes) {
     rows.push({
       metric: "Consolidation",
       current: `${fmtInt(p.hosts)} hosts`,
       proposed: `${fmtInt(t.nodes)} nodes`,
-      delta,
+      delta: `${(p.hosts / t.nodes).toFixed(1)}x fewer servers to run`,
     });
   }
 

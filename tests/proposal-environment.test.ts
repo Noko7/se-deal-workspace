@@ -310,15 +310,34 @@ describe("migrationComparison", () => {
   it("computes the consolidation ratio from hosts to nodes", () => {
     const rows = migrationComparison(currentEnv(parsed), scenario({ nodes: 10, vmCount: 400 }));
     const cons = rows.find((r) => r.metric === "Consolidation");
-    assert.equal(cons?.delta, "2.4x consolidation");
+    assert.equal(cons?.delta, "2.4x fewer servers to run");
   });
 
   it("states a larger proposed side honestly rather than spinning it", () => {
     const rows = migrationComparison(currentEnv(penv({ hosts: 4, totalCpuCores: 100 })), scenario({ nodes: 10, cores: 480 }));
     assert.equal(rows.find((r) => r.metric === "Servers")?.delta, "6 more servers");
     assert.equal(rows.find((r) => r.metric === "CPU cores")?.delta, "380 more cores");
-    // Fewer hosts than nodes is an expansion, not a consolidation.
-    assert.equal(rows.find((r) => r.metric === "Consolidation")?.delta, "2.5x more servers");
+    // An expansion is not a consolidation, so the row is omitted entirely
+    // rather than printing "2.5x more servers" under a Consolidation heading.
+    assert.ok(!rows.some((r) => r.metric === "Consolidation"));
+  });
+
+  it("pluralises a delta of exactly one", () => {
+    const rows = migrationComparison(currentEnv(penv({ hosts: 9 })), scenario({ nodes: 10 }));
+    assert.equal(rows.find((r) => r.metric === "Servers")?.delta, "1 more server");
+  });
+
+  it("does not difference figures that sit on different bases", () => {
+    const rows = migrationComparison(currentEnv(parsed), scenario({ vmCount: 400 }));
+    // Allocated-today against Sizer-reported capacity, and estate VM count
+    // against the workload a scenario was sized for, are not like-for-like.
+    // Both rows show each side and explain why, but neither invents a delta.
+    for (const metric of ["Storage", "Virtual machines"]) {
+      const row = rows.find((r) => r.metric === metric);
+      assert.ok(row, `${metric} row missing`);
+      assert.equal(row.delta, null, `${metric} must not carry a delta`);
+      assert.ok(row.note && row.note.length > 0, `${metric} must explain its basis`);
+    }
   });
 
   it("drops the VM row when the Sizer export carried no VM count", () => {

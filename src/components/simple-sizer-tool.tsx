@@ -1,426 +1,836 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import {
-  Boxes,
-  Camera,
-  ChevronDown,
-  Copy,
-  Download,
-  FileSpreadsheet,
-  HardDrive,
-  RotateCcw,
-  ShieldCheck,
-  SlidersHorizontal,
-  TriangleAlert,
-  Upload,
-} from "lucide-react";
-import {
-  AUTO_PROFILE,
-  CUSTOM_PROFILE,
-  DEFAULT_SIZER_SETTINGS,
-  buildSizingPlan,
-  cpuStatisticLabel,
-  vmCpuContribution,
-  workloadCpuSummary,
-  type BuildRecommendation,
-  type CpuStatistic,
-  type ParsedCluster,
-  type ParsedEnvironment,
-  type PlanMode,
-  type RfSetting,
-  type SizerSettings,
-  type SizerSource,
-  type SizingPlan,
-  type StorageEfficiency,
-  type VmAdjustment,
-  type VmRecord,
-  type WorkloadBasis,
-} from "@/lib/simple-sizer-core";
+import { createPortal } from "react-dom";
+import { ChevronDown, FileDown, FileSpreadsheet, RotateCcw, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { parseSizerWorkbook } from "@/lib/simple-sizer";
-import { NODE_PROFILES } from "@/lib/node-profiles";
-import { KEY_RESOURCES, SIZING_REFERENCE, SIZING_RULES, utilizationBasisLabel } from "@/lib/sizing-guidance";
-import { TIB_TO_TB, UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
-import { buildSizerWorkbookBlob, sizerWorkbookFileName } from "@/lib/sizer-workbook";
-import { HeroNumber, MicroMeters, Meter, RankedBars, SplitMeter, Stat, VizKey } from "@/components/sizer-viz";
-import { StatusPill } from "@/components/ui";
+import type { ParsedEnvironment, SizerSource, VmAdjustment, VmRecord } from "@/lib/simple-sizer-core";
+import {
+  AHV_PRESETS,
+  DEFAULT_NX_SETTINGS,
+  PC_PROFILES,
+  approvedModels,
+  recommendNx,
+  vmCpuCores,
+  isExcluded,
+  vmStorageTiB,
+  type NxRecommendation,
+  type NxSizerSettings,
+  type PcProfileId,
+} from "@/lib/nx-sizer";
+import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage, gibToGB, tibToTB } from "@/lib/sizer-format";
+import { SizingReport } from "@/components/nx-sizing-report";
+import { capacityLines, driveLabel, type ReportMeta } from "@/lib/nx-report";
 
-// One stroke weight across every icon on the page.
 const ICON = { strokeWidth: 1.5 } as const;
-
-// Tactile press feedback, applied to everything clickable.
 const PRESS = "transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]";
-
-// vCPU:pCore overcommit is a *status*, not a series — it ships with a word, never
-// colour alone. <=4 suits latency-sensitive work, >6 risks CPU ready time.
-function ratioStatus(ratio: number | null | undefined): { label: string; className: string } | null {
-  if (ratio == null) return null;
-  if (ratio > 6) return { label: "over guidance", className: "text-rose-600" };
-  if (ratio > 4) return { label: "general-purpose", className: "text-charcoal-900" };
-  return { label: "latency-safe", className: "text-charcoal-900" };
-}
-
-/**
- * Say where the CPU number came from. The statistic chosen is the single biggest
- * lever on node count, so it is never allowed to happen silently, and the line
- * always states that memory was left on provisioned.
- */
-function CpuBasisNote({ build, settings }: { build: BuildRecommendation; settings: SizerSettings }) {
-  const measured = build.workload.cpu.statistic !== "allocated";
-  return (
-    <p className="mt-3 max-w-[62ch] text-[11px] leading-relaxed text-charcoal-500">
-      <span className={measured ? "font-medium text-viz-compute" : "font-medium text-charcoal-700"}>
-        {measured ? "CPU sized from what the VMs actually use." : "CPU sized from allocated vCPU."}
-      </span>{" "}
-      {workloadCpuSummary(build.workload.cpu, settings.targetUtilizationPct, settings.cpuStatistic)} Memory is always
-      sized from provisioned, never from what the guests happen to be using, so a quiet estate cannot undersize it.
-    </p>
-  );
-}
+const SOURCE_LABEL: Record<SizerSource, string> = {
+  collector_excel: "Nutanix Collector",
+  rvtools: "RVTools",
+  liveoptics: "LiveOptics",
+};
 
 export function SimpleSizerTool() {
   const [source, setSource] = useState<SizerSource>("collector_excel");
   const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedEnvironment | null>(null);
-  const [settings, setSettings] = useState<SizerSettings>(DEFAULT_SIZER_SETTINGS);
-  const [copied, setCopied] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [settings, setSettings] = useState<NxSizerSettings>(DEFAULT_NX_SETTINGS);
+  const [meta, setMeta] = useState<ReportMeta>({ customer: "", preparedBy: "" });
+  const [printing, setPrinting] = useState(false);
 
-  const plan = useMemo(() => (parsed ? buildSizingPlan(parsed, settings) : null), [parsed, settings]);
+  const rec = useMemo(() => (parsed ? recommendNx(parsed, settings) : null), [parsed, settings]);
 
-  const uploadAndAnalyze = async () => {
-    if (!file || uploading) return;
-    if (!/\.(xlsx|xls)$/i.test(file.name)) {
-      setError("That needs to be an .xlsx or .xls export. ZIPs and CSVs aren't supported here.");
-      return;
-    }
-    if (file.size === 0) {
-      setError("That file is empty. Re-export from the source tool and try again.");
-      return;
-    }
-    if (file.size > 30 * 1024 * 1024) {
-      setError("That file is over 30 MB. Trim the export or split it before uploading.");
-      return;
-    }
-
-    setUploading(true);
+  // The file is read as soon as it is chosen, like Sizer's import: the options
+  // then apply live to the workloads it found.
+  const load = async (next: File | null, nextSource: SizerSource = source) => {
+    setFile(next);
+    setParsed(null);
     setError(null);
+    if (!next) return;
+    if (!/\.(xlsx|xls)$/i.test(next.name)) return setError("Select the .xlsx export. ZIP bundles and CSVs are not supported.");
+    if (next.size === 0) return setError("That file is empty. Re-export it from the source tool.");
+    if (next.size > 30 * 1024 * 1024) return setError("That file is over 30 MB. Split the export first.");
+    setParsing(true);
     try {
-      // Parsed here in the browser. The workbook bytes are never uploaded, so a
-      // customer's inventory never reaches the server or the network at all.
-      const bytes = await file.arrayBuffer();
-      // Yield a frame first so the skeleton paints before the parse blocks the
-      // main thread — a large export takes a moment.
+      // Parsed in the browser: the workbook never leaves this machine.
+      const bytes = await next.arrayBuffer();
       await new Promise((resolve) => window.setTimeout(resolve, 0));
-
-      const result = parseSizerWorkbook(bytes, source, file.name, file.size);
-      if (!result.clusterDetails.length) {
-        throw new Error("No clusters were found in that file. Check that it's the full export and matches the selected source type.");
-      }
+      const result = parseSizerWorkbook(bytes, nextSource, next.name, next.size);
+      if (!result.vms.length) throw new Error("No VMs were found. Check the file matches the selected source.");
       setParsed(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong reading the file.");
-      setParsed(null);
+      setError(e instanceof Error ? e.message : "The file could not be read.");
     } finally {
-      setUploading(false);
+      setParsing(false);
     }
   };
 
   const reset = () => {
-    setParsed(null);
     setFile(null);
+    setParsed(null);
     setError(null);
-    setCopied(false);
-    setSettings(DEFAULT_SIZER_SETTINGS);
+    setSettings(DEFAULT_NX_SETTINGS);
   };
 
-  const copySummary = async () => {
-    if (!parsed || !plan) return;
-    try {
-      await navigator.clipboard.writeText(summaryText(parsed, plan, settings));
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Couldn't copy to the clipboard. Your browser blocked it.");
-    }
-  };
-
-  const downloadWorkbook = async () => {
-    if (!parsed || !plan || downloading) return;
-    setDownloading(true);
-    try {
-      const blob = await buildSizerWorkbookBlob(parsed, plan, settings);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = sizerWorkbookFileName(parsed);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(e instanceof Error ? `Couldn't build the workbook: ${e.message}` : "Couldn't build the workbook.");
-    } finally {
-      setDownloading(false);
-    }
+  const exportPdf = () => {
+    if (!rec?.fit || !parsed) return;
+    setPrinting(true);
+    // Let the print surface mount before the dialog opens.
+    window.setTimeout(() => {
+      window.print();
+      setPrinting(false);
+    }, 60);
   };
 
   return (
     <div className="space-y-4">
-      <ImportPanel
-        source={source}
-        setSource={setSource}
-        file={file}
-        // Choosing a new file clears the previous failure — the message described
-        // the old file and would otherwise stick around as a false alarm.
-        setFile={(f) => {
-          setFile(f);
-          setError(null);
-        }}
-        uploading={uploading}
-        onAnalyze={uploadAndAnalyze}
-        onReset={reset}
-        error={error}
-        parsed={parsed}
-        onCopy={copySummary}
-        copied={copied}
-        onDownload={downloadWorkbook}
-        downloading={downloading}
-      />
+      <section className="overflow-hidden rounded-[1.75rem] border border-charcoal-200 bg-white shadow-[0_18px_40px_-24px_rgba(49,49,49,0.22)]">
+        <div className="grid gap-px bg-charcoal-200 lg:grid-cols-[0.95fr_1.25fr]">
+          <div className="bg-white p-6 md:p-8">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-viz-compute">Simple Sizer</p>
+            <h1 className="mt-2 max-w-[22ch] text-2xl font-semibold tracking-tighter text-charcoal-900 md:text-3xl">
+              NX hardware from a VM export.
+            </h1>
+            <p className="mt-2 max-w-[52ch] text-sm leading-relaxed text-charcoal-600">
+              Import a Collector, RVTools or LiveOptics export. CPU, memory and storage per node come back with the
+              Nutanix overhead charged and itemised, ready to hand to a build partner.
+            </p>
 
-      {uploading ? <ResultSkeleton /> : null}
+            <div className="mt-6 grid gap-4">
+              <Field label="Source" htmlFor="nx-source">
+                <select
+                  id="nx-source"
+                  value={source}
+                  onChange={(e) => {
+                    const next = e.target.value as SizerSource;
+                    setSource(next);
+                    if (file) void load(file, next);
+                  }}
+                  className="h-11 w-full"
+                >
+                  {(Object.keys(SOURCE_LABEL) as SizerSource[]).map((s) => (
+                    <option key={s} value={s}>
+                      {SOURCE_LABEL[s]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Select collection file" htmlFor="nx-file" helper="The .xlsx export. Collector: the Excel file from Collector Portal, not the ZIP bundle.">
+                <FileDrop file={file} invalid={Boolean(error)} onFile={(f) => void load(f)} />
+              </Field>
+            </div>
 
-      {!uploading && parsed && plan ? (
+            {error ? (
+              <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+                <TriangleAlert {...ICON} className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </p>
+            ) : null}
+
+            {parsing ? (
+              <div aria-busy="true" className="mt-4 space-y-2">
+                <span className="sr-only">Reading the export</span>
+                <div className="sizer-shimmer h-3 w-48 rounded-full bg-charcoal-100" />
+                <div className="sizer-shimmer h-3 w-64 rounded-full bg-charcoal-100" />
+              </div>
+            ) : null}
+
+            {parsed ? (
+              <div className="mt-4 rounded-xl border border-charcoal-200 bg-charcoal-50 px-4 py-3 text-sm">
+                <p className="flex items-center gap-2 font-medium text-charcoal-900">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-viz-storage" />
+                  Workloads ready to import
+                </p>
+                <p className="mt-1 font-mono text-xs tabular-nums text-charcoal-600">
+                  {fmtInt(parsed.vms.length)} VMs ({fmtInt(parsed.poweredOn.vms)} on, {fmtInt(parsed.poweredOff.vms)} off) ·{" "}
+                  {fmtInt(parsed.clusters)} clusters · {fmtInt(parsed.hosts)} hosts
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <Field label="Customer" htmlFor="nx-customer" helper="Printed on the report.">
+                <input id="nx-customer" value={meta.customer} onChange={(e) => setMeta({ ...meta, customer: e.target.value })} className="h-10 w-full" />
+              </Field>
+              <Field label="Prepared by" htmlFor="nx-se" helper="Printed on the report.">
+                <input id="nx-se" value={meta.preparedBy} onChange={(e) => setMeta({ ...meta, preparedBy: e.target.value })} className="h-10 w-full" />
+              </Field>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={exportPdf}
+                disabled={!rec?.fit || printing}
+                className={`${PRESS} inline-flex items-center gap-2 rounded-full bg-iris-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-iris-600 disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <FileDown {...ICON} className="h-4 w-4" />
+                {printing ? "Preparing PDF" : "Sizing report (PDF)"}
+              </button>
+              {file ? (
+                <button
+                  type="button"
+                  onClick={reset}
+                  className={`${PRESS} inline-flex items-center gap-2 rounded-full border border-charcoal-300 bg-white px-4 py-2.5 text-sm text-charcoal-700 hover:border-iris-400 hover:bg-iris-50`}
+                >
+                  <RotateCcw {...ICON} className="h-4 w-4" /> Start over
+                </button>
+              ) : null}
+            </div>
+
+            <p className="mt-5 flex max-w-[56ch] items-start gap-2 text-[11px] leading-relaxed text-charcoal-500">
+              <ShieldCheck {...ICON} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-viz-storage" />
+              The file is read in this browser, never uploaded, and discarded when the tab closes.
+            </p>
+          </div>
+
+          <SizeFor settings={settings} onChange={setSettings} parsed={parsed} />
+        </div>
+      </section>
+
+      {!parsing && !parsed && !error ? <EmptyState /> : null}
+
+      {!parsing && parsed && rec ? (
         <>
-          {/* Reads as a narrative: what's in the file, what exists today, what we
-              propose, and finally how every number was read. */}
-          <EnvironmentSummary parsed={parsed} />
-          <ExistingClusters parsed={parsed} plan={plan} />
-          <VirtualMachines parsed={parsed} settings={settings} plan={plan} onSettings={setSettings} />
-          <BuildPlan plan={plan} settings={settings} onSettings={setSettings} />
-          <ParsedInputs parsed={parsed} />
+          <Issues rec={rec} />
+          {rec.fit ? <Recommendation rec={rec} /> : null}
+          {rec.fit ? <CapacityMath rec={rec} /> : null}
+          <WorkloadPanel parsed={parsed} rec={rec} />
+          <VmTable parsed={parsed} settings={settings} onSettings={setSettings} />
+          <AuditPanel parsed={parsed} />
         </>
       ) : null}
 
-      <ReferencePanel />
+      {/* Mounted directly under <body> so print CSS can drop the page around it. */}
+      {printing && parsed && rec?.fit
+        ? createPortal(
+            <div className="sizer-print-root" aria-hidden>
+              <SizingReport parsed={parsed} rec={rec} meta={meta} />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Import — asymmetric split, with the empty state living in the right rail
+// Size For: the import options, in Sizer's order, then the cluster options
 // ---------------------------------------------------------------------------
 
-function ImportPanel({
-  source,
-  setSource,
-  file,
-  setFile,
-  uploading,
-  onAnalyze,
-  onReset,
-  error,
-  parsed,
-  onCopy,
-  copied,
-  onDownload,
-  downloading,
+function Choice<T extends string | number>({
+  name,
+  value,
+  options,
+  onChange,
 }: {
-  source: SizerSource;
-  setSource: (s: SizerSource) => void;
-  file: File | null;
-  setFile: (f: File | null) => void;
-  uploading: boolean;
-  onAnalyze: () => void;
-  onReset: () => void;
-  error: string | null;
-  parsed: ParsedEnvironment | null;
-  onCopy: () => void;
-  copied: boolean;
-  onDownload: () => void;
-  downloading: boolean;
+  name: string;
+  value: T;
+  options: { value: T; label: string; helper?: string }[];
+  onChange: (v: T) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-[1.75rem] border border-charcoal-200 bg-white shadow-[0_18px_40px_-24px_rgba(49,49,49,0.22)]">
-      <div className="grid gap-px bg-charcoal-200 lg:grid-cols-[1.35fr_0.9fr]">
-        {/* Controls */}
-        <div className="bg-white p-6 md:p-8">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-viz-compute">Simple Sizer</p>
-          <h1 className="mt-2 max-w-[22ch] text-2xl font-semibold tracking-tighter text-charcoal-900 md:text-3xl">
-            Read the estate, then size the cluster.
-          </h1>
-          <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-charcoal-600">
-            Drop in a Collector, RVTools or LiveOptics export. Node class and node count come from what the estate
-            actually uses, not what it was allocated, so a quiet cluster sizes down. You only override what you disagree
-            with.
+    <div role="radiogroup" aria-label={name} className="grid gap-2 sm:grid-cols-2">
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(o.value)}
+            className={`${PRESS} rounded-xl border px-3 py-2 text-left transition-colors ${
+              on ? "border-iris-400 bg-iris-50" : "border-charcoal-200 bg-white hover:border-iris-300"
+            }`}
+          >
+            <span className={`block text-sm font-medium ${on ? "text-iris-700" : "text-charcoal-800"}`}>{o.label}</span>
+            {o.helper ? <span className="mt-0.5 block text-[11px] leading-snug text-charcoal-500">{o.helper}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-600">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function SizeFor({
+  settings,
+  onChange,
+  parsed,
+}: {
+  settings: NxSizerSettings;
+  onChange: (s: NxSizerSettings) => void;
+  parsed: ParsedEnvironment | null;
+}) {
+  const set = <K extends keyof NxSizerSettings>(key: K, value: NxSizerSettings[K]) => onChange({ ...settings, [key]: value });
+  return (
+    <div className="grid content-start gap-5 bg-charcoal-50 p-6 md:p-8">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">Size for</p>
+
+      <Group title="VMs">
+        <Choice
+          name="VMs"
+          value={settings.workloadBasis}
+          onChange={(v) => set("workloadBasis", v)}
+          options={[
+            { value: "poweredOn", label: "Powered ON only" },
+            { value: "all", label: "Both powered ON and OFF", helper: "Review powered-off VMs with the customer before sizing them." },
+          ]}
+        />
+      </Group>
+
+      <Group title="CPU">
+        <Choice
+          name="CPU"
+          value={settings.cpuBasis}
+          onChange={(v) => set("cpuBasis", v)}
+          options={[
+            { value: "configuration", label: "Configuration", helper: "Configured vCPUs / vCPU:pCore ratio." },
+            { value: "utilization", label: "Utilization", helper: "95th-percentile vCPU use; ratio where not measured." },
+          ]}
+        />
+      </Group>
+
+      <Field
+        label="vCPU:pCore ratio"
+        htmlFor="opt-ratio"
+        helper={`Min 1, max 15.${parsed ? ` Average source ratio ${fmtNum(parsed.vcpuPcoreRatio, 2)}.` : ""}`}
+      >
+        <input
+          id="opt-ratio"
+          type="number"
+          min={1}
+          max={15}
+          step={0.01}
+          value={settings.vcpuPerPcore}
+          onChange={(e) => set("vcpuPerPcore", Math.min(15, Math.max(1, Number(e.target.value) || 1)))}
+          className="h-10 w-40 font-mono"
+        />
+      </Field>
+
+      <Group title="Memory">
+        <Choice
+          name="Memory"
+          value={settings.memoryBasis}
+          onChange={(v) => set("memoryBasis", v)}
+          options={[
+            { value: "provisioned", label: "Provisioned", helper: "Configured VM memory." },
+            { value: "consumed", label: "Consumed", helper: "95th-percentile use where measured, else configured." },
+          ]}
+        />
+      </Group>
+
+      <Group title="Capacity">
+        <Choice
+          name="Capacity"
+          value={settings.storageBasis}
+          onChange={(v) => set("storageBasis", v)}
+          options={[
+            { value: "provisioned", label: "Provisioned", helper: "Virtual disk size." },
+            { value: "consumed", label: "Consumed", helper: "Guest used space." },
+          ]}
+        />
+        <label className="flex items-center gap-2 text-sm font-normal normal-case tracking-normal text-charcoal-700">
+          <input
+            type="checkbox"
+            checked={settings.includePoweredOffStorage}
+            onChange={(e) => set("includePoweredOffStorage", e.target.checked)}
+          />
+          Consider storage of powered-off VMs
+        </label>
+      </Group>
+
+      <div className="grid gap-4 border-t border-charcoal-200 pt-5 sm:grid-cols-2">
+        <Field label="NX model" htmlFor="opt-model" helper="Auto starts at NX-1175S-G10 and steps up only if the largest VM does not fit.">
+          <select id="opt-model" value={settings.modelSku} onChange={(e) => set("modelSku", e.target.value)} className="h-10 w-full">
+            <option value="auto">Auto</option>
+            {approvedModels().map((m) => (
+              <option key={m.sku} value={m.sku}>
+                {m.sku}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Failover" htmlFor="opt-fo" helper="Nodes the cluster must survive losing.">
+          <select id="opt-fo" value={settings.failoverNodes} onChange={(e) => set("failoverNodes", Number(e.target.value) as 0 | 1 | 2)} className="h-10 w-full">
+            <option value={0}>N+0</option>
+            <option value={1}>N+1</option>
+            <option value={2}>N+2</option>
+          </select>
+        </Field>
+        <Field label="Replication factor" htmlFor="opt-rf" helper="RF3 needs 5 nodes and a 40 GiB CVM.">
+          <select id="opt-rf" value={settings.rf} onChange={(e) => set("rf", Number(e.target.value) as 2 | 3)} className="h-10 w-full">
+            <option value={2}>RF2</option>
+            <option value={3}>RF3</option>
+          </select>
+        </Field>
+        <Field label="Compression savings %" htmlFor="opt-comp" helper="0 unless the customer data supports it.">
+          <input
+            id="opt-comp"
+            type="number"
+            min={0}
+            max={90}
+            value={Math.round(settings.compressionSavings * 100)}
+            onChange={(e) => set("compressionSavings", Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100)}
+            className="h-10 w-full font-mono"
+          />
+        </Field>
+        <Field label="Prism Central" htmlFor="opt-pc" helper="None if an existing Prism Central is reused.">
+          <select id="opt-pc" value={settings.prismCentral} onChange={(e) => set("prismCentral", e.target.value as PcProfileId)} className="h-10 w-full">
+            <option value="none">None</option>
+            {PC_PROFILES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="AHV memory overhead" htmlFor="opt-ahv">
+          <select
+            id="opt-ahv"
+            value={settings.ahvPreset}
+            onChange={(e) => set("ahvPreset", e.target.value as NxSizerSettings["ahvPreset"])}
+            className="h-10 w-full"
+          >
+            {(Object.keys(AHV_PRESETS) as (keyof typeof AHV_PRESETS)[]).map((k) => (
+              <option key={k} value={k}>
+                {AHV_PRESETS[k].label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <fieldset className="grid gap-1.5 sm:col-span-2">
+          <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-charcoal-600">Flow</legend>
+          <label className="flex items-center gap-2 text-sm font-normal normal-case tracking-normal text-charcoal-700">
+            <input type="checkbox" checked={settings.flowVirtualNetworking} onChange={(e) => set("flowVirtualNetworking", e.target.checked)} />
+            Virtual Networking (+2 GiB per host)
+          </label>
+          <label className="flex items-center gap-2 text-sm font-normal normal-case tracking-normal text-charcoal-700">
+            <input type="checkbox" checked={settings.flowMicrosegmentation} onChange={(e) => set("flowMicrosegmentation", e.target.checked)} />
+            Microsegmentation (+4 GiB per host)
+          </label>
+        </fieldset>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Results
+// ---------------------------------------------------------------------------
+
+function Issues({ rec }: { rec: NxRecommendation }) {
+  if (!rec.blockers.length && !rec.warnings.length) return null;
+  return (
+    <section
+      className={`rounded-[1.75rem] border bg-white px-6 py-5 md:px-8 ${rec.blockers.length ? "border-rose-300" : "border-amber-200"}`}
+    >
+      {rec.blockers.length ? (
+        <>
+          <p className="flex items-center gap-2 text-sm font-semibold text-rose-700">
+            <TriangleAlert {...ICON} className="h-4 w-4" /> No recommendation until these are resolved
           </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-700">
+            {rec.blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {rec.warnings.length ? (
+        <ul className={`${rec.blockers.length ? "mt-4" : ""} list-disc space-y-1 pl-5 text-sm text-charcoal-700`}>
+          {rec.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
 
-          <p className="mt-4 flex max-w-[62ch] items-start gap-2.5 rounded-xl border border-charcoal-200 bg-charcoal-50 px-3.5 py-3 text-xs leading-relaxed text-charcoal-700">
-            <ShieldCheck {...ICON} className="mt-0.5 h-4 w-4 shrink-0 text-viz-storage" />
-            <span>
-              <span className="font-medium text-charcoal-900">Your file never leaves this machine.</span> The workbook is
-              read in your browser. It is not uploaded, not sent to a server, and not written to disk. Nothing is stored,
-              so closing this tab discards the analysis. Customer data stays with you.
-            </span>
+function Recommendation({ rec }: { rec: NxRecommendation }) {
+  const fit = rec.fit!;
+  const c = fit.config;
+  const model = c.model;
+  return (
+    <section className="rounded-[1.75rem] border border-charcoal-200 bg-white p-6 shadow-[0_18px_40px_-24px_rgba(49,49,49,0.18)] md:p-8">
+      <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr]">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-viz-compute">Recommended build</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tighter text-charcoal-900">
+            {fit.totalNodes} x {model.sku}
           </p>
-
-          {/* Both controls share one row and one baseline: the label row, the
-              control row, and the helper row line up across both columns. */}
-          <div className="mt-6 grid gap-x-4 gap-y-2 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:grid-rows-[auto_auto_auto]">
-            <label htmlFor="sourceType" className="sm:row-start-1">
-              Source
-            </label>
-            <select
-              id="sourceType"
-              value={source}
-              onChange={(e) => setSource(e.target.value as SizerSource)}
-              className="h-11 w-full sm:col-start-1 sm:row-start-2"
-            >
-              <option value="collector_excel">Nutanix Collector</option>
-              <option value="rvtools">RVTools</option>
-              <option value="liveoptics">LiveOptics</option>
-            </select>
-            <p className="text-[11px] text-charcoal-500 sm:col-start-1 sm:row-start-3">Match this to the export.</p>
-
-            <label htmlFor="fileUpload" className="sm:col-start-2 sm:row-start-1">
-              Export file
-            </label>
-            <FileDrop
-              file={file}
-              onFile={setFile}
-              invalid={Boolean(error)}
-              className="sm:col-start-2 sm:row-start-2"
-            />
-            <p id="upload-help" className="text-[11px] text-charcoal-500 sm:col-start-2 sm:row-start-3">
-              Drop a file here or browse: .xlsx or .xls, up to 30 MB.
-            </p>
-          </div>
-
-          {error ? (
-            <p
-              id="upload-error"
-              role="alert"
-              className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300"
-            >
-              <TriangleAlert {...ICON} className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </p>
-          ) : null}
-
-          <div className="mt-6 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onAnalyze}
-              disabled={uploading || !file}
-              className={`${PRESS} inline-flex items-center gap-2 rounded-full bg-iris-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-iris-600 disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <Upload {...ICON} className="h-4 w-4" />
-              {uploading ? "Analyzing" : "Analyze export"}
-            </button>
-            {parsed ? (
-              <>
-                <button
-                  type="button"
-                  onClick={onCopy}
-                  className={`${PRESS} inline-flex items-center gap-2 rounded-full border border-charcoal-300 bg-white px-4 py-2.5 text-sm font-medium text-charcoal-800 hover:border-iris-400 hover:bg-iris-50`}
-                >
-                  <Copy {...ICON} className="h-4 w-4" />
-                  {copied ? "Copied" : "Copy summary"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onDownload}
-                  disabled={downloading}
-                  className={`${PRESS} inline-flex items-center gap-2 rounded-full border border-charcoal-300 bg-white px-4 py-2.5 text-sm font-medium text-charcoal-800 hover:border-iris-400 hover:bg-iris-50 disabled:opacity-60`}
-                >
-                  <Download {...ICON} className="h-4 w-4" />
-                  {downloading ? "Building workbook" : "Download Excel"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onReset}
-                  title="Clear this analysis"
-                  className={`${PRESS} inline-flex items-center gap-2 rounded-full border border-charcoal-300 bg-white px-3 py-2.5 text-sm text-charcoal-600 hover:border-iris-400 hover:bg-iris-50`}
-                >
-                  <RotateCcw {...ICON} className="h-4 w-4" />
-                  <span className="sr-only">Clear</span>
-                </button>
-              </>
-            ) : null}
-          </div>
+          <p className="mt-1 text-sm text-charcoal-600">
+            {fit.clusters.length === 1
+              ? `One cluster, RF${rec.settings.rf}, N+${rec.settings.failoverNodes}.`
+              : `${fit.clusters.length} clusters (${fit.clusters.map((k) => k.nodes).join(" + ")} nodes), RF${rec.settings.rf}, N+${rec.settings.failoverNodes} each.`}{" "}
+            Node count set by {fit.driver === "minimum" ? `the RF${rec.settings.rf} minimum` : fit.driver.toUpperCase()}.
+          </p>
+          <dl className="mt-6 divide-y divide-charcoal-200 border-y border-charcoal-200 text-sm">
+            <Row k="CPU per node" v={`${model.socketsPerNode} x ${c.cpu.model} (${c.cpu.coresPerCpu} cores, ${c.cpu.baseGHz} GHz)`} />
+            <Row k="Cores per node" v={fmtInt(c.cores)} />
+            <Row k="RAM per node" v={fmtRam(c.ramGiB)} />
+            <Row k="Drives per node" v={driveLabel(c.drives)} />
+            <Row k="Raw storage per node" v={`${fmtNum(c.rawTB, 2)} TB`} />
+          </dl>
         </div>
-
-        {/* Right rail: empty state before a file, live status after */}
-        <div className="bg-charcoal-50 p-6 md:p-8">
-          {parsed ? (
-            <div className="sizer-rise">
-              <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">
-                <span aria-hidden className="sizer-breathe h-1.5 w-1.5 rounded-full bg-viz-storage" />
-                Parsed
-              </span>
-              <p className="mt-3 truncate text-sm font-medium text-charcoal-900" title={parsed.fileName}>
-                {parsed.fileName}
-              </p>
-              <dl className="mt-4 divide-y divide-charcoal-200 border-t border-charcoal-200 text-sm">
-                <RailRow k="Clusters" v={fmtInt(parsed.clusters)} />
-                <RailRow k="Hosts" v={fmtInt(parsed.hosts)} />
-                <RailRow k="VMs" v={fmtInt(parsed.all.vms)} />
-                <RailRow k="Sheets read" v={fmtInt(parsed.sheetsFound.length)} />
-              </dl>
-              <p className="mt-4 text-[11px] leading-relaxed text-charcoal-500">
-                Read and held in this browser tab only. Closing the tab discards it.
-              </p>
-            </div>
-          ) : (
-            <EmptyState hasFile={Boolean(file)} fileName={file?.name} />
-          )}
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">
+            With every node up / with {rec.settings.failoverNodes} node{rec.settings.failoverNodes === 1 ? "" : "s"} lost
+          </p>
+          <div className="mt-4 grid gap-4">
+            <UtilBar label="CPU" util={rec.utilization!.cpu} />
+            <UtilBar label="Memory" util={rec.utilization!.ram} />
+            <UtilBar label="Storage" util={rec.utilization!.storage} />
+          </div>
+          <p className="mt-4 text-[11px] leading-relaxed text-charcoal-500">
+            Percent of usable capacity, after CVM, AHV and the 5% safety buffer are removed from every node.
+          </p>
+          <div className="mt-5 border-t border-charcoal-200 pt-4">
+            <p className="text-xs font-medium text-charcoal-800">Model selection</p>
+            <ul className="mt-2 space-y-1 text-xs text-charcoal-600">
+              {rec.attempts.map((a) => (
+                <li key={a.sku}>
+                  <span className="font-mono">{a.sku}</span>: {a.fits ? "fits" : `skipped (${a.reason})`}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-/**
- * File field that accepts a drop as well as a click. Height-matched to the
- * adjacent select so the two controls share a baseline. The native input stays
- * in the DOM (visually hidden, not `display:none`) so the label, keyboard focus
- * and form semantics all keep working.
- */
-function FileDrop({
-  file,
-  onFile,
-  invalid,
-  className = "",
-}: {
-  file: File | null;
-  onFile: (f: File | null) => void;
-  invalid: boolean;
-  className?: string;
-}) {
-  // dragenter/dragleave fire for every descendant, so count depth and derive the
-  // highlight from it — toggling a boolean per event flickers as the pointer
-  // crosses child elements.
-  const [depth, setDepth] = useState(0);
-  const dragging = depth > 0;
+function UtilBar({ label, util }: { label: string; util: { allUp: number; failover: number } }) {
+  const tone = util.failover > 100 ? "bg-rose-500" : "bg-viz-compute";
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="text-charcoal-700">{label}</span>
+        <span className="font-mono tabular-nums text-charcoal-900">
+          {fmtNum(util.allUp, 1)}% / {fmtNum(util.failover, 1)}%
+        </span>
+      </div>
+      <div className="relative mt-1.5 h-1.5 rounded-full bg-charcoal-100">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-iris-200" style={{ width: `${Math.min(100, util.failover)}%` }} />
+        <div className={`absolute inset-y-0 left-0 rounded-full ${tone}`} style={{ width: `${Math.min(100, util.allUp)}%` }} />
+      </div>
+    </div>
+  );
+}
 
-  const accept = (list: FileList | null) => {
-    const dropped = list?.[0];
-    if (dropped) onFile(dropped);
+function CapacityMath({ rec }: { rec: NxRecommendation }) {
+  const lines = capacityLines(rec);
+  return (
+    <Section title="Capacity math" subtitle="Every overhead charged per node, and the demand it has to carry." defaultOpen>
+      <div className="grid gap-8 xl:grid-cols-3">
+        {lines.map((block) => (
+          <div key={block.title}>
+            <p className="text-sm font-semibold text-charcoal-900">{block.title}</p>
+            <table className="mt-2 w-full text-sm">
+              <tbody className="divide-y divide-charcoal-100">
+                {block.rows.map(([k, v, strong]) => (
+                  <tr key={k}>
+                    <td className={`py-1.5 pr-3 ${strong ? "font-medium text-charcoal-900" : "text-charcoal-600"}`}>{k}</td>
+                    <td className={`py-1.5 text-right font-mono tabular-nums ${strong ? "font-medium text-charcoal-900" : "text-charcoal-800"}`}>
+                      {v}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+      <p className="mt-6 text-[11px] text-charcoal-500">{UNIT_FOOTNOTE}</p>
+    </Section>
+  );
+}
+
+function WorkloadPanel({ parsed, rec }: { parsed: ParsedEnvironment; rec: NxRecommendation }) {
+  const w = rec.workload;
+  const vgs = parsed.volumeGroups ?? [];
+  return (
+    <Section
+      title="Workload from the export"
+      subtitle={`${fmtInt(parsed.vms.length)} VMs in ${parsed.fileName}. ${fmtInt(w.runningVms)} sized for CPU and memory, ${fmtInt(w.storedVms)} for storage.`}
+    >
+      <dl className="grid gap-x-10 divide-y divide-charcoal-100 text-sm md:grid-cols-2 md:divide-y-0">
+        <Row k="VMs in export" v={fmtInt(parsed.vms.length)} />
+        <Row k="Excluded by hand" v={fmtInt(w.excludedVms - w.sourceCvmsExcluded.length)} />
+        <Row k="Source-cluster CVM rows excluded" v={fmtInt(w.sourceCvmsExcluded.length)} />
+        <Row k={`Running (${parsed.powerStateKnown ? "power state read" : "no power state; all counted"})`} v={fmtInt(w.runningVms)} />
+        <Row k="vCPU (running)" v={fmtInt(w.vcpu)} />
+        <Row k="CPU cores used (p95 / fallback)" v={fmtNum(w.cpuCores, 2)} />
+        <Row k="RAM configured (running)" v={fmtRam(w.ramGiB)} />
+        <Row k="Storage consumed (all VMs)" v={fmtStorage(parsed.vms.reduce((t, vm) => t + vmStorageTiB(vm, "consumed"), 0), 2)} />
+        <Row k="Storage provisioned (all VMs)" v={fmtStorage(parsed.vms.reduce((t, vm) => t + vmStorageTiB(vm, "provisioned"), 0), 2)} />
+        <Row k="Largest VM by vCPU" v={w.largestVm.byVcpu ? `${w.largestVm.byVcpu.name}: ${w.largestVm.byVcpu.vcpu} vCPU` : "-"} />
+        <Row k="Largest VM by RAM" v={w.largestVm.byRam ? `${w.largestVm.byRam.name}: ${fmtRam(w.largestVm.byRam.ramGiB)}` : "-"} />
+        <Row k="Volume groups with no VM" v={vgs.length ? `${vgs.length} (${fmtStorage(vgs.reduce((t, v) => t + v.provisionedTiB, 0), 2)} provisioned)` : "None"} />
+        <Row k="Hosts in export (context only)" v={`${fmtInt(parsed.hosts)} hosts, ${fmtInt(parsed.totalCpuCores)} cores, ${fmtRam(parsed.totalMemoryGiB)}`} />
+      </dl>
+      {parsed.notes.length ? (
+        <ul className="mt-5 list-disc space-y-1 pl-5 text-xs text-charcoal-600">
+          {parsed.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      ) : null}
+    </Section>
+  );
+}
+
+const PAGE = 40;
+
+function VmTable({
+  parsed,
+  settings,
+  onSettings,
+}: {
+  parsed: ParsedEnvironment;
+  settings: NxSizerSettings;
+  onSettings: (s: NxSizerSettings) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? parsed.vms.filter((vm) => vm.name.toLowerCase().includes(q) || (vm.clusterName ?? "").toLowerCase().includes(q)) : parsed.vms;
+  }, [parsed.vms, query]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const rows = filtered.slice(page * PAGE, page * PAGE + PAGE);
+  const adjust = (vm: VmRecord, patch: VmAdjustment) => {
+    const next = { ...settings.vmAdjustments, [vm.id]: { ...settings.vmAdjustments[vm.id], ...patch } };
+    onSettings({ ...settings, vmAdjustments: next });
   };
+  const excluded = parsed.vms.filter((vm) => isExcluded(vm, settings.vmAdjustments)).length;
 
   return (
+    <Section title="Virtual machines" subtitle={`Exclude a VM or correct its figures. ${excluded} excluded.`}>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Search" htmlFor="vm-search">
+          <input
+            id="vm-search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(0);
+            }}
+            placeholder="VM or cluster name"
+            className="h-10 w-64"
+          />
+        </Field>
+        {Object.keys(settings.vmAdjustments).length ? (
+          <button
+            type="button"
+            onClick={() => onSettings({ ...settings, vmAdjustments: {} })}
+            className={`${PRESS} h-10 rounded-full border border-charcoal-300 bg-white px-4 text-sm text-charcoal-700 hover:border-iris-400`}
+          >
+            Clear all edits
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead>
+            <tr className="border-b border-charcoal-200 text-left text-xs text-charcoal-500">
+              <th className="py-2 pr-3 font-medium">Include</th>
+              <th className="py-2 pr-3 font-medium">VM</th>
+              <th className="py-2 pr-3 font-medium">Power</th>
+              <th className="py-2 pr-3 text-right font-medium">vCPU</th>
+              <th className="py-2 pr-3 text-right font-medium">CPU cores</th>
+              <th className="py-2 pr-3 text-right font-medium">RAM (GB)</th>
+              <th className="py-2 pr-3 text-right font-medium">Consumed (TB)</th>
+              <th className="py-2 text-right font-medium">Provisioned (TB)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-charcoal-100">
+            {rows.map((vm) => {
+              const a = settings.vmAdjustments[vm.id] ?? {};
+              const off = isExcluded(vm, settings.vmAdjustments);
+              const cpu = vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis);
+              return (
+                <tr key={vm.id} className={off ? "opacity-50" : ""}>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Include ${vm.name}`}
+                      checked={!off}
+                      onChange={(e) => adjust(vm, { excluded: !e.target.checked })}
+                    />
+                  </td>
+                  <td className="max-w-[16rem] truncate py-1.5 pr-3 text-charcoal-900" title={vm.name}>
+                    {vm.name}
+                  </td>
+                  <td className="py-1.5 pr-3 text-charcoal-600">{vm.poweredOn == null ? "unknown" : vm.poweredOn ? "on" : "off"}</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    <NumberCell value={a.vcpu ?? vm.vcpu} onCommit={(v) => adjust(vm, { vcpu: v })} />
+                  </td>
+                  <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-charcoal-700" title={cpu.measured ? "95th percentile" : `vCPU / ${settings.vcpuPerPcore}`}>
+                    {fmtNum(cpu.cores, 2)}
+                    {cpu.measured ? "" : "*"}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">
+                    <NumberCell
+                      value={Number(gibToGB(a.ramGiB ?? vm.ramGiB).toFixed(2))}
+                      onCommit={(gb) => adjust(vm, { ramGiB: (gb * 1e9) / 1024 ** 3 })}
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-charcoal-700">
+                    {fmtNum(tibToTB(a.storageTiB ?? vm.storageConsumedTiB), 3)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono tabular-nums text-charcoal-700">
+                    {fmtNum(tibToTB(a.storageTiB ?? vm.storageProvisionedTiB), 3)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 flex items-center justify-between text-xs text-charcoal-500">
+        <span>* Sized at vCPU / {settings.vcpuPerPcore}.</span>
+        <span className="flex items-center gap-2">
+          <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded-full border border-charcoal-300 bg-white px-3 py-1 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50 disabled:opacity-40">
+            Previous
+          </button>
+          {page + 1} / {pages}
+          <button type="button" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="rounded-full border border-charcoal-300 bg-white px-3 py-1 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50 disabled:opacity-40">
+            Next
+          </button>
+        </span>
+      </div>
+    </Section>
+  );
+}
+
+function NumberCell({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={0}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft != null) {
+          const n = Number(draft);
+          if (Number.isFinite(n) && n >= 0 && n !== value) onCommit(n);
+          setDraft(null);
+        }
+      }}
+      className="h-8 w-24 text-right font-mono tabular-nums"
+    />
+  );
+}
+
+function AuditPanel({ parsed }: { parsed: ParsedEnvironment }) {
+  return (
+    <Section title="How each column was read" subtitle="The sheet, column and unit behind every number. Units come from the header or the tool's documented unit, never from guessing.">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="border-b border-charcoal-200 text-left text-xs text-charcoal-500">
+              <th className="py-2 pr-3 font-medium">Field</th>
+              <th className="py-2 pr-3 font-medium">Sheet · column</th>
+              <th className="py-2 pr-3 font-medium">Unit</th>
+              <th className="py-2 font-medium">Note</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-charcoal-100">
+            {parsed.audit.map((a, i) => (
+              <tr key={`${a.field}-${i}`} className={a.implausible || a.confidence === "unresolved" ? "text-rose-700" : "text-charcoal-800"}>
+                <td className="py-1.5 pr-3 align-top">{a.field}</td>
+                <td className="py-1.5 pr-3 align-top font-mono text-xs">
+                  {a.sheet} · {a.column ?? "none"}
+                </td>
+                <td className="py-1.5 pr-3 align-top">
+                  {a.unit ?? "-"} <span className="text-xs text-charcoal-500">({a.confidence})</span>
+                </td>
+                <td className="py-1.5 align-top text-xs text-charcoal-600">{a.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Primitives
+// ---------------------------------------------------------------------------
+
+function Field({ label, htmlFor, helper, children }: { label: string; htmlFor: string; helper?: string; children: ReactNode }) {
+  return (
+    <div className="grid content-start gap-2">
+      <label htmlFor={htmlFor}>
+        {label}
+      </label>
+      {children}
+      {helper ? <p className="text-[11px] leading-snug text-charcoal-500">{helper}</p> : null}
+    </div>
+  );
+}
+
+function Row({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2">
+      <dt className="text-charcoal-600">{k}</dt>
+      <dd className="text-right font-mono tabular-nums text-charcoal-900">{v}</dd>
+    </div>
+  );
+}
+
+function Section({ title, subtitle, defaultOpen = false, children }: { title: string; subtitle?: string; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="overflow-hidden rounded-[1.75rem] border border-charcoal-200 bg-white shadow-[0_18px_40px_-24px_rgba(49,49,49,0.18)]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 bg-transparent px-6 py-5 text-left transition-colors duration-200 hover:bg-charcoal-50 md:px-8"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold tracking-tight text-charcoal-900">{title}</span>
+          {subtitle ? <span className="mt-0.5 block max-w-[80ch] text-sm text-charcoal-600">{subtitle}</span> : null}
+        </span>
+        <ChevronDown {...ICON} className={`h-4 w-4 shrink-0 text-charcoal-500 transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div className="border-t border-charcoal-200 px-6 py-6 md:px-8">{children}</div> : null}
+    </section>
+  );
+}
+
+function FileDrop({ file, onFile, invalid }: { file: File | null; onFile: (f: File | null) => void; invalid: boolean }) {
+  const [depth, setDepth] = useState(0);
+  const dragging = depth > 0;
+  const accept = (list: FileList | null) => {
+    const f = list?.[0];
+    if (f) onFile(f);
+  };
+  return (
     <div
-      className={`relative ${className}`}
+      className="relative"
       onDragEnter={(e) => {
         e.preventDefault();
         setDepth((d) => d + 1);
       }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-      }}
+      onDragOver={(e) => e.preventDefault()}
       onDragLeave={(e) => {
         e.preventDefault();
         setDepth((d) => Math.max(0, d - 1));
@@ -432,1515 +842,62 @@ function FileDrop({
       }}
     >
       <input
-        id="fileUpload"
+        id="nx-file"
         type="file"
         accept=".xlsx,.xls"
         onChange={(e) => accept(e.target.files)}
-        aria-describedby="upload-help"
         aria-invalid={invalid || undefined}
         className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
       />
       <div
         aria-hidden
-        className={`pointer-events-none flex h-11 items-center gap-2.5 rounded-md border border-dashed px-3 text-sm transition-colors duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-iris-300 peer-focus-visible:ring-offset-1 ${
-          dragging
-            ? "border-viz-compute bg-iris-50"
-            : invalid
-              ? "border-rose-300 bg-white"
-              : "border-charcoal-300 bg-white peer-hover:border-iris-400 peer-hover:bg-iris-50"
+        className={`pointer-events-none flex h-11 items-center gap-2.5 rounded-md border border-dashed px-3 text-sm transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-iris-300 ${
+          dragging ? "border-viz-compute bg-iris-50" : invalid ? "border-rose-300 bg-white" : "border-charcoal-300 bg-white peer-hover:border-iris-400"
         }`}
       >
-        <Upload
-          {...ICON}
-          className={`h-4 w-4 shrink-0 ${dragging ? "text-viz-compute" : "text-charcoal-400"}`}
-        />
-        {file ? (
-          <span className="min-w-0 flex-1 truncate font-medium text-charcoal-900" title={file.name}>
-            {file.name}
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-charcoal-500">
-            {dragging ? "Release to load" : "Drop export or click to browse"}
-          </span>
-        )}
-        {file ? (
-          <span className="shrink-0 tabular-nums text-[11px] text-charcoal-500">
-            {(file.size / 1024 / 1024).toFixed(1)} MB
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function RailRow({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-2">
-      <dt className="text-charcoal-600">{k}</dt>
-      <dd className="tabular-nums font-medium text-charcoal-900">{v}</dd>
-    </div>
-  );
-}
-
-function EmptyState({ hasFile, fileName }: { hasFile: boolean; fileName?: string }) {
-  return (
-    <div>
-      <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">
-        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${hasFile ? "bg-viz-compute" : "bg-charcoal-300"}`} />
-        {hasFile ? "Ready" : "No file yet"}
-      </span>
-      {hasFile ? (
-        <p className="mt-3 break-all text-sm font-medium text-charcoal-900">{fileName}</p>
-      ) : (
-        <p className="mt-3 max-w-[34ch] text-sm leading-relaxed text-charcoal-600">
-          Pick a source and an export to get an as-is read of the environment plus a Nutanix build.
-        </p>
-      )}
-
-      <ul className="mt-5 space-y-3 border-t border-charcoal-200 pt-4">
-        <SourceHint title="Nutanix Collector" detail="The Excel export, not the raw ZIP. Needs vHosts and vInfo." />
-        <SourceHint title="RVTools" detail="Standard export with vHost and vInfo; vPartition improves capacity accuracy." />
-        <SourceHint title="LiveOptics" detail="The workbook containing ESX Hosts and VMs." />
-      </ul>
-    </div>
-  );
-}
-
-function SourceHint({ title, detail }: { title: string; detail: string }) {
-  return (
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5">
-      <FileSpreadsheet {...ICON} className="mt-0.5 h-4 w-4 text-charcoal-400" />
-      <div>
-        <p className="text-xs font-medium text-charcoal-900">{title}</p>
-        <p className="text-[11px] leading-relaxed text-charcoal-500">{detail}</p>
-      </div>
-    </li>
-  );
-}
-
-// Skeletal loader matching the real result layout — not a spinner.
-function ResultSkeleton() {
-  return (
-    <div className="space-y-4" aria-busy="true" aria-live="polite">
-      <span className="sr-only">Analyzing the export</span>
-      <section className="rounded-[1.75rem] border border-charcoal-200 bg-white p-6 md:p-8">
-        <div className="sizer-shimmer h-3 w-40 rounded-full bg-charcoal-100" />
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="space-y-2">
-              <div className="sizer-shimmer h-2.5 w-20 rounded-full bg-charcoal-100" />
-              <div className="sizer-shimmer h-7 w-28 rounded-lg bg-charcoal-100" />
-              <div className="sizer-shimmer h-1.5 w-full rounded-full bg-charcoal-100" />
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="rounded-[1.75rem] border border-charcoal-200 bg-white p-6 md:p-8">
-        <div className="grid gap-8 lg:grid-cols-[1.7fr_1fr]">
-          <div className="space-y-3">
-            <div className="sizer-shimmer h-14 w-52 rounded-xl bg-charcoal-100" />
-            <div className="sizer-shimmer h-3 w-full max-w-md rounded-full bg-charcoal-100" />
-            <div className="sizer-shimmer h-3 w-2/3 max-w-sm rounded-full bg-charcoal-100" />
-          </div>
-          <div className="space-y-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="sizer-shimmer h-3 w-full rounded-full bg-charcoal-100" />
-            ))}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Collapsible section shell
-// ---------------------------------------------------------------------------
-
-function Section({
-  title,
-  subtitle,
-  defaultOpen = false,
-  badge,
-  tone = "default",
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  defaultOpen?: boolean;
-  badge?: ReactNode;
-  tone?: "default" | "alert";
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section
-      className={`overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_18px_40px_-24px_rgba(49,49,49,0.18)] ${
-        tone === "alert" ? "border-rose-300" : "border-charcoal-200"
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-4 bg-transparent px-6 py-5 text-left transition-colors duration-200 hover:bg-charcoal-50 md:px-8"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            {tone === "alert" ? <TriangleAlert {...ICON} className="h-4 w-4 shrink-0 text-rose-600" /> : null}
-            <span className="text-base font-semibold tracking-tight text-charcoal-900">{title}</span>
-          </span>
-          {subtitle ? <span className="mt-0.5 block max-w-[80ch] text-sm text-charcoal-600">{subtitle}</span> : null}
+        <FileSpreadsheet {...ICON} className="h-4 w-4 shrink-0 text-charcoal-400" />
+        <span className={`min-w-0 flex-1 truncate ${file ? "font-medium text-charcoal-900" : "text-charcoal-500"}`}>
+          {file ? file.name : dragging ? "Release to load" : "Drop export or click to browse"}
         </span>
-        {badge}
-        <ChevronDown
-          {...ICON}
-          className={`h-4 w-4 shrink-0 text-charcoal-500 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open ? <div className="border-t border-charcoal-200 px-6 py-6 md:px-8">{children}</div> : null}
+      </div>
+      {file ? (
+        <button
+          type="button"
+          onClick={() => onFile(null)}
+          className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center gap-1 rounded-full border border-charcoal-200 bg-white px-2.5 py-1 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50"
+        >
+          <X {...ICON} className="h-3.5 w-3.5" /> Remove
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <section className="grid gap-6 rounded-[1.75rem] border border-dashed border-charcoal-300 bg-white px-6 py-8 md:grid-cols-[1fr_1.4fr] md:px-8">
+      <div>
+        <p className="text-sm font-semibold text-charcoal-900">No export loaded</p>
+        <p className="mt-1 max-w-[40ch] text-sm text-charcoal-600">
+          Choose the source and the export file. The build appears below and updates as you change the options.
+        </p>
+      </div>
+      <ul className="grid gap-3 text-sm sm:grid-cols-2">
+        <li>
+          <p className="font-medium text-charcoal-900">Nutanix Collector</p>
+          <p className="text-xs text-charcoal-600">The Excel export from Collector Portal, not the encrypted ZIP bundle.</p>
+        </li>
+        <li>
+          <p className="font-medium text-charcoal-900">RVTools</p>
+          <p className="text-xs text-charcoal-600">Full export with vHost, vInfo, vDisk and vPartition.</p>
+        </li>
+        <li>
+          <p className="font-medium text-charcoal-900">LiveOptics</p>
+          <p className="text-xs text-charcoal-600">VMware workbook with ESX Hosts, VMs and VM Disks.</p>
+        </li>
+      </ul>
     </section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// What's in this file
-// ---------------------------------------------------------------------------
 
-function EnvironmentSummary({ parsed }: { parsed: ParsedEnvironment }) {
-  const on = parsed.poweredOn;
-  const off = parsed.poweredOff;
-  const ratio = ratioStatus(parsed.vcpuPcoreRatio);
-  const sourceLabel =
-    parsed.source === "collector_excel" ? "Nutanix Collector" : parsed.source === "rvtools" ? "RVTools" : "LiveOptics";
-
-  return (
-    <Section
-      title="What's in this file"
-      subtitle={`${sourceLabel}${parsed.fileSizeBytes ? ` · ${(parsed.fileSizeBytes / 1024 / 1024).toFixed(1)} MB` : ""}`}
-      defaultOpen
-      badge={
-        parsed.powerStateKnown ? (
-          <StatusPill tone="good">Power state read</StatusPill>
-        ) : (
-          <StatusPill tone="warning">No power state</StatusPill>
-        )
-      }
-    >
-      {/* Inventory — asymmetric, VMs given the weight it deserves */}
-      <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
-        <div className="sizer-rise" style={{ ["--index" as string]: 0 }}>
-          <div className="flex items-center gap-1.5">
-            <Boxes {...ICON} className="h-3.5 w-3.5 text-charcoal-400" />
-            <p className="text-[11px] font-medium text-charcoal-500">Virtual machines</p>
-          </div>
-          <p className="mt-1 text-4xl font-semibold tracking-tighter tabular-nums text-charcoal-900">{fmtInt(parsed.all.vms)}</p>
-          <div className="mt-3 max-w-xs">
-            {parsed.powerStateKnown ? (
-              <SplitMeter
-                label=""
-                segments={[
-                  { key: "on", label: `${fmtInt(on.vms)} on`, value: on.vms, series: "storage" },
-                  { key: "off", label: `${fmtInt(off.vms)} off`, value: off.vms, series: "muted" },
-                ]}
-              />
-            ) : (
-              <p className="text-[11px] text-charcoal-500">Power state absent, so all are treated as running.</p>
-            )}
-          </div>
-        </div>
-        <Stat label="Datacenters" value={fmtInt(parsed.datacenters)} index={1} />
-        <Stat label="Clusters" value={fmtInt(parsed.clusters)} index={2} />
-        <Stat label="Hosts" value={fmtInt(parsed.hosts)} index={3} />
-      </div>
-
-      <div className="mt-8 grid gap-x-6 gap-y-6 border-t border-charcoal-200 pt-6 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="vCPU running" value={fmtInt(on.vcpu)} sub={`${fmtInt(parsed.all.vcpu)} allocated in total`} series="compute" index={0} />
-        <Stat label="Host physical cores" value={fmtInt(parsed.totalCpuCores)} sub={`${fmtNum(parsed.avgVcpuPerVm)} vCPU per VM`} series="compute" index={1} />
-        <Stat
-          label="vCPU : pCore"
-          value={`${fmtNum(parsed.vcpuPcoreRatio, 2)}:1`}
-          sub={ratio?.label}
-          series="compute"
-          index={2}
-        />
-        <Stat label="VM memory running" value={fmtRam(on.ramGiB)} sub={`${fmtRam(parsed.totalMemoryGiB)} installed in hosts`} series="memory" index={3} />
-      </div>
-
-      {/* Storage + OS mix, asymmetric */}
-      <div className="mt-8 grid gap-8 border-t border-charcoal-200 pt-6 lg:grid-cols-[1fr_1.15fr]">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <HardDrive {...ICON} className="h-3.5 w-3.5 text-charcoal-400" />
-            <p className="text-[11px] font-medium text-charcoal-500">Storage</p>
-          </div>
-          <p className="mt-1 text-3xl font-semibold tracking-tighter tabular-nums text-charcoal-900">
-            {fmtStorage(parsed.aggStorageConsumedTiB)}
-          </p>
-          <p className="text-[11px] text-charcoal-500">consumed of {fmtStorage(parsed.aggStorageProvisionedTiB)} provisioned</p>
-          <div className="mt-4 max-w-md">
-            <Meter
-              label="Utilization"
-              series="storage"
-              value={parsed.aggStorageConsumedTiB}
-              max={parsed.aggStorageProvisionedTiB}
-              caption={
-                parsed.aggStorageProvisionedTiB > 0
-                  ? `${Math.round((parsed.aggStorageConsumedTiB / parsed.aggStorageProvisionedTiB) * 100)}%`
-                  : undefined
-              }
-            />
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {parsed.snapshots ? (
-              <StatusPill tone={parsed.snapshots > 50 ? "warning" : "neutral"}>
-                <Camera {...ICON} className="mr-1 inline h-3 w-3" />
-                {fmtInt(parsed.snapshots)} snapshots
-              </StatusPill>
-            ) : null}
-            {parsed.observed?.cpuPCores != null && parsed.totalCpuCores > 0 ? (
-              <StatusPill tone="neutral">
-                CPU used {fmtNum((parsed.observed.cpuPCores / parsed.totalCpuCores) * 100)}% ·{" "}
-                {fmtInt(parsed.observed.cpuPCores)} of {fmtInt(parsed.totalCpuCores)} cores
-              </StatusPill>
-            ) : parsed.hostCpuUtilPct != null ? (
-              <StatusPill tone="neutral">Host CPU {fmtNum(parsed.hostCpuUtilPct)}%</StatusPill>
-            ) : null}
-            {parsed.hostMemoryUtilPct != null ? <StatusPill tone="neutral">Host RAM {fmtNum(parsed.hostMemoryUtilPct)}%</StatusPill> : null}
-          </div>
-          {parsed.observed ? (
-            <p className="mt-3 max-w-[70ch] text-[11px] leading-relaxed text-charcoal-500">
-              Read as {utilizationBasisLabel(parsed.observed.basis)} from {parsed.observed.source}, covering{" "}
-              {Math.round(parsed.observed.coverage * 100)}% of the estate. This is what drives CPU sizing. Memory is sized from
-              what the VMs are configured with, not from this.
-            </p>
-          ) : null}
-        </div>
-
-        {parsed.guestOs.length ? (
-          <div>
-            <p className="mb-3 text-[11px] font-medium text-charcoal-500">Guest OS mix</p>
-            <RankedBars rows={parsed.guestOs} total={parsed.all.vms} />
-          </div>
-        ) : null}
-      </div>
-
-      {parsed.topVms.length ? (
-        <div className="mt-8 border-t border-charcoal-200 pt-6">
-          <TopVmTable vms={parsed.topVms} caption="Largest VMs, each of which must fit inside one node" />
-        </div>
-      ) : null}
-
-      {parsed.notes.length ? (
-        <ul className="mt-6 space-y-1 border-t border-charcoal-200 pt-4 text-[11px] leading-relaxed text-charcoal-500">
-          {parsed.notes.map((n, i) => (
-            <li key={`${i}-${n.slice(0, 24)}`}>{n}</li>
-          ))}
-        </ul>
-      ) : null}
-
-      <p className="mt-4 max-w-[80ch] text-[11px] leading-relaxed text-charcoal-500">{UNIT_FOOTNOTE}</p>
-    </Section>
-  );
-}
-
-function TopVmTable({
-  vms,
-  caption,
-  showCluster = true,
-}: {
-  vms: { name: string; cluster: string | null; vcpu: number; ramGiB: number; storageTiB: number; poweredOn: boolean }[];
-  caption: string;
-  showCluster?: boolean;
-}) {
-  return (
-    <div>
-      <p className="mb-3 text-[11px] font-medium text-charcoal-500">{caption}</p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-              <th className="pb-2 pr-3 font-medium">VM</th>
-              {showCluster ? <th className="px-3 pb-2 font-medium">Cluster</th> : null}
-              <th className="px-3 pb-2 text-right font-medium">vCPU</th>
-              <th className="px-3 pb-2 text-right font-medium">Memory</th>
-              <th className="pb-2 pl-3 text-right font-medium">Storage</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-charcoal-100">
-            {vms.map((vm, i) => (
-              <tr key={`${i}-${vm.name}`}>
-                <td className="max-w-[18rem] py-2 pr-3">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${vm.poweredOn ? "bg-viz-storage" : "bg-viz-muted"}`}
-                    />
-                    <span className="truncate font-medium text-charcoal-900" title={vm.name}>
-                      {vm.name}
-                    </span>
-                    <span className="sr-only">{vm.poweredOn ? "powered on" : "powered off"}</span>
-                  </span>
-                </td>
-                {showCluster ? (
-                  <td className="max-w-[14rem] truncate px-3 text-charcoal-600" title={vm.cluster ?? ""}>
-                    {vm.cluster ?? "-"}
-                  </td>
-                ) : null}
-                <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(vm.vcpu)}</td>
-                <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtRam(vm.ramGiB)}</td>
-                <td className="pl-3 text-right tabular-nums text-charcoal-700">{fmtStorage(vm.storageTiB, 2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <VizKey series="storage" label="Powered on" />
-        <VizKey series="muted" label="Powered off" />
-      </p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Recommended build
-// ---------------------------------------------------------------------------
-
-function BuildPlan({
-  plan,
-  settings,
-  onSettings,
-}: {
-  plan: SizingPlan;
-  settings: SizerSettings;
-  onSettings: (update: (s: SizerSettings) => SizerSettings) => void;
-}) {
-  const build = plan.consolidated;
-  const blocked = plan.blockers.length > 0;
-  const set = <K extends keyof SizerSettings>(key: K, value: SizerSettings[K]) => onSettings((s) => ({ ...s, [key]: value }));
-
-  const driverText =
-    build.fit.driver === "storage"
-      ? "capacity"
-      : build.fit.driver === "ram"
-        ? "memory"
-        : build.fit.driver === "resiliency"
-          ? "the RF node minimum"
-          : "CPU";
-
-  return (
-    <Section
-      title={blocked ? "Recommendation withheld" : "Recommended Nutanix build"}
-      subtitle={
-        blocked
-          ? "The figures read from this file are not physically possible, so no build is shown."
-          : `Node class and count derived from the workload, then split to respect the ${SIZING_RULES.maxNodesPerCluster}-node planning maximum.`
-      }
-      tone={blocked ? "alert" : "default"}
-      defaultOpen
-      badge={
-        blocked ? (
-          <StatusPill tone="bad">
-            {plan.blockers.length} {plan.blockers.length === 1 ? "check failed" : "checks failed"}
-          </StatusPill>
-        ) : (
-          <StatusPill tone="info">
-            {fmtInt(plan.totalNodes)} nodes · {fmtInt(plan.totalClusters)} {plan.totalClusters === 1 ? "cluster" : "clusters"}
-          </StatusPill>
-        )
-      }
-    >
-      {blocked ? (
-        <div className="mb-8">
-          <p className="max-w-[70ch] text-sm leading-relaxed text-charcoal-700">
-            A recommendation would be wrong, so it has been suppressed. Each check compares what was parsed against what is
-            physically possible. Open <span className="font-medium text-charcoal-900">Parsed inputs</span> to see which sheet
-            and column produced the bad figure, then re-export or correct the source type.
-          </p>
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[42rem] text-sm">
-              <thead>
-                <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-                  <th className="pb-2 pr-3 font-medium">Check</th>
-                  <th className="px-3 pb-2 font-medium">Parsed</th>
-                  <th className="px-3 pb-2 font-medium">Expected</th>
-                  <th className="pb-2 pl-3 font-medium">Likely cause</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-charcoal-100">
-                {plan.blockers.map((issue, i) => (
-                  <tr key={`${i}-${issue.field}`}>
-                    <td className="py-2.5 pr-3 font-medium text-charcoal-900">{issue.field}</td>
-                    <td className="px-3 py-2.5 font-medium tabular-nums text-rose-600">{issue.observed}</td>
-                    <td className="px-3 py-2.5 tabular-nums text-charcoal-700">{issue.expected}</td>
-                    <td className="py-2.5 pl-3 text-charcoal-600">{issue.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Headline — left-aligned, asymmetric, no centred hero */}
-          <div className="grid gap-8 lg:grid-cols-[1.7fr_1fr]">
-            <div>
-              <HeroNumber
-                value={fmtInt(plan.totalNodes)}
-                unit={`${plan.profile.label} ${plan.totalNodes === 1 ? "node" : "nodes"}`}
-                hint={
-                  <>
-                    {plan.totalClusters === 1 ? (
-                      <>as one cluster</>
-                    ) : (
-                      <>
-                        as {fmtInt(plan.totalClusters)} clusters of {fmtInt(build.fit.nodesPerCluster)}
-                      </>
-                    )}{" "}
-                    · RF{build.effectiveRf} · {build.licenseTier.tier}
-                  </>
-                }
-              />
-              <p className="mt-5 max-w-[62ch] text-sm leading-relaxed text-charcoal-600">
-                {plan.profile.family}. {plan.profile.blurb} Sized by {driverText} at the{" "}
-                {settings.targetUtilizationPct}% target — the binding constraint. In isolation each dimension
-                would need {build.fit.nodesForCpu} for CPU, {build.fit.nodesForRam} for memory, and{" "}
-                {build.fit.nodesForStorage} for capacity.
-                {build.rfUpgraded ? ` Stepped up to RF3 at ${SIZING_RULES.autoRf3AtNodes}+ nodes per cluster.` : ""}
-              </p>
-              <CpuBasisNote build={build} settings={settings} />
-              {plan.autoSelected ? (
-                <p className="mt-3 text-[11px] text-charcoal-500">Node class chosen automatically. Override it below.</p>
-              ) : null}
-            </div>
-
-            {/* How full the build lands. The target is drawn on each meter so a
-                build that could not reach it is obvious rather than implied. */}
-            <div className="grid content-start gap-4 lg:border-l lg:border-charcoal-200 lg:pl-8">
-              <p className="text-[11px] font-medium text-charcoal-500">
-                Used on the proposed build, target {settings.targetUtilizationPct}%
-              </p>
-              <Meter label="CPU" series="compute" value={build.headroom.cpuPct} max={100} caption={`${fmtNum(build.headroom.cpuPct)}% used`} index={0} />
-              <Meter label="Memory" series="memory" value={build.headroom.ramPct} max={100} caption={`${fmtNum(build.headroom.ramPct)}% used`} index={1} />
-              <Meter label="Capacity" series="storage" value={build.headroom.storagePct} max={100} caption={`${fmtNum(build.headroom.storagePct)}% used`} index={2} />
-              <p className="text-[11px] leading-relaxed text-charcoal-500">
-                Includes the {fmtInt(build.overhead.cvmTotalCores)} vCPU and {fmtRam(build.overhead.cvmTotalRamGiB)} the
-                CVMs take, plus Prism Central. Whole nodes mean the build usually lands a little under the target, never
-                over. N+{build.failoverHosts} is absorbed by this headroom rather than added as a spare node.
-              </p>
-            </div>
-          </div>
-
-          {/* Specs — asymmetric, never three equal cards */}
-          <div className="mt-8 grid gap-8 border-t border-charcoal-200 pt-6 lg:grid-cols-[1.4fr_1fr_1fr]">
-            <SpecGroup
-              title="Each node"
-              rows={[
-                ["Physical cores", fmtInt(plan.profile.cores)],
-                ["Memory", `${fmtRam(build.perNode.ramGiB)} of ${fmtRam(plan.profile.maxRamGiB)} max`],
-                ["Raw storage", `${fmtStorage(build.perNode.storageTiB)} of ${fmtStorage(plan.profile.maxStorageTiB)} max`],
-              ]}
-            />
-            <SpecGroup
-              title="Solution total"
-              rows={[
-                ["Nodes", fmtInt(plan.totalNodes)],
-                ["Physical cores", fmtInt(plan.totals.cores)],
-                ["Memory", fmtRam(plan.totals.ramGiB)],
-                ["Raw storage", fmtStorage(plan.totals.rawStorageTiB)],
-              ]}
-            />
-            <SpecGroup
-              title="Workload placed"
-              rows={[
-                ["VMs", fmtInt(build.workload.vmCount)],
-                ["vCPU", fmtInt(build.workload.vcpu)],
-                ["Memory", fmtRam(build.workload.ramGiB)],
-                ["Data", fmtStorage(build.workload.storageTiB)],
-              ]}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Assumptions */}
-      <details className="mt-8 border-t border-charcoal-200 pt-6">
-        <summary className={`${PRESS} inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-charcoal-900`}>
-          <SlidersHorizontal {...ICON} className="h-4 w-4 text-charcoal-500" />
-          Assumptions &amp; overrides
-        </summary>
-        <div className="mt-5 grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Size against" htmlFor="basis">
-            <select id="basis" value={settings.workloadBasis} onChange={(e) => set("workloadBasis", e.target.value as WorkloadBasis)} className="w-full">
-              <option value="poweredOn">Powered-on VMs</option>
-              <option value="all">All VMs</option>
-            </select>
-          </Field>
-          <Field label="CPU from per-VM" htmlFor="cpuStatistic">
-            <select
-              id="cpuStatistic"
-              value={settings.cpuStatistic}
-              onChange={(e) => set("cpuStatistic", e.target.value as CpuStatistic)}
-              className="w-full"
-            >
-              <option value="p95">95th percentile</option>
-              <option value="average">Average</option>
-              <option value="peak">Peak (all at once)</option>
-              <option value="allocated">Allocated vCPU</option>
-            </select>
-          </Field>
-          <Field label="Target utilization" htmlFor="targetUtil" helper="Workload plus CVM and Prism Central.">
-            <select
-              id="targetUtil"
-              value={settings.targetUtilizationPct}
-              onChange={(e) => set("targetUtilizationPct", Number(e.target.value))}
-              className="w-full"
-            >
-              {[40, 50, 60, 70, 80].map((p) => (
-                <option key={p} value={p}>
-                  {p}% used{p === 50 ? " (recommended)" : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Nodes per cluster" htmlFor="nodesPerCluster" helper="Ten small clusters, or one large one.">
-            <select
-              id="nodesPerCluster"
-              value={String(settings.nodesPerCluster)}
-              onChange={(e) => set("nodesPerCluster", e.target.value === "auto" ? "auto" : Number(e.target.value))}
-              className="w-full"
-            >
-              <option value="auto">Auto (fill to {SIZING_RULES.maxNodesPerCluster})</option>
-              {[2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24].map((n) => (
-                <option key={n} value={n}>
-                  {n} nodes{n === 2 ? " (edge, needs Witness)" : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="vCPU : pCore" htmlFor="ratio" helper="Only for VMs with no telemetry.">
-            <select id="ratio" value={settings.vcpuToPcoreRatio} onChange={(e) => set("vcpuToPcoreRatio", Number(e.target.value))} className="w-full">
-              {[2, 3, 4, 5, 6].map((r) => (
-                <option key={r} value={r}>
-                  {r}:1{r <= 4 ? " (latency-sensitive)" : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Replication" htmlFor="rf">
-            <select
-              id="rf"
-              value={String(settings.rf)}
-              onChange={(e) => set("rf", (e.target.value === "auto" ? "auto" : Number(e.target.value)) as RfSetting)}
-              className="w-full"
-            >
-              <option value="auto">Auto (RF3 at {SIZING_RULES.autoRf3AtNodes}+ nodes)</option>
-              <option value="2">RF2</option>
-              <option value="3">RF3</option>
-            </select>
-          </Field>
-          <Field label="HA failover" htmlFor="failover">
-            <select id="failover" value={settings.failoverHosts} onChange={(e) => set("failoverHosts", Number(e.target.value))} className="w-full">
-              <option value={1}>N+1</option>
-              <option value={2}>N+2</option>
-            </select>
-          </Field>
-          <Field label="Node class" htmlFor="nodeProfile">
-            <select id="nodeProfile" value={settings.nodeProfileId} onChange={(e) => set("nodeProfileId", e.target.value)} className="w-full">
-              <option value={AUTO_PROFILE}>Auto (pick for me)</option>
-              {NODE_PROFILES.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}: {p.cores}c / up to {fmtRam(p.maxRamGiB)}
-                </option>
-              ))}
-              <option value={CUSTOM_PROFILE}>Custom</option>
-            </select>
-          </Field>
-          <Field label="Cluster plan" htmlFor="planMode">
-            <select id="planMode" value={settings.planMode} onChange={(e) => set("planMode", e.target.value as PlanMode)} className="w-full">
-              <option value="consolidated">Consolidate everything</option>
-              <option value="per-cluster">One cluster per source cluster</option>
-            </select>
-          </Field>
-          <Field label="Storage basis" htmlFor="storageBasis">
-            <select id="storageBasis" value={settings.storageBasis} onChange={(e) => set("storageBasis", e.target.value as "provisioned" | "consumed")} className="w-full">
-              <option value="consumed">Consumed</option>
-              <option value="provisioned">Provisioned</option>
-            </select>
-          </Field>
-          <Field label="Data reduction" htmlFor="efficiency">
-            <select id="efficiency" value={settings.storageEfficiency} onChange={(e) => set("storageEfficiency", e.target.value as StorageEfficiency)} className="w-full">
-              <option value="none">None (full RF)</option>
-              <option value="compression">Compression (~30%)</option>
-              <option value="ecx">EC-X (4+ nodes)</option>
-            </select>
-          </Field>
-          {settings.nodeProfileId === CUSTOM_PROFILE ? (
-            <>
-              <Field label="Cores per node" htmlFor="customCores">
-                <input id="customCores" type="number" min={8} step={2} value={settings.customCores} onChange={(e) => set("customCores", Number(e.target.value) || 0)} className="w-full" />
-              </Field>
-              <Field label="Memory GB per node" htmlFor="customRam">
-                <input id="customRam" type="number" min={64} step={64} value={settings.customRamGiB} onChange={(e) => set("customRamGiB", Number(e.target.value) || 0)} className="w-full" />
-              </Field>
-              <Field label="Storage TB per node" htmlFor="customStorage">
-                <input id="customStorage" type="number" min={1} step={1} value={settings.customStorageTiB} onChange={(e) => set("customStorageTiB", Number(e.target.value) || 0)} className="w-full" />
-              </Field>
-            </>
-          ) : null}
-          <Field label="Peak IOPS" htmlFor="peakIops" helper="Optional. Sets the disk tier.">
-            <input
-              id="peakIops"
-              type="number"
-              min={0}
-              step={1000}
-              placeholder="e.g. 84,000"
-              value={settings.peakIops ?? ""}
-              onChange={(e) => set("peakIops", e.target.value === "" ? null : Number(e.target.value))}
-              className="w-full"
-            />
-          </Field>
-        </div>
-      </details>
-
-      {blocked ? null : (
-        <>
-          {/* Cluster plan */}
-          <div className="mt-8 border-t border-charcoal-200 pt-6">
-            <p className="mb-4 text-[11px] font-medium text-charcoal-500">
-              Cluster plan: {plan.mode === "consolidated" ? "workloads pooled" : "one target per source cluster"}
-            </p>
-            <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-              {plan.targets.map((target, i) => (
-                <div key={`${i}-${target.name}`} className="sizer-rise min-w-0 border-t-2 border-viz-compute pt-3" style={{ ["--index" as string]: i }}>
-                  <p className="truncate text-xs font-medium text-charcoal-600" title={target.name}>
-                    {target.name}
-                  </p>
-                  <p className="mt-1 flex items-baseline gap-1.5">
-                    <span className="text-2xl font-semibold tabular-nums tracking-tight text-charcoal-900">{target.nodes}</span>
-                    <span className="text-[11px] text-charcoal-500">nodes · RF{target.rf}</span>
-                  </p>
-                  <dl className="mt-2 space-y-0.5 text-[11px]">
-                    <SpecRow k="Cores" v={fmtInt(target.totals.cores)} />
-                    <SpecRow k="Memory" v={fmtRam(target.totals.ramGiB)} />
-                    <SpecRow k="Raw" v={fmtStorage(target.totals.rawStorageTiB)} />
-                  </dl>
-                  <div className="mt-3">
-                    <MicroMeters
-                      items={[
-                        { key: "cpu", series: "compute", pct: target.util.cpuPct, label: `CPU ${fmtNum(target.util.cpuPct)}%` },
-                        { key: "ram", series: "memory", pct: target.util.ramPct, label: `Memory ${fmtNum(target.util.ramPct)}%` },
-                        { key: "sto", series: "storage", pct: target.util.storagePct, label: `Capacity ${fmtNum(target.util.storagePct)}%` },
-                      ]}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <VizKey series="compute" label="CPU" />
-              <VizKey series="memory" label="Memory" />
-              <VizKey series="storage" label="Capacity" />
-            </p>
-          </div>
-
-          {build.diskTier ? (
-            <div className="mt-8 grid gap-2 border-t border-charcoal-200 pt-6 text-sm">
-              <p className="font-medium text-charcoal-900">
-                {build.diskTier.tier}
-                <span className="ml-2 text-[11px] font-normal tabular-nums text-charcoal-500">
-                  {fmtInt(build.perNodeIops)} IOPS per node · {build.diskTier.latency}
-                </span>
-              </p>
-              <p className="max-w-[76ch] text-xs leading-relaxed text-charcoal-600">{build.diskTier.workloads}</p>
-              <p className="max-w-[76ch] text-xs leading-relaxed text-charcoal-600">{build.networkRecommendation}</p>
-            </div>
-          ) : null}
-
-          {build.monsterVmRisk ? (
-            <p className="mt-6 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300">
-              <TriangleAlert {...ICON} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{build.monsterVmReason}</span>
-            </p>
-          ) : null}
-
-          {plan.warnings.length ? (
-            <ul className="mt-6 space-y-1.5 border-t border-charcoal-200 pt-4 text-xs leading-relaxed text-charcoal-600">
-              {plan.warnings.map((w, i) => (
-                <li key={`${i}-${w.slice(0, 24)}`} className="max-w-[86ch]">
-                  {w}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          <p className="mt-4 max-w-[86ch] text-[11px] leading-relaxed text-charcoal-500">
-            Node classes are indicative platform targets. Confirm models and drive configs in Nutanix Sizer and the HCL
-            before quoting. CPU and memory are sized on {settings.workloadBasis === "poweredOn" ? "powered-on VMs" : "all VMs"};
-            storage always counts every VM, because powered-off VMs still occupy capacity. Raw capacity includes RF copies
-            plus 20% reserved for rebuild.
-          </p>
-        </>
-      )}
-    </Section>
-  );
-}
-
-function SpecGroup({ title, rows }: { title: string; rows: [string, string][] }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[11px] font-medium text-charcoal-500">{title}</p>
-      <dl className="mt-2 divide-y divide-charcoal-100 border-t border-charcoal-200 text-sm">
-        {rows.map(([k, v]) => (
-          <div key={k} className="flex items-baseline justify-between gap-3 py-2">
-            <dt className="shrink-0 text-charcoal-600">{k}</dt>
-            <dd className="truncate text-right font-medium tabular-nums text-charcoal-900">{v}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-function SpecRow({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2">
-      <dt className="shrink-0 text-charcoal-500">{k}</dt>
-      <dd className="truncate text-right tabular-nums font-medium text-charcoal-800">{v}</dd>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Existing clusters
-// ---------------------------------------------------------------------------
-
-function ExistingClusters({ parsed, plan }: { parsed: ParsedEnvironment; plan: SizingPlan }) {
-  const nodesByCluster = useMemo(() => {
-    const map = new Map<string, number>();
-    plan.perCluster.forEach(({ source, build }) => map.set(source.id, build.nodes));
-    return map;
-  }, [plan]);
-
-  return (
-    <Section
-      title="Existing clusters"
-      subtitle="Every cluster in the export with its hardware, utilization, and the Nutanix nodes it would take on its own."
-      badge={
-        <StatusPill tone="neutral">
-          {fmtInt(parsed.clusters)} {parsed.clusters === 1 ? "cluster" : "clusters"}
-        </StatusPill>
-      }
-    >
-      <div className="divide-y divide-charcoal-200 border-t border-charcoal-200">
-        {parsed.clusterDetails.map((cluster, i) => (
-          <ClusterRow key={cluster.id} cluster={cluster} recommendedNodes={nodesByCluster.get(cluster.id) ?? null} index={i} />
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-function ClusterRow({
-  cluster,
-  recommendedNodes,
-  index,
-}: {
-  cluster: ParsedCluster;
-  recommendedNodes: number | null;
-  index: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const coresPerNode = cluster.hosts > 0 ? cluster.totalCpuCores / cluster.hosts : 0;
-  const ramPerNode = cluster.hosts > 0 ? cluster.totalMemoryGiB / cluster.hosts : 0;
-  const storagePerNode = cluster.hosts > 0 ? cluster.aggStorageProvisionedTiB / cluster.hosts : 0;
-  // Host rows carry utilization on some exports and not others. When they do
-  // not, the same figure is still recoverable from the guest telemetry, so the
-  // meter shows a number instead of vanishing.
-  const cpuUsedPct =
-    cluster.hostCpuUtilPct ??
-    (cluster.consumedCpuCores != null && cluster.totalCpuCores > 0
-      ? Number(((cluster.consumedCpuCores / cluster.totalCpuCores) * 100).toFixed(1))
-      : null);
-
-  return (
-    <div className="sizer-rise" style={{ ["--index" as string]: index }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 bg-transparent py-4 text-left transition-colors duration-200 hover:bg-charcoal-50"
-      >
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-charcoal-900" title={cluster.name}>
-            {cluster.name}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] tabular-nums text-charcoal-500">
-            {cluster.datacenter ? `${cluster.datacenter} · ` : ""}
-            {fmtInt(cluster.hosts)} hosts · {fmtInt(cluster.all.vms)} VMs · {fmtInt(cluster.totalCpuCores)} cores ·{" "}
-            {fmtRam(cluster.totalMemoryGiB)} · {fmtStorage(cluster.aggStorageProvisionedTiB)}
-          </span>
-        </span>
-        <span className="flex items-center gap-3">
-          {recommendedNodes != null ? (
-            // Labelled "Nutanix nodes", never bare "nodes": beside a host count
-            // it is otherwise read as a property of the existing cluster.
-            <span
-              className="whitespace-nowrap text-right text-[11px] leading-tight tabular-nums text-charcoal-600"
-              title={`${cluster.hosts} existing hosts would become ${recommendedNodes} Nutanix nodes`}
-            >
-              <span className="text-base font-semibold text-charcoal-900">{recommendedNodes}</span>
-              <span className="ml-1">Nutanix</span>
-              <span className="block text-charcoal-500">{recommendedNodes === 1 ? "node" : "nodes"} needed</span>
-            </span>
-          ) : null}
-          <ChevronDown
-            {...ICON}
-            className={`h-4 w-4 shrink-0 text-charcoal-500 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${open ? "rotate-180" : ""}`}
-          />
-        </span>
-      </button>
-
-      {open ? (
-        <div className="pb-6">
-          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="vCPU allocated" value={fmtInt(cluster.all.vcpu)} sub={`${fmtNum(cluster.avgVcpuPerVm)} per VM`} series="compute" index={0} />
-            <Stat label="vCPU : pCore" value={`${fmtNum(cluster.vcpuPcoreRatio, 2)}:1`} sub={ratioStatus(cluster.vcpuPcoreRatio)?.label} series="compute" index={1} />
-            <Stat label="VM memory" value={fmtRam(cluster.all.ramGiB)} sub={`${fmtRam(cluster.totalMemoryGiB)} installed`} series="memory" index={2} />
-            <Stat label="Storage consumed" value={fmtStorage(cluster.aggStorageConsumedTiB)} sub={`of ${fmtStorage(cluster.aggStorageProvisionedTiB)}`} series="storage" index={3} />
-          </div>
-
-          <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_1.4fr]">
-            <div>
-              <p className="text-[11px] font-medium text-charcoal-500">Average per node</p>
-              <dl className="mt-2 divide-y divide-charcoal-100 border-t border-charcoal-200 text-sm">
-                <div className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-charcoal-600">Cores</dt>
-                  <dd className="tabular-nums font-medium text-charcoal-900">{fmtNum(coresPerNode)}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-charcoal-600">Memory</dt>
-                  <dd className="tabular-nums font-medium text-charcoal-900">{fmtRam(ramPerNode)}</dd>
-                </div>
-                <div className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-charcoal-600">Storage</dt>
-                  <dd className="tabular-nums font-medium text-charcoal-900">{fmtStorage(storagePerNode)}</dd>
-                </div>
-              </dl>
-              <div className="mt-4 grid gap-3">
-                {cpuUsedPct != null ? (
-                  <Meter label="CPU used" series="compute" value={cpuUsedPct} max={100} caption={`${fmtNum(cpuUsedPct)}%`} />
-                ) : null}
-                {cluster.hostMemoryUtilPct != null ? (
-                  <Meter label="Host memory used" series="memory" value={cluster.hostMemoryUtilPct} max={100} caption={`${fmtNum(cluster.hostMemoryUtilPct)}%`} />
-                ) : null}
-                <Meter
-                  label="Storage used"
-                  series="storage"
-                  value={cluster.aggStorageConsumedTiB}
-                  max={cluster.aggStorageProvisionedTiB}
-                  caption={
-                    cluster.aggStorageProvisionedTiB > 0
-                      ? `${Math.round((cluster.aggStorageConsumedTiB / cluster.aggStorageProvisionedTiB) * 100)}%`
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
-
-            <div>
-              <p className="text-[11px] font-medium text-charcoal-500">
-                Hardware: {cluster.hardwareModels.length} distinct{" "}
-                {cluster.hardwareModels.length === 1 ? "configuration" : "configurations"}
-              </p>
-              {cluster.hardwareModels.length ? (
-                <div className="mt-2 overflow-x-auto">
-                  <table className="w-full min-w-[38rem] text-xs">
-                    <thead>
-                      <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-                        <th className="pb-2 pr-3 font-medium">Model</th>
-                        <th className="px-3 pb-2 font-medium">CPU</th>
-                        <th className="px-3 pb-2 text-right font-medium">Hosts</th>
-                        <th className="px-3 pb-2 text-right font-medium">Sockets</th>
-                        <th className="px-3 pb-2 text-right font-medium">Cores/host</th>
-                        <th className="px-3 pb-2 text-right font-medium">Memory/host</th>
-                        <th className="pb-2 pl-3 text-right font-medium">Storage/host</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-charcoal-100">
-                      {cluster.hardwareModels.map((m, i) => (
-                        <tr key={`${i}-${m.vendor ?? ""}-${m.model}`}>
-                          <td className="max-w-[14rem] py-2 pr-3">
-                            <span className="block truncate font-medium text-charcoal-900" title={m.model}>
-                              {m.model}
-                            </span>
-                            <span className="block truncate text-[11px] text-charcoal-500">{m.vendor ?? "Unknown vendor"}</span>
-                          </td>
-                          <td className="max-w-[13rem] truncate px-3 text-charcoal-600" title={m.cpuModel ?? ""}>
-                            {m.cpuModel ?? "-"}
-                          </td>
-                          <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(m.hostCount)}</td>
-                          <td className="px-3 text-right tabular-nums text-charcoal-700">
-                            {fmtInt(m.socketsPerHost)}
-                            <span className="text-charcoal-400"> × {fmtInt(m.coresPerSocket)}</span>
-                          </td>
-                          <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtNum(m.coresPerHost)}</td>
-                          <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtRam(m.ramPerHostGiB)}</td>
-                          <td className="pl-3 text-right tabular-nums text-charcoal-700">{fmtStorage(m.storagePerHostTiB)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-charcoal-200 text-charcoal-900">
-                        <td className="py-2 pr-3 font-medium" colSpan={2}>
-                          Cluster total
-                        </td>
-                        <td className="px-3 text-right tabular-nums font-medium">{fmtInt(cluster.hosts)}</td>
-                        <td className="px-3" />
-                        <td className="px-3 text-right tabular-nums font-medium">{fmtInt(cluster.totalCpuCores)}</td>
-                        <td className="px-3 text-right tabular-nums font-medium">{fmtRam(cluster.totalMemoryGiB)}</td>
-                        <td className="pl-3 text-right tabular-nums font-medium">{fmtStorage(cluster.aggStorageProvisionedTiB)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-charcoal-500">No hardware detail in this export.</p>
-              )}
-
-              {cluster.hostRecords.length ? (
-                <details className="mt-4">
-                  <summary className={`${PRESS} cursor-pointer text-[11px] font-medium text-viz-compute`}>
-                    All {fmtInt(cluster.hostRecords.length)} hosts
-                  </summary>
-                  <div className="mt-2 overflow-x-auto">
-                    <table className="w-full min-w-[32rem] text-xs">
-                      <thead>
-                        <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-                          <th className="pb-2 pr-3 font-medium">Host</th>
-                          <th className="px-3 pb-2 font-medium">Model</th>
-                          <th className="px-3 pb-2 text-right font-medium">Sockets</th>
-                          <th className="px-3 pb-2 text-right font-medium">Cores</th>
-                          <th className="pb-2 pl-3 text-right font-medium">Memory</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-charcoal-100">
-                        {cluster.hostRecords.map((h, i) => (
-                          <tr key={`${i}-${h.name}`}>
-                            <td className="max-w-[16rem] truncate py-1.5 pr-3 font-medium text-charcoal-900" title={h.name}>
-                              {h.name}
-                            </td>
-                            <td className="max-w-[14rem] truncate px-3 text-charcoal-600">
-                              {h.vendor ? `${h.vendor} ` : ""}
-                              {h.model}
-                            </td>
-                            <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtInt(h.sockets)}</td>
-                            <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtInt(h.cores)}</td>
-                            <td className="pl-3 text-right tabular-nums text-charcoal-700">{fmtRam(h.ramGiB)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              ) : null}
-            </div>
-          </div>
-
-          {cluster.topVms.length ? (
-            <div className="mt-6">
-              <TopVmTable vms={cluster.topVms} caption="Largest VMs in this cluster" showCluster={false} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Parsed inputs — the audit trail
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Virtual machines — the workload itself, editable
-// ---------------------------------------------------------------------------
-
-// Rendering a thousand rows of number inputs is slow and unusable. The table
-// pages, and the search runs over the whole list so nothing is unreachable.
-const VM_PAGE_SIZE = 40;
-
-type VmSortKey = "name" | "vcpu" | "cpuUsed" | "ramGiB" | "storage";
-
-function VirtualMachines({
-  parsed,
-  settings,
-  plan,
-  onSettings,
-}: {
-  parsed: ParsedEnvironment;
-  settings: SizerSettings;
-  plan: SizingPlan;
-  onSettings: (fn: (s: SizerSettings) => SizerSettings) => void;
-}) {
-  // Rows report the statistic the build actually used, so the column always
-  // reconciles with the total above it.
-  const statistic = plan.consolidated.workload.cpu.statistic;
-  const ratio = settings.vcpuToPcoreRatio;
-  const usedCores = (vm: VmRecord) => vmCpuContribution(vm, statistic, ratio);
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<VmSortKey>("vcpu");
-  const [page, setPage] = useState(0);
-
-  const adjustments = settings.vmAdjustments;
-  const patch = (id: string, change: VmAdjustment | null) =>
-    onSettings((s) => {
-      const next = { ...s.vmAdjustments };
-      if (change == null) delete next[id];
-      else next[id] = { ...next[id], ...change };
-      return { ...s, vmAdjustments: next };
-    });
-  const patchMany = (ids: string[], change: VmAdjustment) =>
-    onSettings((s) => {
-      const next = { ...s.vmAdjustments };
-      for (const id of ids) next[id] = { ...next[id], ...change };
-      return { ...s, vmAdjustments: next };
-    });
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = q
-      ? parsed.vms.filter(
-          (vm) =>
-            vm.name.toLowerCase().includes(q) ||
-            (vm.clusterName ?? "").toLowerCase().includes(q) ||
-            vm.os.toLowerCase().includes(q),
-        )
-      : parsed.vms;
-    const cores = (vm: VmRecord) => vmCpuContribution(vm, statistic, ratio).cores;
-    const sorted = [...rows];
-    sorted.sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "cpuUsed") return cores(b) - cores(a);
-      if (sort === "ramGiB") return b.ramGiB - a.ramGiB;
-      if (sort === "storage") return b.storageProvisionedTiB - a.storageProvisionedTiB;
-      return b.vcpu - a.vcpu;
-    });
-    return sorted;
-  }, [parsed.vms, query, sort, statistic, ratio]);
-
-  const excludedCount = parsed.vms.filter((vm) => adjustments[vm.id]?.excluded).length;
-  const editedCount = parsed.vms.filter((vm) => {
-    const a = adjustments[vm.id];
-    return a != null && (a.vcpu != null || a.ramGiB != null || a.storageTiB != null);
-  }).length;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / VM_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const visible = filtered.slice(safePage * VM_PAGE_SIZE, safePage * VM_PAGE_SIZE + VM_PAGE_SIZE);
-  const poweredOffIds = parsed.vms.filter((vm) => vm.poweredOn === false).map((vm) => vm.id);
-
-  if (!parsed.vms.length) return null;
-
-  return (
-    <Section
-      title="Virtual machines"
-      subtitle="The workload the build is sized from. Uncheck a VM to leave it behind, or correct what the export said it has."
-      badge={
-        <StatusPill tone={excludedCount || editedCount ? "warning" : "neutral"}>
-          {fmtInt(parsed.vms.length - excludedCount)} of {fmtInt(parsed.vms.length)} included
-          {editedCount ? ` · ${fmtInt(editedCount)} edited` : ""}
-        </StatusPill>
-      }
-    >
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block">
-            <span className="mb-1.5 block text-[11px] font-medium text-charcoal-500">Search</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(0);
-              }}
-              placeholder="VM, cluster or guest OS"
-              className="w-56"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[11px] font-medium text-charcoal-500">Sort by</span>
-            <select value={sort} onChange={(e) => setSort(e.target.value as VmSortKey)} className="w-44">
-              <option value="vcpu">Largest vCPU</option>
-              <option value="cpuUsed">Busiest</option>
-              <option value="ramGiB">Largest memory</option>
-              <option value="storage">Largest storage</option>
-              <option value="name">Name</option>
-            </select>
-          </label>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {poweredOffIds.length ? (
-            <button
-              type="button"
-              onClick={() => patchMany(poweredOffIds, { excluded: true })}
-              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1.5 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50`}
-            >
-              Exclude {fmtInt(poweredOffIds.length)} powered-off
-            </button>
-          ) : null}
-          {excludedCount || editedCount ? (
-            <button
-              type="button"
-              onClick={() => onSettings((s) => ({ ...s, vmAdjustments: {} }))}
-              className={`${PRESS} inline-flex items-center gap-1.5 rounded-full border border-charcoal-300 px-3 py-1.5 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50`}
-            >
-              <RotateCcw {...ICON} className="h-3.5 w-3.5" />
-              Reset all
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[56rem] text-sm">
-          <thead>
-            <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-              <th className="w-10 pb-2 pr-2 font-medium">
-                <span className="sr-only">Include in the build</span>
-              </th>
-              <th className="pb-2 pr-3 font-medium">VM</th>
-              <th className="px-3 pb-2 font-medium">Cluster</th>
-              <th className="px-3 pb-2 text-right font-medium">vCPU</th>
-              <th className="px-3 pb-2 text-right font-medium">Cores ({cpuStatisticLabel(statistic)})</th>
-              <th className="px-3 pb-2 text-right font-medium">Memory (GB)</th>
-              <th className="px-3 pb-2 text-right font-medium">Storage (TB)</th>
-              <th className="w-8 pb-2 pl-3 font-medium">
-                <span className="sr-only">Reset this VM</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-charcoal-100">
-            {visible.map((vm) => (
-              <VmRow key={vm.id} vm={vm} adjustment={adjustments[vm.id]} used={usedCores(vm)} onPatch={patch} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-charcoal-200 pt-4 text-[11px] text-charcoal-500">
-        <span>
-          Showing {fmtInt(safePage * VM_PAGE_SIZE + 1)} to {fmtInt(safePage * VM_PAGE_SIZE + visible.length)} of{" "}
-          {fmtInt(filtered.length)}
-          {query ? ` matching "${query}"` : ""}. CPU used is the best statistic the export carried for each VM.
-        </span>
-        {pageCount > 1 ? (
-          <span className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={safePage === 0}
-              onClick={() => setPage(safePage - 1)}
-              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 font-medium text-charcoal-700 disabled:opacity-40`}
-            >
-              Previous
-            </button>
-            <span className="tabular-nums">
-              {safePage + 1} / {pageCount}
-            </span>
-            <button
-              type="button"
-              disabled={safePage >= pageCount - 1}
-              onClick={() => setPage(safePage + 1)}
-              className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 font-medium text-charcoal-700 disabled:opacity-40`}
-            >
-              Next
-            </button>
-          </span>
-        ) : null}
-      </div>
-    </Section>
-  );
-}
-
-function VmRow({
-  vm,
-  adjustment,
-  used,
-  onPatch,
-}: {
-  vm: VmRecord;
-  adjustment: VmAdjustment | undefined;
-  used: { cores: number; measured: boolean };
-  onPatch: (id: string, change: VmAdjustment | null) => void;
-}) {
-  const excluded = adjustment?.excluded === true;
-  const edited = adjustment?.vcpu != null || adjustment?.ramGiB != null || adjustment?.storageTiB != null;
-
-  // An emptied field clears the override rather than writing zero, so the export
-  // value comes back instead of the VM silently disappearing from the totals.
-  const numeric = (raw: string): number | undefined => {
-    const value = Number(raw);
-    return raw.trim() === "" || !Number.isFinite(value) || value < 0 ? undefined : value;
-  };
-  const cell = "w-20 rounded-md border border-charcoal-200 bg-white px-2 py-1 text-right text-sm tabular-nums";
-
-  return (
-    <tr className={excluded ? "opacity-45" : undefined}>
-      <td className="py-2 pr-2">
-        <input
-          type="checkbox"
-          checked={!excluded}
-          onChange={(e) => onPatch(vm.id, { excluded: !e.target.checked })}
-          aria-label={`Include ${vm.name} in the build`}
-          className="h-4 w-4 accent-iris-500"
-        />
-      </td>
-      <td className="max-w-[16rem] py-2 pr-3">
-        <span className="flex items-center gap-2">
-          <span
-            aria-hidden
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${vm.poweredOn === false ? "bg-viz-muted" : "bg-viz-storage"}`}
-          />
-          <span className="truncate font-medium text-charcoal-900" title={vm.name}>
-            {vm.name}
-          </span>
-          {edited ? <span className="shrink-0 text-[10px] font-medium text-viz-compute">edited</span> : null}
-        </span>
-        <span className="mt-0.5 block truncate text-[11px] text-charcoal-500" title={vm.os}>
-          {vm.os}
-          {vm.poweredOn === false ? " · powered off" : ""}
-        </span>
-      </td>
-      <td className="max-w-[12rem] truncate px-3 py-2 text-[11px] text-charcoal-500" title={vm.clusterName ?? ""}>
-        {vm.clusterName ?? "-"}
-      </td>
-      <td className="px-3 py-2 text-right">
-        <input
-          type="number"
-          min={0}
-          step={1}
-          value={adjustment?.vcpu ?? Math.round(vm.vcpu)}
-          onChange={(e) => onPatch(vm.id, { vcpu: numeric(e.target.value) })}
-          aria-label={`vCPU for ${vm.name}`}
-          className={cell}
-        />
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums text-charcoal-600" title={used.measured ? undefined : "No telemetry for this VM, so its allocation over the overcommit ratio was used."}>
-        {fmtNum(used.cores, 2)}
-        {used.measured ? null : <span className="ml-1 text-charcoal-400">est</span>}
-      </td>
-      <td className="px-3 py-2 text-right">
-        <input
-          type="number"
-          min={0}
-          step={1}
-          value={adjustment?.ramGiB ?? Math.round(vm.ramGiB)}
-          onChange={(e) => onPatch(vm.id, { ramGiB: numeric(e.target.value) })}
-          aria-label={`Memory in GB for ${vm.name}`}
-          className={cell}
-        />
-      </td>
-      <td className="px-3 py-2 text-right">
-        <input
-          type="number"
-          min={0}
-          step={0.1}
-          value={Number(((adjustment?.storageTiB ?? vm.storageProvisionedTiB) * TIB_TO_TB).toFixed(2))}
-          onChange={(e) => {
-            const tb = numeric(e.target.value);
-            onPatch(vm.id, { storageTiB: tb == null ? undefined : tb / TIB_TO_TB });
-          }}
-          aria-label={`Storage in TB for ${vm.name}`}
-          className={cell}
-        />
-      </td>
-      <td className="py-2 pl-3 text-right">
-        {adjustment ? (
-          <button
-            type="button"
-            onClick={() => onPatch(vm.id, null)}
-            title={`Reset ${vm.name} to what the export said`}
-            className={`${PRESS} rounded p-1 text-charcoal-400 hover:text-charcoal-900`}
-          >
-            <RotateCcw {...ICON} className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-      </td>
-    </tr>
-  );
-}
-
-function ParsedInputs({ parsed }: { parsed: ParsedEnvironment }) {
-  const inferred = parsed.audit.filter((a) => a.confidence !== "header").length;
-  return (
-    <Section
-      title="Parsed inputs"
-      subtitle="Which sheet and column each number came from, and how its unit was decided."
-      badge={inferred > 0 ? <StatusPill tone="warning">{inferred} inferred</StatusPill> : <StatusPill tone="good">All from headers</StatusPill>}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[46rem] text-xs">
-          <thead>
-            <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-              <th className="pb-2 pr-3 font-medium">Field</th>
-              <th className="px-3 pb-2 font-medium">Sheet</th>
-              <th className="px-3 pb-2 font-medium">Column</th>
-              <th className="px-3 pb-2 font-medium">Unit</th>
-              <th className="pb-2 pl-3 font-medium">How it was decided</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-charcoal-100">
-            {parsed.audit.map((a, i) => (
-              <tr key={`${i}-${a.field}`}>
-                <td className="py-2 pr-3 font-medium text-charcoal-900">{a.field}</td>
-                <td className="px-3 text-charcoal-600">{a.sheet}</td>
-                <td className="px-3 text-charcoal-600">{a.column ?? <span className="text-rose-600">not found</span>}</td>
-                <td className="px-3">
-                  <ConfidencePill confidence={a.confidence} unit={a.unit} />
-                </td>
-                <td className="max-w-[28rem] py-2 pl-3 leading-relaxed text-charcoal-600">{a.note}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-4 text-[11px] text-charcoal-500">Sheets in this file: {parsed.sheetsFound.join(", ")}</p>
-    </Section>
-  );
-}
-
-function ConfidencePill({ confidence, unit }: { confidence: string; unit: string | null }) {
-  const tone =
-    confidence === "header" ? "good" : confidence === "unresolved" ? "bad" : confidence === "header-overridden" ? "warning" : "info";
-  const label =
-    confidence === "header"
-      ? unit ?? "-"
-      : confidence === "unresolved"
-        ? "unresolved"
-        : confidence === "header-overridden"
-          ? `${unit} corrected`
-          : `${unit} inferred`;
-  return <StatusPill tone={tone as "good" | "bad" | "warning" | "info"}>{label}</StatusPill>;
-}
-
-// ---------------------------------------------------------------------------
-// Reference
-// ---------------------------------------------------------------------------
-
-function ReferencePanel() {
-  return (
-    <Section title="Sizing reference" subtitle="The Nutanix guidance this tool applies: redundancy, ratios, storage, network, HA.">
-      <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
-        {SIZING_REFERENCE.map((group) => (
-          <div key={group.title}>
-            <h3 className="text-sm font-semibold tracking-tight text-charcoal-900">{group.title}</h3>
-            <ul className="mt-3 divide-y divide-charcoal-100 border-t border-charcoal-200">
-              {group.items.map((item) => (
-                <li key={item.rule} className="py-2.5">
-                  <p className="text-xs font-medium text-charcoal-900">{item.rule}</p>
-                  <p className="mt-0.5 max-w-[70ch] text-xs leading-relaxed text-charcoal-600">
-                    {item.detail}{" "}
-                    <a href={item.source.href} target="_blank" rel="noopener noreferrer" className="text-viz-compute underline underline-offset-2">
-                      {item.source.label}
-                    </a>
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-8 border-t border-charcoal-200 pt-6">
-        <h3 className="text-sm font-semibold tracking-tight text-charcoal-900">Node classes the sizer picks from</h3>
-        <div className="mt-3 grid gap-x-8 gap-y-1 sm:grid-cols-2">
-          {NODE_PROFILES.map((p) => (
-            <div key={p.id} className="flex items-baseline justify-between gap-3 border-b border-charcoal-100 py-2 text-xs">
-              <span className="font-medium text-charcoal-900">{p.label}</span>
-              <span className="tabular-nums text-charcoal-500">
-                {p.cores}c · {fmtRam(p.maxRamGiB)} · {fmtStorage(p.maxStorageTiB)}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap gap-x-5 gap-y-1.5 border-t border-charcoal-200 pt-4 text-xs">
-        {KEY_RESOURCES.map((link) => (
-          <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="text-viz-compute underline underline-offset-2">
-            {link.label}
-          </a>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Form primitives
-// ---------------------------------------------------------------------------
-
-function Field({ label, htmlFor, helper, children }: { label: string; htmlFor: string; helper?: string; children: ReactNode }) {
-  return (
-    <div className="grid min-w-0 gap-2">
-      <label htmlFor={htmlFor}>{label}</label>
-      {children}
-      {helper ? <p className="text-[11px] text-charcoal-500">{helper}</p> : null}
-    </div>
-  );
-}
-
-// Plain-text roll-up for pasting into notes, an email, or an opportunity record.
-function summaryText(parsed: ParsedEnvironment, plan: SizingPlan, settings: SizerSettings): string {
-  const build = plan.consolidated;
-  const lines = [
-    `Simple Sizer: ${parsed.fileName}`,
-    "",
-    "CURRENT ENVIRONMENT",
-    `  Clusters: ${fmtInt(parsed.clusters)}   Hosts: ${fmtInt(parsed.hosts)}   VMs: ${fmtInt(parsed.all.vms)} (${fmtInt(parsed.poweredOn.vms)} on / ${fmtInt(parsed.poweredOff.vms)} off)`,
-    `  vCPU: ${fmtInt(parsed.all.vcpu)} on ${fmtInt(parsed.totalCpuCores)} physical cores (${fmtNum(parsed.vcpuPcoreRatio, 2)}:1)`,
-    `  VM memory: ${fmtRam(parsed.all.ramGiB)}   Host memory: ${fmtRam(parsed.totalMemoryGiB)}`,
-    `  Storage: ${fmtStorage(parsed.aggStorageConsumedTiB)} used of ${fmtStorage(parsed.aggStorageProvisionedTiB)} provisioned`,
-    "",
-  ];
-
-  if (plan.blockers.length) {
-    lines.push(
-      "RECOMMENDATION WITHHELD: the parsed inputs failed validation:",
-      ...plan.blockers.map((b) => `  - ${b.field}: read ${b.observed}, expected ${b.expected}. ${b.detail}`),
-      "",
-    );
-  } else {
-    lines.push(
-      "RECOMMENDED NUTANIX BUILD",
-      `  ${fmtInt(plan.totalNodes)} x ${plan.profile.label}: ${plan.profile.cores} cores / ${fmtRam(build.perNode.ramGiB)} / ${fmtStorage(build.perNode.storageTiB)} raw per node (${plan.profile.family})`,
-      `  ${fmtInt(plan.totalClusters)} cluster(s), RF${build.effectiveRf}, N+${build.failoverHosts}, ${build.licenseTier.tier}`,
-      `  Totals: ${fmtInt(plan.totals.cores)} cores, ${fmtRam(plan.totals.ramGiB)}, ${fmtStorage(plan.totals.rawStorageTiB)} raw`,
-      `  Headroom: CPU ${fmtNum(100 - build.headroom.cpuPct)}%, memory ${fmtNum(100 - build.headroom.ramPct)}%, capacity ${fmtNum(100 - build.headroom.storagePct)}%`,
-      "",
-      "CLUSTER PLAN",
-      ...plan.targets.map(
-        (t) => `  ${t.name}: ${t.nodes} nodes, RF${t.rf}, ${fmtInt(t.totals.cores)} cores, ${fmtRam(t.totals.ramGiB)}, ${fmtStorage(t.totals.rawStorageTiB)} raw`,
-      ),
-      "",
-    );
-  }
-
-  lines.push(
-    "EXISTING CLUSTERS",
-    ...parsed.clusterDetails.map(
-      (c) =>
-        `  ${c.name}: ${fmtInt(c.hosts)} hosts, ${fmtInt(c.all.vms)} VMs, ${fmtInt(c.totalCpuCores)} cores, ${fmtRam(c.totalMemoryGiB)}, ${fmtStorage(c.aggStorageProvisionedTiB)} provisioned`,
-    ),
-    "",
-    "ASSUMPTIONS",
-    `  Sized on ${settings.workloadBasis === "poweredOn" ? "powered-on VMs" : "all VMs"} at ${settings.vcpuToPcoreRatio}:1 vCPU:pCore; storage on ${settings.storageBasis} capacity for all VMs`,
-    `  Data reduction: ${settings.storageEfficiency === "ecx" ? "EC-X" : settings.storageEfficiency === "compression" ? "compression (~30%)" : "none"}; 20% capacity reserved for rebuild`,
-    `  ${UNIT_FOOTNOTE}`,
-  );
-
-  if (plan.warnings.length) {
-    lines.push("", "FLAGS", ...plan.warnings.map((w) => `  - ${w}`));
-  }
-  return lines.join("\n");
-}

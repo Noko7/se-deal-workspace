@@ -20,6 +20,7 @@ import {
   type UtilizationBasis,
   type VmCpuUsage,
   type VmRecord,
+  type VolumeGroupRecord,
 } from "@/lib/simple-sizer-core";
 import {
   GIB_PER_TIB,
@@ -130,8 +131,42 @@ function parsePowerState(raw: unknown): boolean | null {
 }
 
 // ---------------------------------------------------------------------------
-// Unit-resolved column reader
+// Unit registry and unit-resolved column reader
 // ---------------------------------------------------------------------------
+
+/**
+ * Units for columns whose header prints none, keyed by tool, sheet and exact
+ * header. Each entry is documented from a real export; anything absent here and
+ * unlabelled in the header is left unresolved rather than guessed.
+ */
+const UNIT_REGISTRY: { source: SizerSource; sheet: string; header: string; unit: Unit; evidence: string }[] = [
+  {
+    source: "collector_excel",
+    sheet: "vhosts",
+    header: "Memory Size",
+    unit: "GiB",
+    evidence: "NX-8035-G7 hosts with 384 GiB of DIMMs report 376.07; hosts with 256/384 GiB report 255.873/383.873",
+  },
+  { source: "rvtools", sheet: "vhost", header: "# Memory", unit: "MiB", evidence: "RVTools reports host memory in MiB" },
+  { source: "rvtools", sheet: "vinfo", header: "Memory", unit: "MiB", evidence: "RVTools reports VM memory in MiB" },
+];
+
+// Usage columns that print no "%" but hold percentages.
+const PERCENT_REGISTRY: { source: SizerSource; sheet: string; header: string }[] = [
+  { source: "collector_excel", sheet: "vhosts", header: "CPU Usage" },
+  { source: "collector_excel", sheet: "vhosts", header: "Memory Usage" },
+];
+
+function registryUnit(source: SizerSource, sheet: string, header: string | null): Unit | undefined {
+  if (!header) return undefined;
+  return UNIT_REGISTRY.find((r) => r.source === source && norm(r.sheet) === norm(sheet) && norm(r.header) === norm(header))?.unit;
+}
+
+function isPercentColumn(source: SizerSource, sheet: string, header: string | null): boolean {
+  if (!header) return false;
+  if (header.includes("%")) return true;
+  return PERCENT_REGISTRY.some((r) => r.source === source && norm(r.sheet) === norm(sheet) && norm(r.header) === norm(header));
+}
 
 type Capacity = {
   resolution: UnitResolution;
@@ -145,8 +180,9 @@ const NO_CAPACITY: Capacity = {
 };
 
 /**
- * Find a capacity column and settle its unit once for the whole sheet, using the
- * column's total spread over `entities` to sanity-check what the header claims.
+ * Find a capacity column and settle its unit from the header, or from the
+ * registry when the header prints none. Magnitude never changes the unit; an
+ * impossible result is flagged so the build is blocked.
  */
 function readCapacity(
   rows: Record<string, unknown>[],
@@ -156,9 +192,7 @@ function readCapacity(
   audit: ParseAudit[],
   field: string,
   sheet: string,
-  // The unit this tool conventionally uses, when known. Only breaks ties between
-  // interpretations that are already plausible (MiB vs MB differ by 2.4%).
-  prefer?: Unit,
+  source: SizerSource,
 ): Capacity {
   const header = firstHeader(headersFor(rows), candidates);
   if (!header) {
@@ -166,12 +200,12 @@ function readCapacity(
     return NO_CAPACITY;
   }
   const values = rows.map((row) => toNum(row[header]));
-  const resolution = resolveCapacity(header, values, entities, band, prefer);
+  const resolution = resolveCapacity(header, values, entities, band, registryUnit(source, sheet, header));
   const unit: Unit | null = resolution.unit;
+  const implausible = resolution.note.includes("impossible");
 
-  // Real exports carry corrupt rows. Once the unit is settled, any single row
-  // beyond what one entity could physically hold is discarded rather than
-  // allowed to dominate the total — and the drop is reported, never silent.
+  // Real exports carry corrupt rows. A single row beyond what one entity could
+  // physically hold is excluded from the totals, and the exclusion is reported.
   const ceilingGiB = band.max;
   let dropped = 0;
   let droppedGiB = 0;
@@ -191,9 +225,10 @@ function readCapacity(
     column: resolution.header,
     unit: resolution.unit,
     confidence: resolution.confidence,
+    implausible,
     note:
       dropped > 0
-        ? `${resolution.note} Discarded ${dropped} corrupt row${dropped === 1 ? "" : "s"} above ${Math.round(ceilingGiB / 1024).toLocaleString()} TiB (${Math.round(droppedGiB / 1024).toLocaleString()} TiB of impossible values).`
+        ? `${resolution.note} Excluded ${dropped} corrupt row${dropped === 1 ? "" : "s"} above ${Math.round((ceilingGiB * GIB_TO_DECIMAL_GB) / 1000).toLocaleString()} TB (${Math.round((droppedGiB * GIB_TO_DECIMAL_GB) / 1000).toLocaleString()} TB of impossible values).`
         : resolution.note,
   });
 
@@ -207,6 +242,8 @@ function readCapacity(
       : () => 0,
   };
 }
+
+const GIB_TO_DECIMAL_GB = 1024 ** 3 / 1e9;
 
 function distinctCount(rows: Record<string, unknown>[], key: (row: Record<string, unknown>) => string): number {
   const seen = new Set<string>();
@@ -295,48 +332,37 @@ function rankTopVms(vms: TopVm[], limit = TOP_VM_COUNT): TopVm[] {
 }
 
 /**
- * Classify a "usage" column once for the whole sheet, from its magnitude.
- *
- * Exports disagree about what "CPU Usage" / "Memory Usage" means: RVTools writes
- * a percentage, some tools write a 0–1 fraction, and Nutanix Collector writes an
- * absolute amount. Reading an absolute as a percentage is how 511 GiB of memory
- * became "536,576,864%", so the scale is derived rather than assumed — and when
- * it can't be established, the figure is dropped instead of displayed.
- */
-type UsageScale = "percent" | "fraction" | "absolute" | "empty";
-
-function classifyUsage(rows: Record<string, unknown>[], header: string | null): UsageScale {
-  if (!header || rows.length === 0) return "empty";
-  const values = rows.map((row) => toNum(row[header])).filter((v) => v > 0);
-  if (!values.length) return "empty";
-  const max = Math.max(...values);
-  if (max <= 1.5) return "fraction";
-  if (max <= 100) return "percent";
-  return "absolute";
-}
-
-/**
- * Utilization reader for a whole sheet. The scale is settled once across every
- * row — deciding it per row would let a single large value read as a percentage.
+ * Reader for a percentage usage column. The scale is fixed by the header ("%")
+ * or the registry, never by magnitude: a column whose every value is under
+ * 1.5% is still a percentage. Values outside 0-100 are dropped, not rescaled.
  */
 function makeUtilization(
   rows: Record<string, unknown>[],
   header: string | null,
-  absoluteRatio?: (row: Record<string, unknown>) => number | null,
-): { perRow: (row: Record<string, unknown>) => number | null; average: number | null; scale: UsageScale } {
-  const scale = classifyUsage(rows, header);
+  isPercent: boolean,
+): { perRow: (row: Record<string, unknown>) => number | null; average: number | null; dropped: number } {
+  let dropped = 0;
   const perRow = (row: Record<string, unknown>): number | null => {
-    if (!header || scale === "empty") return null;
-    const raw = toNum(row[header]);
-    if (!(raw > 0)) return null;
-    const pct =
-      scale === "fraction" ? raw * 100 : scale === "percent" ? raw : (absoluteRatio?.(row) ?? null);
-    if (pct == null || !Number.isFinite(pct) || pct <= 0 || pct > 100) return null;
-    return Number(pct.toFixed(1));
+    if (!header || !isPercent) return null;
+    const raw = row[header];
+    if (raw === "" || raw == null) return null;
+    const pct = toNum(raw);
+    if (!Number.isFinite(pct) || pct < 0) return null;
+    if (pct > 100) return null;
+    return pct;
   };
-  const values = rows.map(perRow).filter((v): v is number => v != null);
+  const values: number[] = [];
+  for (const row of rows) {
+    const v = perRow(row);
+    if (v != null) values.push(v);
+    else if (header && isPercent && toNum(row[header]) > 100) dropped += 1;
+  }
   const average = values.length ? Number((values.reduce((s, v) => s + v, 0) / values.length).toFixed(1)) : null;
-  return { perRow, average, scale };
+  return { perRow, average, dropped };
+}
+
+function hasValues(rows: Record<string, unknown>[], header: string | null): boolean {
+  return !!header && rows.some((row) => row[header] !== "" && row[header] != null && toNum(row[header]) > 0);
 }
 
 // Cluster names collide constantly in obfuscated exports ("##h" twice). Names
@@ -441,43 +467,41 @@ function observedFromHosts(hosts: HostRecord[], basis: UtilizationBasis, source:
   };
 }
 
-/**
- * Same idea from the guest side, for exports whose host rows carry no telemetry
- * but whose per-VM sheets do. A fully busy vCPU occupies about one physical
- * core, so busy vCPUs convert straight across.
- */
-function observedFromVms(
-  vms: { cpuUsed: VmCpuUsage; observedRamGiB: number | null }[],
-  basis: UtilizationBasis,
-  source: string,
-): ObservedLoad | null {
-  const pick = (vm: { cpuUsed: VmCpuUsage }) => vm.cpuUsed.p95 ?? vm.cpuUsed.peak ?? vm.cpuUsed.average;
-  const withCpu = vms.filter((v) => pick(v) != null);
-  const withRam = vms.filter((v) => v.observedRamGiB != null);
-  if (!withCpu.length && !withRam.length) return null;
-  const coverage = vms.length > 0 ? withCpu.length / vms.length : 0;
-  return {
-    cpuPCores: withCpu.length ? Number(withCpu.reduce((s, v) => s + (pick(v) ?? 0), 0).toFixed(2)) : null,
-    ramGiB: withRam.length ? Number(withRam.reduce((s, v) => s + (v.observedRamGiB ?? 0), 0).toFixed(2)) : null,
-    basis,
-    coverage: Number(coverage.toFixed(3)),
-    source,
-  };
-}
+// ---------------------------------------------------------------------------
+// Shared VM storage assembly
+// ---------------------------------------------------------------------------
 
 /**
- * Pick the best utilization column a sheet offers, in the order a sizer wants
- * them: a 95th percentile trims one-off spikes, a peak is the honest worst case,
- * and an average is the last resort because it hides the busy hour entirely.
+ * Storage per VM, the same way for every tool:
+ *   provisioned = sum of the VM's virtual disk capacities;
+ *   consumed    = sum of the VM's guest partition used space, or, when the guest
+ *                 reported no partitions, the tool's VM-level used column.
+ * Rows whose VM is not in the inventory but which belong to a volume group are
+ * kept as unowned volume groups; any other unmatched row is counted and reported.
  */
-function pickUtilizationColumn(
-  rows: Record<string, unknown>[],
-  candidates: { column: string | null; basis: UtilizationBasis }[],
-): { column: string; basis: UtilizationBasis } | null {
-  for (const { column, basis } of candidates) {
-    if (column && classifyUsage(rows, column) !== "empty") return { column, basis };
+type StorageTotals = { provisionedGiB: number; consumedGiB: number; hasPartitions: boolean; hasDisks: boolean };
+
+function emptyStorage(): StorageTotals {
+  return { provisionedGiB: 0, consumedGiB: 0, hasPartitions: false, hasDisks: false };
+}
+
+function isTrue(value: unknown): boolean {
+  return String(value ?? "").trim().toLowerCase() === "true";
+}
+
+// A name is only a usable join key when it identifies exactly one VM.
+function uniqueNameIndex<T>(items: T[], name: (item: T) => string): Map<string, T> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = name(item).toLowerCase();
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return null;
+  const index = new Map<string, T>();
+  for (const item of items) {
+    const key = name(item).toLowerCase();
+    if (key && counts.get(key) === 1) index.set(key, item);
+  }
+  return index;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,10 +516,9 @@ type CollectorVm = {
   os: string;
   vcpu: number;
   ramGiB: number;
-  provisionedTiB: number;
-  consumedTiB: number;
-  // Telemetry, when the collection carried any. null means "not measured",
-  // which is not the same as zero.
+  storage: StorageTotals;
+  consumedSource: "partition" | "vm-level" | "none";
+  // Telemetry, when the collection carried any. null means "not measured".
   cpuUsed: VmCpuUsage;
   observedRamGiB: number | null;
 };
@@ -504,13 +527,15 @@ function emptyCpuUsage(): VmCpuUsage {
   return { average: null, p95: null, peak: null };
 }
 
-function addUsage(current: number | null, value: number | null): number | null {
+function maxOrNull(current: number | null, value: number | null): number | null {
   if (value == null) return current;
-  return (current ?? 0) + value;
+  return current == null ? value : Math.max(current, value);
 }
 
 function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes: number | null): ParsedEnvironment {
+  const source: SizerSource = "collector_excel";
   const audit: ParseAudit[] = [];
+  const notes: string[] = [];
   const vhosts = rowsFromSheet(workbook, ["vHosts", "vHost"]);
   const vcluster = rowsFromSheet(workbook, ["vCluster"]);
   const vdatacenter = rowsFromSheet(workbook, ["vDataCenter", "vDatacenter"]);
@@ -528,46 +553,45 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
 
   // --- cluster + host topology ---------------------------------------------
   const hostHeaders = headersFor(vhosts.rows);
-  const hostMoidCol = firstHeader(hostHeaders, ["MOID", "Host MOID", "Host Moid"]);
-  const hostClusterCol = firstHeader(hostHeaders, ["Cluster", "Cluster MOID", "Cluster Name"]);
-  const hostNameCol = firstHeader(hostHeaders, ["Name", "Host", "Host Name", "Hostname"]);
+  const hostMoidCol = firstHeader(hostHeaders, ["MOID", "Host MOID"]);
+  const hostClusterCol = firstHeader(hostHeaders, ["Cluster", "Cluster MOID"]);
+  const hostNameCol = firstHeader(hostHeaders, ["Host Name", "Name", "Host", "Hostname"]);
   const hostModelCol = firstHeader(hostHeaders, ["Model", "Host Model", "Server Model"]);
   const hostVendorCol = firstHeader(hostHeaders, ["Vendor", "Manufacturer"]);
-  const hostCpuModelCol = firstHeader(hostHeaders, ["CPU Model", "Processor", "CPU Type", "CPU"]);
+  const hostCpuModelCol = firstHeader(hostHeaders, ["CPU Model", "Processor", "CPU Type"]);
   const hostSocketsCol = firstHeader(hostHeaders, ["CPUs", "# CPU", "Sockets", "CPU Sockets"]);
   const hostCoresPerCpuCol = firstHeader(hostHeaders, ["Cores per CPU", "Cores/CPU", "Cores per Socket"]);
-  const hostTotalCoresCol = firstHeader(hostHeaders, ["CPU Cores", "# Cores", "Cores", "Total Cores"]);
-  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Utilization %", "CPU Util %", "% CPU", "CPU Usage"]);
-  const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Utilization %", "Mem Util %", "% Memory", "Memory Usage"]);
+  const hostTotalCoresCol = firstHeader(hostHeaders, ["CPU Cores", "# Cores", "Total Cores"]);
+  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Usage"]);
+  const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Usage"]);
 
-  // Collector reports host "Memory Size" in decimal GB — the Collector-Formatter
-  // converts it with 1e9/2^30, so decimal is the right default when the header
-  // itself is silent.
   const hostMemory = readCapacity(
     vhosts.rows,
-    ["Memory Size", "Memory (GiB)", "Memory (MiB)", "Memory", "RAM", "# Memory", "Physical Memory"],
+    ["Memory Size", "Memory (GiB)", "Memory (MiB)", "Memory (GB)"],
     PLAUSIBLE.hostMemory,
     vhosts.rows.length,
     audit,
     "Host memory",
     vhosts.name,
-    "GB",
+    source,
   );
-
-  // Collector writes host "Memory Usage" as an absolute amount, not a percentage.
-  // Resolve it as a capacity so it can be divided by the host's own memory; if it
-  // turns out to already be a percentage, this stays unused.
-  const hostMemUsage =
-    hostMemPctCol && classifyUsage(vhosts.rows, hostMemPctCol) === "absolute"
-      ? readCapacity(vhosts.rows, [hostMemPctCol], PLAUSIBLE.hostMemory, vhosts.rows.length, audit, "Host memory used", vhosts.name, "GB")
-      : null;
-  const hostMemUtil = makeUtilization(vhosts.rows, hostMemPctCol, (row) => {
-    if (!hostMemUsage) return null;
-    const capacityGiB = hostMemory.valueGiB(row);
-    const usedGiB = hostMemUsage.valueGiB(row);
-    return capacityGiB > 0 ? (usedGiB / capacityGiB) * 100 : null;
-  });
-  const hostCpuUtil = makeUtilization(vhosts.rows, hostCpuPctCol);
+  const hostCpuUtil = makeUtilization(vhosts.rows, hostCpuPctCol, isPercentColumn(source, vhosts.name, hostCpuPctCol));
+  const hostMemUtil = makeUtilization(vhosts.rows, hostMemPctCol, isPercentColumn(source, vhosts.name, hostMemPctCol));
+  for (const [field, col, util] of [
+    ["Host CPU usage", hostCpuPctCol, hostCpuUtil],
+    ["Host memory usage", hostMemPctCol, hostMemUtil],
+  ] as const) {
+    audit.push({
+      field,
+      sheet: vhosts.name,
+      column: col,
+      unit: col ? "%" : null,
+      confidence: !col ? "unresolved" : col.includes("%") ? "header" : "registry",
+      note: !col
+        ? `No ${field.toLowerCase()} column. Inventory context only; not used for sizing.`
+        : `"${col}" read as a percentage${col.includes("%") ? "" : " (the export prints no unit; Collector documents a percentage)"}. Inventory context only; not used for sizing.${util.dropped ? ` ${util.dropped} value(s) above 100 were dropped.` : ""}`,
+    });
+  }
 
   const clusterNameByMoid = new Map<string, string>();
   const clusterDcByMoid = new Map<string, string>();
@@ -602,61 +626,55 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       sockets,
       coresPerSocket,
       cores,
-      ramGiB: Number(hostMemory.valueGiB(row).toFixed(2)),
+      ramGiB: Number(hostMemory.valueGiB(row).toFixed(3)),
       cpuUtilPct: hostCpuUtil.perRow(row),
       memoryUtilPct: hostMemUtil.perRow(row),
     };
     hostsByCluster.set(clusterMoid, [...(hostsByCluster.get(clusterMoid) ?? []), record]);
   }
 
-  // --- VM facts -------------------------------------------------------------
+  // --- VM inventory (vInfo, keyed by UUID) ----------------------------------
   const infoHeaders = headersFor(vinfo.rows);
-  const infoUuidCol = firstHeader(infoHeaders, ["UUID", "VM UUID", "Instance UUID"]);
+  const infoUuidCol = firstHeader(infoHeaders, ["UUID", "VM UUID"]);
   const infoNameCol = firstHeader(infoHeaders, ["VM Name", "Name", "VM"]);
-  const infoHostCol = firstHeader(infoHeaders, ["Host MOID", "Host", "Host Moid"]);
-  const infoPowerCol = firstHeader(infoHeaders, ["Power State", "Powerstate", "State", "Power"]);
-  const infoOsCol = firstHeader(infoHeaders, ["Guest OS", "Guest Operating System", "Operating System", "OS"]);
-  if (!infoUuidCol) throw new ParseWorkbookError("vInfo has no UUID column, so VMs cannot be joined to hosts.");
+  const infoHostCol = firstHeader(infoHeaders, ["Host MOID"]);
+  const infoPowerCol = firstHeader(infoHeaders, ["Power State", "Powerstate"]);
+  const infoOsCol = firstHeader(infoHeaders, ["Guest OS", "Guest Operating System", "Operating System"]);
+  if (!infoUuidCol) throw new ParseWorkbookError("vInfo has no UUID column, so VMs cannot be joined to their resources.");
 
   const vms = new Map<string, CollectorVm>();
-  const uuidByName = new Map<string, string>();
   for (const row of vinfo.rows) {
     const uuid = str(row[infoUuidCol]);
-    if (!uuid) continue;
-    const name = str(infoNameCol ? row[infoNameCol] : "") || uuid;
+    if (!uuid || vms.has(uuid)) continue;
     const hostMoid = str(infoHostCol ? row[infoHostCol] : "");
     vms.set(uuid, {
       uuid,
-      name,
+      name: str(infoNameCol ? row[infoNameCol] : "") || uuid,
       clusterMoid: hostToCluster.get(hostMoid) ?? null,
       poweredOn: infoPowerCol ? parsePowerState(row[infoPowerCol]) : null,
       os: osFamily(infoOsCol ? row[infoOsCol] : ""),
       vcpu: 0,
       ramGiB: 0,
-      provisionedTiB: 0,
-      consumedTiB: 0,
+      storage: emptyStorage(),
+      consumedSource: "none",
       cpuUsed: emptyCpuUsage(),
       observedRamGiB: null,
     });
-    // Names repeat in obfuscated exports — first UUID wins for name lookups.
-    if (name && !uuidByName.has(name.toLowerCase())) uuidByName.set(name.toLowerCase(), uuid);
   }
+  const vmByName = uniqueNameIndex(Array.from(vms.values()), (vm) => vm.name);
 
-  // Power state sometimes lives in vmList instead of vInfo.
-  if (!infoPowerCol && vmlist.rows.length) {
-    const listHeaders = headersFor(vmlist.rows);
-    const listNameCol = firstHeader(listHeaders, ["VM Name", "Name", "VM"]);
-    const listPowerCol = firstHeader(listHeaders, ["Power State", "Powerstate", "State", "Power"]);
-    if (listNameCol && listPowerCol) {
-      for (const row of vmlist.rows) {
-        const uuid = uuidByName.get(str(row[listNameCol]).toLowerCase());
-        const vm = uuid ? vms.get(uuid) : undefined;
-        if (vm) vm.poweredOn = parsePowerState(row[listPowerCol]);
-      }
+  // vmList names are only trusted where they are unique in vInfo.
+  const listHeaders = headersFor(vmlist.rows);
+  const listNameCol = firstHeader(listHeaders, ["VM Name", "Name", "VM"]);
+  const listPowerCol = firstHeader(listHeaders, ["Power State", "Powerstate"]);
+  if (!infoPowerCol && listNameCol && listPowerCol) {
+    for (const row of vmlist.rows) {
+      const vm = vmByName.get(str(row[listNameCol]).toLowerCase());
+      if (vm) vm.poweredOn = parsePowerState(row[listPowerCol]);
     }
   }
 
-  // Resource sheets key on UUID, falling back to VM name on older exports.
+  // Resource sheets join on UUID; a name is used only when it is unique.
   const linker = (rows: Record<string, unknown>[]) => {
     const headers = headersFor(rows);
     const uuidCol = firstHeader(headers, ["UUID", "VM UUID"]);
@@ -666,180 +684,210 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       nameCol,
       resolve: (row: Record<string, unknown>): CollectorVm | undefined => {
         const uuid = uuidCol ? str(row[uuidCol]) : "";
-        if (uuid && vms.has(uuid)) return vms.get(uuid);
-        if (!nameCol) return undefined;
-        const byName = uuidByName.get(str(row[nameCol]).toLowerCase());
-        return byName ? vms.get(byName) : undefined;
-      },
-      vmCount: (): number => {
-        if (uuidCol) return distinctCount(rows, (r) => str(r[uuidCol]));
-        if (nameCol) return distinctCount(rows, (r) => str(r[nameCol]));
-        return rows.length;
+        if (uuid) return vms.get(uuid);
+        return nameCol ? vmByName.get(str(row[nameCol]).toLowerCase()) : undefined;
       },
     };
   };
 
+  // --- vCPU -------------------------------------------------------------------
   const cpuLink = linker(vcpu.rows);
   const cpuHeaders = headersFor(vcpu.rows);
-  const cpuCol = firstHeader(cpuHeaders, ["vCPUs", "vCPU", "CPUs", "Num vCPU", "# vCPU"]);
-
-  // Every per-VM CPU statistic the export offers, kept separately rather than
-  // collapsed to one: an SE choosing between them needs to see the spread.
-  // "CPU Readiness 95th Percentile %" is a contention metric, not a usage one,
-  // and would otherwise be caught by a loose search for a percentile column.
+  const cpuCol = firstHeader(cpuHeaders, ["vCPUs", "vCPU", "Num vCPU"]);
+  // "CPU Readiness 95th Percentile %" is contention, not usage.
   const notReadiness = (col: string | null) => (col && !norm(col).includes("readiness") ? col : null);
   const cpuStatColumns = {
-    p95: notReadiness(firstHeader(cpuHeaders, ["95th Percentile % (recommended)", "95th Percentile %"])),
+    p95: notReadiness(firstHeader(cpuHeaders, ["95th Percentile % (Recommended)", "95th Percentile %"])),
     peak: notReadiness(firstHeader(cpuHeaders, ["Peak %"])),
     average: notReadiness(firstHeader(cpuHeaders, ["Average %"])),
   } as const;
   const cpuStatUtil = {
-    p95: makeUtilization(vcpu.rows, cpuStatColumns.p95),
-    peak: makeUtilization(vcpu.rows, cpuStatColumns.peak),
-    average: makeUtilization(vcpu.rows, cpuStatColumns.average),
+    p95: makeUtilization(vcpu.rows, cpuStatColumns.p95, true),
+    peak: makeUtilization(vcpu.rows, cpuStatColumns.peak, true),
+    average: makeUtilization(vcpu.rows, cpuStatColumns.average, true),
   };
-  // With no percentile columns, Collector still records the VM's current draw
-  // against its ceiling, which is a usable if coarse average.
-  const overallMhzCol = firstHeader(cpuHeaders, ["Overall CPU (MHz)", "Overall CPU MHz"]);
-  const maxMhzCol = firstHeader(cpuHeaders, ["Max CPU (MHz)", "Max CPU MHz"]);
-
   if (cpuCol) {
     for (const row of vcpu.rows) {
       const vm = cpuLink.resolve(row);
       if (!vm) continue;
       const rowVcpu = toNum(row[cpuCol]);
-      vm.vcpu += rowVcpu;
-
-      const fromPct = (util: { perRow: (r: Record<string, unknown>) => number | null }) => {
+      // One row per VM is expected; a repeated row must not double the VM.
+      vm.vcpu = Math.max(vm.vcpu, rowVcpu);
+      const cores = (util: { perRow: (r: Record<string, unknown>) => number | null }) => {
         const pct = util.perRow(row);
         return pct == null ? null : (rowVcpu * pct) / 100;
       };
-      let average = fromPct(cpuStatUtil.average);
-      if (average == null && overallMhzCol && maxMhzCol) {
-        const max = toNum(row[maxMhzCol]);
-        const overall = toNum(row[overallMhzCol]);
-        if (max > 0 && overall >= 0) average = rowVcpu * Math.min(1, overall / max);
-      }
       vm.cpuUsed = {
-        p95: addUsage(vm.cpuUsed.p95, fromPct(cpuStatUtil.p95)),
-        peak: addUsage(vm.cpuUsed.peak, fromPct(cpuStatUtil.peak)),
-        average: addUsage(vm.cpuUsed.average, average),
+        p95: maxOrNull(vm.cpuUsed.p95, cores(cpuStatUtil.p95)),
+        peak: maxOrNull(vm.cpuUsed.peak, cores(cpuStatUtil.peak)),
+        average: maxOrNull(vm.cpuUsed.average, cores(cpuStatUtil.average)),
       };
     }
-    audit.push({ field: "VM vCPU", sheet: vcpu.name, column: cpuCol, unit: "count", confidence: "header", note: `"${cpuCol}" read as a vCPU count.` });
+    audit.push({ field: "VM vCPU", sheet: vcpu.name, column: cpuCol, unit: "count", confidence: "header", note: `"${cpuCol}" read as a vCPU count (largest row per VM UUID).` });
   } else {
-    audit.push({ field: "VM vCPU", sheet: vcpu.name, column: null, unit: null, confidence: "unresolved", note: "No vCPU column found, so CPU sizing will be wrong." });
+    audit.push({ field: "VM vCPU", sheet: vcpu.name, column: null, unit: null, confidence: "unresolved", note: "No vCPU column found." });
   }
-
   const allVmList = Array.from(vms.values());
-  const measured = {
-    p95: allVmList.filter((vm) => vm.cpuUsed.p95 != null).length,
-    peak: allVmList.filter((vm) => vm.cpuUsed.peak != null).length,
-    average: allVmList.filter((vm) => vm.cpuUsed.average != null).length,
-  };
-  const mhzFallback = !cpuStatColumns.average && measured.average > 0;
-  const cpuTelemetrySource = measured.p95
-    ? `${vcpu.name} · ${cpuStatColumns.p95}`
-    : measured.peak
-      ? `${vcpu.name} · ${cpuStatColumns.peak}`
-      : mhzFallback
-        ? `${vcpu.name} · ${overallMhzCol} / ${maxMhzCol}`
-        : measured.average
-          ? `${vcpu.name} · ${cpuStatColumns.average}`
-          : null;
-  const cpuBasis: UtilizationBasis = measured.p95 ? "p95" : measured.peak ? "peak" : "average";
+  const p95Measured = allVmList.filter((vm) => vm.cpuUsed.p95 != null).length;
   audit.push({
-    field: "VM CPU usage",
+    field: "VM CPU usage (95th percentile)",
     sheet: vcpu.name,
-    column: cpuStatColumns.p95 ?? cpuStatColumns.peak ?? cpuStatColumns.average ?? (mhzFallback ? overallMhzCol : null),
-    unit: mhzFallback && !measured.p95 && !measured.peak ? "MHz" : "%",
-    confidence: cpuTelemetrySource ? "header" : "unresolved",
-    note: cpuTelemetrySource
-      ? `Per-VM CPU usage from ${cpuTelemetrySource}. Measured for ${measured.p95 || measured.peak || measured.average} of ${allVmList.length} VMs (95th percentile ${measured.p95}, peak ${measured.peak}, average ${measured.average}).`
-      : "No per-VM CPU telemetry in this export, so CPU falls back to allocated vCPU over the overcommit ratio.",
+    column: cpuStatColumns.p95,
+    unit: cpuStatColumns.p95 ? "%" : null,
+    confidence: cpuStatColumns.p95 ? "header" : "unresolved",
+    note: cpuStatColumns.p95
+      ? `vCPU x "${cpuStatColumns.p95}" / 100 = cores used. Measured for ${p95Measured} of ${allVmList.length} VMs; the rest fall back to vCPU / ratio.`
+      : "No 95th-percentile CPU column, so every VM falls back to vCPU / ratio.",
   });
 
+  // --- vMemory ------------------------------------------------------------------
   const memLink = linker(vmemory.rows);
   const vmMemory = readCapacity(
     vmemory.rows,
-    ["Size (MiB)", "Size (GiB)", "Memory (MiB)", "Memory (GiB)", "Size", "Memory", "RAM"],
+    ["Size (MiB)", "Size (GiB)", "Memory (MiB)", "Memory (GiB)"],
     PLAUSIBLE.vmMemory,
-    memLink.vmCount(),
+    distinctCount(vmemory.rows, (r) => str(memLink.uuidCol ? r[memLink.uuidCol] : r[memLink.nameCol ?? ""])),
     audit,
-    "VM memory",
+    "VM memory (configured)",
     vmemory.name,
-    "MiB",
+    source,
   );
-  // Observed memory is recorded for the SE to look at and never sized on: a
-  // guest's configured memory is a promise the hypervisor has to keep the moment
-  // the guest asks, so what it happens to be touching today is not a budget.
   const memHeaders = headersFor(vmemory.rows);
-  const vmMemUsage = pickUtilizationColumn(vmemory.rows, [
-    { column: firstHeader(memHeaders, ["95th Percentile % (recommended)", "95th Percentile %"]), basis: "p95" },
-    { column: firstHeader(memHeaders, ["Peak %"]), basis: "peak" },
-    { column: firstHeader(memHeaders, ["Average %"]), basis: "average" },
-  ]);
-  const vmMemUtil = vmMemUsage ? makeUtilization(vmemory.rows, vmMemUsage.column) : null;
+  const memP95Col = firstHeader(memHeaders, ["95th Percentile % (Recommended)", "95th Percentile %"]);
+  const memP95 = makeUtilization(vmemory.rows, memP95Col, true);
   for (const row of vmemory.rows) {
     const vm = memLink.resolve(row);
     if (!vm) continue;
     const sizeGiB = vmMemory.valueGiB(row);
-    vm.ramGiB += sizeGiB;
-    const pct = vmMemUtil?.perRow(row) ?? null;
-    if (pct != null) vm.observedRamGiB = (vm.observedRamGiB ?? 0) + (sizeGiB * pct) / 100;
+    // Matches the Collector formatter: the largest Size per VM UUID.
+    vm.ramGiB = Math.max(vm.ramGiB, sizeGiB);
+    const pct = memP95.perRow(row);
+    if (pct != null) vm.observedRamGiB = Math.max(vm.observedRamGiB ?? 0, (sizeGiB * pct) / 100);
   }
 
-  // Guest partitions are the better capacity signal; vDisk is the fallback.
-  const partLink = linker(vpartition.rows);
-  const partVmCount = partLink.vmCount();
-  const partCapacity = readCapacity(
-    vpartition.rows,
-    ["Capacity (MiB)", "Capacity MiB", "Capacity (GiB)", "Capacity", "Size (MiB)", "Size"],
-    PLAUSIBLE.vmStorage,
-    partVmCount,
-    audit,
-    "VM storage (provisioned)",
-    vpartition.name,
-    "MiB",
-  );
-  const partConsumed = readCapacity(
-    vpartition.rows,
-    ["Consumed (MiB)", "Consumed MiB", "Consumed (GiB)", "Consumed", "Used (MiB)", "In Use MiB", "Used"],
-    PLAUSIBLE.vmStorage,
-    partVmCount,
-    audit,
-    "VM storage (consumed)",
-    vpartition.name,
-    "MiB",
-  );
-  for (const row of vpartition.rows) {
-    const vm = partLink.resolve(row);
-    if (!vm) continue;
-    vm.provisionedTiB += partCapacity.valueGiB(row) / GIB_PER_TIB;
-    vm.consumedTiB += partConsumed.valueGiB(row) / GIB_PER_TIB;
-  }
+  // --- storage --------------------------------------------------------------
+  type Unowned = { owner: string; name: string; clusterName: string; provisionedGiB: number; consumedGiB: number };
+  const unowned = new Map<string, Unowned>();
+  let orphanRows = 0;
+  const unownedKey = (row: Record<string, unknown>, uuidCol: string | null, nameCol: string | null) =>
+    `${uuidCol ? str(row[uuidCol]) : ""}|${nameCol ? str(row[nameCol]) : ""}`;
 
-  if (!vpartition.rows.length || partCapacity.resolution.unit == null) {
-    const diskLink = linker(vdisk.rows);
-    const diskCapacity = readCapacity(
-      vdisk.rows,
-      ["Capacity (MiB)", "Capacity MiB", "Capacity (GiB)", "Capacity", "Size (MiB)", "Size"],
-      PLAUSIBLE.vmStorage,
-      diskLink.vmCount(),
-      audit,
-      "VM storage (virtual disks)",
-      vdisk.name,
-    );
-    for (const row of vdisk.rows) {
-      const vm = diskLink.resolve(row);
-      if (vm) vm.provisionedTiB += diskCapacity.valueGiB(row) / GIB_PER_TIB;
+  const diskLink = linker(vdisk.rows);
+  const diskHeaders = headersFor(vdisk.rows);
+  const diskVgCol = firstHeader(diskHeaders, ["Volume Group Disk"]);
+  const diskVgNameCol = firstHeader(diskHeaders, ["Volume Group Name"]);
+  const diskClusterCol = firstHeader(diskHeaders, ["Cluster Name"]);
+  const diskCapacity = readCapacity(
+    vdisk.rows,
+    ["Capacity (MiB)", "Capacity (GiB)"],
+    PLAUSIBLE.vmStorage,
+    distinctCount(vdisk.rows, (r) => str(diskLink.uuidCol ? r[diskLink.uuidCol] : "")),
+    audit,
+    "VM storage, provisioned (virtual disk capacity)",
+    vdisk.name,
+    source,
+  );
+  for (const row of vdisk.rows) {
+    const gib = diskCapacity.valueGiB(row);
+    const vm = diskLink.resolve(row);
+    if (vm) {
+      vm.storage.provisionedGiB += gib;
+      vm.storage.hasDisks = true;
+      continue;
+    }
+    if (diskVgCol && isTrue(row[diskVgCol])) {
+      const key = unownedKey(row, diskLink.uuidCol, diskLink.nameCol);
+      const entry = unowned.get(key) ?? {
+        owner: str(diskLink.nameCol ? row[diskLink.nameCol] : "") || "Unknown owner",
+        name: str(diskVgNameCol ? row[diskVgNameCol] : ""),
+        clusterName: str(diskClusterCol ? row[diskClusterCol] : ""),
+        provisionedGiB: 0,
+        consumedGiB: 0,
+      };
+      entry.provisionedGiB += gib;
+      unowned.set(key, entry);
+    } else if (gib > 0) {
+      orphanRows += 1;
     }
   }
+
+  const partLink = linker(vpartition.rows);
+  const partHeaders = headersFor(vpartition.rows);
+  const partVgCol = firstHeader(partHeaders, ["Volume Group Partition"]);
+  const partClusterCol = firstHeader(partHeaders, ["Cluster Name"]);
+  const partConsumed = readCapacity(
+    vpartition.rows,
+    ["Consumed (MiB)", "Consumed (GiB)"],
+    PLAUSIBLE.vmStorage,
+    distinctCount(vpartition.rows, (r) => str(partLink.uuidCol ? r[partLink.uuidCol] : "")),
+    audit,
+    "VM storage, consumed (guest partitions)",
+    vpartition.name,
+    source,
+  );
+  for (const row of vpartition.rows) {
+    const gib = partConsumed.valueGiB(row);
+    const vm = partLink.resolve(row);
+    if (vm) {
+      vm.storage.consumedGiB += gib;
+      vm.storage.hasPartitions = true;
+      continue;
+    }
+    if (partVgCol && isTrue(row[partVgCol])) {
+      const key = unownedKey(row, partLink.uuidCol, partLink.nameCol);
+      const entry = unowned.get(key) ?? {
+        owner: str(partLink.nameCol ? row[partLink.nameCol] : "") || "Unknown owner",
+        name: "",
+        clusterName: str(partClusterCol ? row[partClusterCol] : ""),
+        provisionedGiB: 0,
+        consumedGiB: 0,
+      };
+      entry.consumedGiB += gib;
+      unowned.set(key, entry);
+    } else if (gib > 0) {
+      orphanRows += 1;
+    }
+  }
+
+  // Guests with no partition rows fall back to vmList "Consumed (MiB)".
+  const listConsumed = readCapacity(
+    vmlist.rows,
+    ["Consumed (MiB)", "Consumed (GiB)"],
+    PLAUSIBLE.vmStorage,
+    vmlist.rows.length,
+    audit,
+    "VM storage, consumed fallback (VM level)",
+    vmlist.name,
+    source,
+  );
+  const listByName = new Map<string, Record<string, unknown>>();
+  if (listNameCol) {
+    const counts = new Map<string, number>();
+    for (const row of vmlist.rows) {
+      const k = str(row[listNameCol]).toLowerCase();
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    for (const row of vmlist.rows) {
+      const k = str(row[listNameCol]).toLowerCase();
+      if (counts.get(k) === 1) listByName.set(k, row);
+    }
+  }
+  for (const vm of vms.values()) {
+    if (vm.storage.hasPartitions) {
+      vm.consumedSource = "partition";
+      continue;
+    }
+    const row = vmByName.has(vm.name.toLowerCase()) ? listByName.get(vm.name.toLowerCase()) : undefined;
+    if (row && listConsumed.resolution.unit) {
+      vm.storage.consumedGiB = listConsumed.valueGiB(row);
+      vm.consumedSource = "vm-level";
+    }
+  }
+  if (orphanRows) notes.push(`${orphanRows} disk/partition row(s) reference a VM missing from vInfo and are not part of a volume group; they are not counted.`);
 
   // --- aggregate per cluster ------------------------------------------------
   const allVms = Array.from(vms.values());
   const powerStateKnown = allVms.some((vm) => vm.poweredOn != null);
-
   const clusterMoids = new Set<string>([...hostsByCluster.keys()]);
   for (const vm of allVms) if (vm.clusterMoid) clusterMoids.add(vm.clusterMoid);
 
@@ -853,19 +901,25 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
   }
 
   const orderedMoids = Array.from(clusterMoids);
-  const displayNames = labelCollisions(orderedMoids.map((moid) => clusterNameByMoid.get(moid) ?? (moid === "__unassigned__" ? "Unassigned hosts" : moid)));
+  if (vmsByCluster.has("__unassigned__") && !orderedMoids.includes("__unassigned__")) orderedMoids.push("__unassigned__");
+  const displayNames = labelCollisions(
+    orderedMoids.map((moid) => clusterNameByMoid.get(moid) ?? (moid === "__unassigned__" ? "Unassigned hosts" : moid)),
+  );
+  const clusterIdByMoid = new Map(orderedMoids.map((moid, index) => [moid, `cluster-${index}-${moid}`]));
   const vmRecords: VmRecord[] = [];
 
   const clusterDetails: ParsedCluster[] = orderedMoids.map((moid, index) => {
     const hosts = hostsByCluster.get(moid) ?? [];
     const clusterVms = vmsByCluster.get(moid) ?? [];
-    const clusterId = `cluster-${index}-${moid}`;
+    const clusterId = clusterIdByMoid.get(moid)!;
     const slices = { all: emptyPowerSlice(), on: emptyPowerSlice(), off: emptyPowerSlice() };
     let maxVmVcpu = 0;
     let maxVmRamGiB = 0;
     const clusterTopVms: TopVm[] = [];
 
     for (const vm of clusterVms) {
+      const provisionedTiB = vm.storage.provisionedGiB / GIB_PER_TIB;
+      const consumedTiB = vm.storage.consumedGiB / GIB_PER_TIB;
       vmRecords.push({
         id: vm.uuid,
         name: vm.name,
@@ -873,19 +927,16 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
         clusterName: displayNames[index],
         poweredOn: vm.poweredOn,
         os: vm.os,
-        vcpu: Number(vm.vcpu.toFixed(2)),
-        ramGiB: Number(vm.ramGiB.toFixed(3)),
-        storageProvisionedTiB: Number(vm.provisionedTiB.toFixed(4)),
-        storageConsumedTiB: Number(vm.consumedTiB.toFixed(4)),
+        vcpu: vm.vcpu,
+        ramGiB: vm.ramGiB,
+        storageProvisionedTiB: provisionedTiB,
+        storageConsumedTiB: consumedTiB,
+        consumedSource: vm.consumedSource,
         cpuUsed: vm.cpuUsed,
         ramUsedGiB: vm.observedRamGiB,
       });
-    }
-
-    for (const vm of clusterVms) {
-      const facts: VmFacts = { vcpu: vm.vcpu, ramGiB: vm.ramGiB, provisionedTiB: vm.provisionedTiB, consumedTiB: vm.consumedTiB };
+      const facts: VmFacts = { vcpu: vm.vcpu, ramGiB: vm.ramGiB, provisionedTiB, consumedTiB };
       addToSlice(slices.all, facts);
-      // Unknown power state counts as running so nothing silently drops out.
       addToSlice(vm.poweredOn === false ? slices.off : slices.on, facts);
       if (vm.vcpu > maxVmVcpu) maxVmVcpu = vm.vcpu;
       if (vm.ramGiB > maxVmRamGiB) maxVmRamGiB = vm.ramGiB;
@@ -893,8 +944,8 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
         name: vm.name,
         cluster: displayNames[index],
         vcpu: Math.round(vm.vcpu),
-        ramGiB: Number(vm.ramGiB.toFixed(1)),
-        storageTiB: Number(vm.provisionedTiB.toFixed(2)),
+        ramGiB: vm.ramGiB,
+        storageTiB: provisionedTiB,
         poweredOn: vm.poweredOn !== false,
       };
       clusterTopVms.push(entry);
@@ -904,12 +955,7 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
     const all = roundSlice(slices.all);
     const totalCpuCores = hosts.reduce((s, h) => s + h.cores, 0);
     const totalMemoryGiB = hosts.reduce((s, h) => s + h.ramGiB, 0);
-
-    // Context for the inventory view only. The build is sized from the VM
-    // records above; this is what the hosts happen to be doing today.
-    const observed =
-      observedFromHosts(hosts, "average", `${vhosts.name} · host usage columns`) ??
-      observedFromVms(clusterVms, cpuBasis, cpuTelemetrySource ?? `${vcpu.name} · per-VM usage`);
+    const observed = observedFromHosts(hosts, "average", `${vhosts.name} · host usage columns`);
 
     return {
       id: clusterId,
@@ -929,11 +975,11 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       aggRamGiB: all.ramGiB,
       aggStorageProvisionedTiB: all.partitionConfiguredTiB,
       aggStorageConsumedTiB: all.partitionConsumedTiB,
-      maxVmVcpu: Number(maxVmVcpu.toFixed(2)),
-      maxVmRamGiB: Number(maxVmRamGiB.toFixed(2)),
-      totalCpuCores: Number(totalCpuCores.toFixed(2)),
+      maxVmVcpu,
+      maxVmRamGiB,
+      totalCpuCores,
       consumedCpuCores: observed?.cpuPCores ?? null,
-      totalMemoryGiB: Number(totalMemoryGiB.toFixed(2)),
+      totalMemoryGiB,
       consumedMemoryGiB: observed?.ramGiB ?? null,
       totalStorageTiB: all.partitionConfiguredTiB,
       consumedStorageTiB: all.partitionConsumedTiB,
@@ -945,13 +991,29 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
     };
   });
 
-  const notes = ["Collector parsed with MOID/UUID joins, matching the Collector Cluster Summary tab."];
+  // Unowned volume groups attach to a cluster only when its name is unambiguous.
+  const clusterIdByName = uniqueNameIndex(
+    orderedMoids.map((moid) => ({ moid, name: clusterNameByMoid.get(moid) ?? "" })),
+    (c) => c.name,
+  );
+  const volumeGroups: VolumeGroupRecord[] = Array.from(unowned.values()).map((vg) => ({
+    name: vg.name || "Volume group",
+    owner: vg.owner,
+    clusterId: clusterIdByMoid.get(clusterIdByName.get(vg.clusterName.toLowerCase())?.moid ?? "") ?? null,
+    provisionedTiB: vg.provisionedGiB / GIB_PER_TIB,
+    consumedTiB: vg.consumedGiB / GIB_PER_TIB,
+  }));
+  if (volumeGroups.length) {
+    notes.push(`${volumeGroups.length} volume group disk set(s) have no VM in vInfo (owner "${volumeGroups[0].owner}"); their storage is included in the build.`);
+  }
+
+  notes.unshift("Collector parsed with UUID / Host MOID joins, matching the Collector formatter's Cluster Summary.");
   if (!powerStateKnown) notes.push("No VM power state column found, so every VM is treated as running.");
   const orphans = allVms.filter((vm) => !vm.clusterMoid).length;
-  if (orphans > 0) notes.push(`${orphans} VM${orphans === 1 ? "" : "s"} had no resolvable host and are grouped under "Unassigned hosts".`);
+  if (orphans > 0) notes.push(`${orphans} VM(s) had no resolvable host and are grouped under "Unassigned hosts".`);
 
   return finalize({
-    source: "collector_excel",
+    source,
     fileName,
     fileSizeBytes,
     datacenters: vdatacenter.rows.length || clusterDcByMoid.size || null,
@@ -959,6 +1021,7 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
     guestOs: rankGuestOs(guestOsCounts),
     topVms: rankTopVms(topVmCandidates),
     vms: vmRecords,
+    volumeGroups,
     hostCpuUtilPct: hostCpuUtil.average,
     hostMemoryUtilPct: hostMemUtil.average,
     hostCount: vhosts.rows.length,
@@ -971,92 +1034,119 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
 }
 
 // ---------------------------------------------------------------------------
-// RVTools / LiveOptics (header-driven, per-VM where possible)
+// RVTools / LiveOptics
 // ---------------------------------------------------------------------------
 
-function hostSheetNamesFor(source: SizerSource): string[] {
-  if (source === "liveoptics") return ["ESX Hosts", "Hosts", "Host", "vHost", "vHosts", "ESXi Hosts"];
-  return ["vHost", "vHosts", "Hosts", "Host"];
-}
+// Exact sheets and columns per tool, taken from real exports. Each tool's
+// storage follows the shared definition (see "Shared VM storage assembly").
+type GenericSpec = {
+  hostSheets: string[];
+  vmSheets: string[];
+  vmIdCols: string[];
+  vmMemoryCols: string[];
+  // Provisioned: a per-disk sheet summed per VM, or a per-VM column.
+  diskSheet: { names: string[]; idCols: string[]; capacityCols: string[] } | null;
+  vmProvisionedCols: string[];
+  // Consumed: guest partitions summed per VM, falling back to a VM-level column.
+  partitionSheet: { names: string[]; idCols: string[]; consumedCols: string[] };
+  vmUsedCols: string[];
+  hostMemoryCols: string[];
+};
 
-function vmSheetNamesFor(source: SizerSource): string[] {
-  if (source === "liveoptics") return ["VMs", "VM Performance", "VirtualMachines", "vInfo", "Guest VMs"];
-  return ["vInfo", "VMs", "VirtualMachines"];
+const GENERIC_SPECS: Record<Exclude<SizerSource, "collector_excel">, GenericSpec> = {
+  rvtools: {
+    hostSheets: ["vHost"],
+    vmSheets: ["vInfo"],
+    vmIdCols: ["VM UUID", "VM ID"],
+    vmMemoryCols: ["Memory"],
+    diskSheet: { names: ["vDisk"], idCols: ["VM UUID", "VM ID"], capacityCols: ["Capacity MiB"] },
+    vmProvisionedCols: [],
+    partitionSheet: { names: ["vPartition"], idCols: ["VM UUID", "VM ID"], consumedCols: ["Consumed MiB"] },
+    vmUsedCols: ["In Use MiB"],
+    hostMemoryCols: ["# Memory"],
+  },
+  liveoptics: {
+    hostSheets: ["ESX Hosts"],
+    vmSheets: ["VMs"],
+    vmIdCols: ["InstanceUUID", "MOB ID"],
+    vmMemoryCols: ["Provisioned Memory (MiB)"],
+    diskSheet: null,
+    vmProvisionedCols: ["Virtual Disk Size (MiB)"],
+    partitionSheet: { names: ["VM Disks"], idCols: ["InstanceUUID", "MOB ID"], consumedCols: ["Used (MiB)"] },
+    vmUsedCols: ["Virtual Disk Used (MiB)"],
+    hostMemoryCols: ["Memory (KiB)"],
+  },
+};
+
+// Exact-header lookup: tool specs name real columns, so no fuzzy matching.
+function exactHeader(headers: string[], candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    const hit = headers.find((h) => norm(h) === norm(candidate));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function parseGeneric(
   workbook: XLSX.WorkBook,
-  source: SizerSource,
+  source: Exclude<SizerSource, "collector_excel">,
   fileName: string,
   fileSizeBytes: number | null,
 ): ParsedEnvironment {
+  const spec = GENERIC_SPECS[source];
   const audit: ParseAudit[] = [];
-  const hostSheet = rowsFromSheet(workbook, hostSheetNamesFor(source));
-  const vmSheet = rowsFromSheet(workbook, vmSheetNamesFor(source));
-  const partitionSheet = rowsFromSheet(workbook, ["vPartition", "Partitions", "Guest Disks"]);
-  const datastoreSheet = rowsFromSheet(workbook, ["vDatastore", "Datastore", "Datastores", "Storage"]);
-  const snapshotSheet = rowsFromSheet(workbook, ["vSnapshot", "Snapshots", "VM Snapshots"]);
-  const datacenterSheet = rowsFromSheet(workbook, ["vDatacenter", "vDataCenter", "Datacenters"]);
+  const notes: string[] = [];
+  const hostSheet = rowsFromSheet(workbook, spec.hostSheets);
+  const vmSheet = rowsFromSheet(workbook, spec.vmSheets);
+  const snapshotSheet = rowsFromSheet(workbook, ["vSnapshot"]);
+  const datacenterSheet = rowsFromSheet(workbook, ["vDatacenter"]);
 
   if (!hostSheet.rows.length) {
     throw new ParseWorkbookError(
-      `Could not find host inventory data for ${source}. Available sheets: ${workbook.SheetNames.join(", ")}`,
+      `${source === "rvtools" ? "RVTools" : "LiveOptics"} export needs a "${spec.hostSheets[0]}" sheet with data. Sheets found: ${workbook.SheetNames.join(", ")}`,
     );
   }
   if (!vmSheet.rows.length) {
     throw new ParseWorkbookError(
-      `Could not find VM inventory data for ${source}. Available sheets: ${workbook.SheetNames.join(", ")}`,
+      `${source === "rvtools" ? "RVTools" : "LiveOptics"} export needs a "${spec.vmSheets[0]}" sheet with data. Sheets found: ${workbook.SheetNames.join(", ")}`,
     );
   }
 
   // --- hosts ---------------------------------------------------------------
   const hostHeaders = headersFor(hostSheet.rows);
-  const hostNameCol = firstHeader(hostHeaders, ["Host", "Hostname", "Host Name", "Name", "ESX", "ESXi Host"]);
-  const hostClusterCol = firstHeader(hostHeaders, ["Cluster Name", "Cluster"]);
-  const hostDcCol = firstHeader(hostHeaders, ["Datacenter", "DataCenter"]);
-  const hostVcenterCol = firstHeader(hostHeaders, ["vCenter", "VI SDK Server", "vCenter Server"]);
-  const hostModelCol = firstHeader(hostHeaders, ["Model", "Host Model", "Server Model"]);
+  const hostNameCol = firstHeader(hostHeaders, ["Host", "Host Name", "Hostname"]);
+  const hostClusterCol = firstHeader(hostHeaders, ["Cluster", "Cluster Name"]);
+  const hostDcCol = firstHeader(hostHeaders, ["Datacenter"]);
+  const hostVcenterCol = firstHeader(hostHeaders, ["vCenter", "VI SDK Server"]);
+  const hostModelCol = firstHeader(hostHeaders, ["Model"]);
   const hostVendorCol = firstHeader(hostHeaders, ["Vendor", "Manufacturer"]);
-  const hostCpuModelCol = firstHeader(hostHeaders, ["CPU Model", "Processor", "CPU Type"]);
-  const hostSocketsCol = firstHeader(hostHeaders, ["# CPU", "CPUs", "Sockets", "CPU Sockets"]);
-  const hostCoresPerCpuCol = firstHeader(hostHeaders, ["Cores per CPU", "Cores/CPU", "Cores per Socket"]);
-  const hostTotalCoresCol = firstHeader(hostHeaders, ["# Cores", "CPU Cores", "Cores", "Total Cores"]);
-  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CpuUsagePct", "CPU Utilization %", "% CPU"]);
-  const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "MemUsagePct", "Memory Utilization %", "% Memory"]);
-  // RVTools reports host "# Memory" in MiB.
+  const hostCpuModelCol = firstHeader(hostHeaders, ["CPU Model", "CPU Description"]);
+  const hostSocketsCol = firstHeader(hostHeaders, ["# CPU", "CPU Sockets"]);
+  const hostCoresPerCpuCol = firstHeader(hostHeaders, ["Cores per CPU"]);
+  const hostTotalCoresCol = firstHeader(hostHeaders, ["# Cores", "CPU Cores"]);
+  const hostCpuPctCol = firstHeader(hostHeaders, ["CPU usage %"]);
+  const hostMemPctCol = firstHeader(hostHeaders, ["Memory usage %"]);
   const hostMemory = readCapacity(
     hostSheet.rows,
-    ["# Memory", "Memory Size", "Memory (GiB)", "Memory (MiB)", "Physical Memory", "RAM", "Memory"],
+    spec.hostMemoryCols,
     PLAUSIBLE.hostMemory,
     hostSheet.rows.length,
     audit,
     "Host memory",
     hostSheet.name,
-    "MiB",
+    source,
   );
 
-  // LiveOptics keeps host utilization on a separate performance sheet rather
-  // than on the inventory rows. Join it back per host, so a cluster's own
-  // utilization is real instead of blank, and take the peak column when there is
-  // one: a cluster sized on an average is a cluster that is short at the busy
-  // hour.
-  const perfSheet = source === "liveoptics" ? rowsFromSheet(workbook, ["ESX Performance", "Host Performance"]) : { rows: [], name: "" };
+  // LiveOptics keeps host utilization on its own sheet; join it per host.
+  const perfSheet = source === "liveoptics" ? rowsFromSheet(workbook, ["ESX Performance"]) : { rows: [], name: "" };
   const perfHeaders = headersFor(perfSheet.rows);
-  const perfHostCol = firstHeader(perfHeaders, ["Host", "Host Name", "Server Name"]);
-  const perfCpu = pickUtilizationColumn(perfSheet.rows, [
-    { column: firstHeader(perfHeaders, ["Peak CPU %"]), basis: "peak" },
-    { column: firstHeader(perfHeaders, ["Average CPU %", "Avg CPU %", "CPU Usage %", "% CPU"]), basis: "average" },
-  ]);
-  const perfMem = pickUtilizationColumn(perfSheet.rows, [
-    { column: firstHeader(perfHeaders, ["Peak Memory %"]), basis: "peak" },
-    { column: firstHeader(perfHeaders, ["Average Memory %", "Avg Memory %", "Memory Usage %", "% Memory"]), basis: "average" },
-  ]);
-
-  const hostCpuUtil = makeUtilization(hostSheet.rows, hostCpuPctCol);
-  const hostMemUtil = makeUtilization(hostSheet.rows, hostMemPctCol);
-  const perfCpuUtil = makeUtilization(perfSheet.rows, perfCpu?.column ?? null);
-  const perfMemUtil = makeUtilization(perfSheet.rows, perfMem?.column ?? null);
-
+  const perfHostCol = firstHeader(perfHeaders, ["Host"]);
+  const perfCpuCol = firstHeader(perfHeaders, ["Peak CPU %"]);
+  const perfMemCol = firstHeader(perfHeaders, ["Peak Memory %"]);
+  const hostCpuUtil = makeUtilization(hostSheet.rows, hostCpuPctCol, isPercentColumn(source, hostSheet.name, hostCpuPctCol));
+  const hostMemUtil = makeUtilization(hostSheet.rows, hostMemPctCol, isPercentColumn(source, hostSheet.name, hostMemPctCol));
+  const perfCpuUtil = makeUtilization(perfSheet.rows, perfCpuCol, true);
+  const perfMemUtil = makeUtilization(perfSheet.rows, perfMemCol, true);
   const perfByHost = new Map<string, { cpu: number | null; mem: number | null }>();
   if (perfHostCol) {
     for (const row of perfSheet.rows) {
@@ -1064,41 +1154,28 @@ function parseGeneric(
       if (key) perfByHost.set(key, { cpu: perfCpuUtil.perRow(row), mem: perfMemUtil.perRow(row) });
     }
   }
-
-  // The inventory sheet's own column, when it has values, is a point-in-time
-  // sample. Only the performance sheet offers a peak.
-  const utilBasis: UtilizationBasis = hostCpuUtil.average != null ? "average" : (perfCpu?.basis ?? "average");
+  const utilBasis: UtilizationBasis = hostCpuUtil.average != null ? "average" : perfCpuCol ? "peak" : "average";
   const utilSource =
     hostCpuUtil.average != null
       ? `${hostSheet.name} · ${hostCpuPctCol}`
-      : perfCpu
-        ? `${perfSheet.name} · ${perfCpu.column}`
+      : perfCpuCol
+        ? `${perfSheet.name} · ${perfCpuCol}`
         : `${hostSheet.name} · host usage columns`;
   audit.push({
     field: "Host CPU usage",
     sheet: hostCpuUtil.average != null ? hostSheet.name : perfSheet.name || hostSheet.name,
-    column: hostCpuUtil.average != null ? hostCpuPctCol : (perfCpu?.column ?? null),
+    column: hostCpuUtil.average != null ? hostCpuPctCol : perfCpuCol,
     unit: "%",
-    confidence: hostCpuUtil.average != null || perfCpu ? "header" : "unresolved",
-    note:
-      hostCpuUtil.average != null || perfCpu
-        ? `Observed CPU read as ${utilBasis === "peak" ? "a peak" : "an average"} from ${utilSource}.`
-        : "No host CPU telemetry in this export. CPU will be sized from allocated vCPU.",
+    confidence: hostCpuUtil.average != null || perfCpuCol ? "header" : "unresolved",
+    note: "Inventory context only; not used for sizing.",
   });
 
   // A cluster's identity is the vCenter/datacenter/name triple, not the name.
-  // Estates reuse names freely, and two four-host "Production" clusters keyed on
-  // the name alone merge into one eight-host cluster that never existed, with
-  // every figure below it doubled.
   const clusterKeyOf = (vcenter: string, datacenter: string, name: string) =>
-    [vcenter, datacenter, name].map((part) => part.trim().toLowerCase()).join(" ");
-
+    [vcenter, datacenter, name].map((part) => part.trim().toLowerCase()).join(" ");
   const hostsByCluster = new Map<string, HostRecord[]>();
   const clusterMeta = new Map<string, { name: string; datacenter: string | null }>();
-  // Host name -> cluster key. Joining a VM through its host is the surest route,
-  // because the host row is where cluster membership is authoritative.
   const clusterKeyByHostName = new Map<string, string>();
-  // Cluster name -> the keys that use it, for VM sheets with no datacenter column.
   const keysByClusterName = new Map<string, Set<string>>();
 
   for (const row of hostSheet.rows) {
@@ -1121,7 +1198,7 @@ function parseGeneric(
       sockets,
       coresPerSocket,
       cores,
-      ramGiB: Number(hostMemory.valueGiB(row).toFixed(2)),
+      ramGiB: Number(hostMemory.valueGiB(row).toFixed(3)),
       cpuUtilPct: hostCpuUtil.perRow(row) ?? perf?.cpu ?? null,
       memoryUtilPct: hostMemUtil.perRow(row) ?? perf?.mem ?? null,
     };
@@ -1134,153 +1211,89 @@ function parseGeneric(
 
   // --- VMs ------------------------------------------------------------------
   const vmHeaders = headersFor(vmSheet.rows);
-  const vmNameCol = firstHeader(vmHeaders, ["VM", "VM Name", "Name"]);
-  const vmClusterCol = firstHeader(vmHeaders, ["Cluster Name", "Cluster", "Target Cluster"]);
-  const vmDcCol = firstHeader(vmHeaders, ["Datacenter", "DataCenter"]);
-  const vmVcenterCol = firstHeader(vmHeaders, ["vCenter", "VI SDK Server", "vCenter Server"]);
-  const vmHostCol = firstHeader(vmHeaders, ["Host", "Host Name", "ESX Host"]);
-  const vmPowerCol = firstHeader(vmHeaders, ["Powerstate", "Power State", "State", "Power Status"]);
-  const vmOsCol = firstHeader(vmHeaders, [
-    "OS according to the configuration file",
-    "OS according to the VMware Tools",
-    "Guest OS",
-    "Guest Operating System",
-    "Operating System",
-    "OS",
-  ]);
-  const vmVcpuCol = firstHeader(vmHeaders, ["vCPUs", "CPUs", "NumCPU", "# vCPU", "Virtual CPU", "vCPU"]);
-  if (vmVcpuCol) {
-    audit.push({ field: "VM vCPU", sheet: vmSheet.name, column: vmVcpuCol, unit: "count", confidence: "header", note: `"${vmVcpuCol}" read as a vCPU count.` });
-  } else {
-    audit.push({ field: "VM vCPU", sheet: vmSheet.name, column: null, unit: null, confidence: "unresolved", note: "No vCPU column found, so CPU sizing will be wrong." });
-  }
+  const vmNameCol = firstHeader(vmHeaders, ["VM", "VM Name"]);
+  const vmIdCol = exactHeader(vmHeaders, spec.vmIdCols);
+  const vmClusterCol = firstHeader(vmHeaders, ["Cluster"]);
+  const vmDcCol = firstHeader(vmHeaders, ["Datacenter"]);
+  const vmVcenterCol = firstHeader(vmHeaders, ["vCenter", "VI SDK Server"]);
+  const vmHostCol = firstHeader(vmHeaders, ["Host"]);
+  const vmPowerCol = firstHeader(vmHeaders, ["Powerstate", "Power State"]);
+  const vmOsCol = firstHeader(vmHeaders, ["OS according to the configuration file", "OS according to the VMware Tools", "VM OS"]);
+  const vmVcpuCol = exactHeader(vmHeaders, ["CPUs", "Virtual CPU"]);
+  audit.push(
+    vmVcpuCol
+      ? { field: "VM vCPU", sheet: vmSheet.name, column: vmVcpuCol, unit: "count", confidence: "header", note: `"${vmVcpuCol}" read as a vCPU count.` }
+      : { field: "VM vCPU", sheet: vmSheet.name, column: null, unit: null, confidence: "unresolved", note: "No vCPU column found." },
+  );
   const vmMemory = readCapacity(
     vmSheet.rows,
-    ["Memory (MiB)", "Provisioned Memory (MiB)", "Memory (GiB)", "Memory MiB", "Size (MiB)", "Memory", "RAM"],
+    spec.vmMemoryCols,
     PLAUSIBLE.vmMemory,
     vmSheet.rows.length,
     audit,
-    "VM memory",
+    "VM memory (configured)",
     vmSheet.name,
-    "MiB",
+    source,
   );
-  const vmProvisioned = readCapacity(
+  const vmProvisioned = spec.vmProvisionedCols.length
+    ? readCapacity(vmSheet.rows, spec.vmProvisionedCols, PLAUSIBLE.vmStorage, vmSheet.rows.length, audit, "VM storage, provisioned (virtual disk capacity)", vmSheet.name, source)
+    : null;
+  const vmUsed = readCapacity(
     vmSheet.rows,
-    ["Provisioned MiB", "Provisioned MB", "Provisioned (MiB)", "Total disk capacity MiB", "Provisioned Storage (MiB)", "Capacity (MiB)", "Provisioned", "Capacity"],
+    spec.vmUsedCols,
     PLAUSIBLE.vmStorage,
     vmSheet.rows.length,
     audit,
-    "VM storage (provisioned)",
+    "VM storage, consumed fallback (VM level)",
     vmSheet.name,
-    "MiB",
-  );
-  const vmConsumed = readCapacity(
-    vmSheet.rows,
-    ["In Use MiB", "In Use MB", "In Use (MiB)", "Consumed (MiB)", "Used (MiB)", "Used Storage (MiB)", "In Use", "Consumed", "Used"],
-    PLAUSIBLE.vmStorage,
-    vmSheet.rows.length,
-    audit,
-    "VM storage (consumed)",
-    vmSheet.name,
-    "MiB",
+    source,
   );
 
-  // Guest partitions win over the VM sheet's own capacity columns when present.
-  const partitionByVm = new Map<string, { provisionedTiB: number; consumedTiB: number }>();
-  if (partitionSheet.rows.length) {
-    const partHeaders = headersFor(partitionSheet.rows);
-    const partVmCol = firstHeader(partHeaders, ["VM", "VM Name", "Name"]);
-    if (partVmCol) {
-      const partVms = distinctCount(partitionSheet.rows, (r) => str(r[partVmCol]));
-      const cap = readCapacity(
-        partitionSheet.rows,
-        ["Capacity MiB", "Capacity (MiB)", "Capacity (GiB)", "Capacity"],
-        PLAUSIBLE.vmStorage,
-        partVms,
-        audit,
-        "Guest partitions (provisioned)",
-        partitionSheet.name,
-        "MiB",
-      );
-      const used = readCapacity(
-        partitionSheet.rows,
-        ["Consumed MiB", "Consumed (MiB)", "Consumed (GiB)", "Consumed", "Used MiB", "In Use MiB"],
-        PLAUSIBLE.vmStorage,
-        partVms,
-        audit,
-        "Guest partitions (consumed)",
-        partitionSheet.name,
-        "MiB",
-      );
-      if (cap.resolution.unit) {
-        for (const row of partitionSheet.rows) {
-          const key = str(row[partVmCol]).toLowerCase();
-          if (!key) continue;
-          const prev = partitionByVm.get(key) ?? { provisionedTiB: 0, consumedTiB: 0 };
-          prev.provisionedTiB += cap.valueGiB(row) / GIB_PER_TIB;
-          prev.consumedTiB += used.valueGiB(row) / GIB_PER_TIB;
-          partitionByVm.set(key, prev);
-        }
-      }
-    }
+  // Join key: the VM's id where every sheet carries one, else a unique name.
+  const nameCounts = new Map<string, number>();
+  for (const row of vmSheet.rows) {
+    const n = str(vmNameCol ? row[vmNameCol] : "").toLowerCase();
+    nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
   }
+  const vmKey = (id: string, name: string): string | null => {
+    if (id) return `id:${id}`;
+    const n = name.toLowerCase();
+    return n && nameCounts.get(n) === 1 ? `name:${n}` : null;
+  };
 
-  // LiveOptics keeps per-VM telemetry on its own sheet. The GHz columns are the
-  // ones to use: the percentage columns are relative to a nominal clock and read
-  // above 100% when a guest turbos, while GHz over the host clock is physical
-  // cores directly.
-  const vmPerfSheet =
-    source === "liveoptics" ? rowsFromSheet(workbook, ["VM Performance", "Virtual Machine Performance"]) : { rows: [], name: "" };
-  const vmPerfHeaders = headersFor(vmPerfSheet.rows);
-  const vmPerfNameCol = firstHeader(vmPerfHeaders, ["VM Name", "VM", "Name"]);
-  const vmPerfPeakGhzCol = firstHeader(vmPerfHeaders, ["Peak vCPU (GHz)"]);
-  const vmPerfAvgGhzCol = firstHeader(vmPerfHeaders, ["Average vCPU (GHz)", "Avg vCPU (GHz)"]);
-  const vmPerfPeakMemCol = firstHeader(vmPerfHeaders, ["Peak Memory (MiB)"]);
-  // Every host in these exports runs the same clock in practice; the median
-  // keeps one odd row from skewing the conversion.
-  const hostClockGhz = (() => {
-    const clockCol = firstHeader(hostHeaders, ["CPU Clock Speed (GHz)", "CPU Speed (GHz)"]);
-    if (!clockCol) return 0;
-    const values = hostSheet.rows.map((row) => toNum(row[clockCol])).filter((v) => v > 0.5 && v < 10);
-    if (!values.length) return 0;
-    return values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
-  })();
-
-  const vmPerfByName = new Map<string, { cpuUsed: VmCpuUsage; ramUsedGiB: number | null }>();
-  if (vmPerfNameCol && hostClockGhz > 0) {
-    for (const row of vmPerfSheet.rows) {
-      const key = str(row[vmPerfNameCol]).toLowerCase();
+  const sumPerVm = (
+    sheet: { rows: Record<string, unknown>[]; name: string },
+    idCols: string[],
+    capacityCols: string[],
+    field: string,
+  ): Map<string, number> => {
+    const out = new Map<string, number>();
+    if (!sheet.rows.length) {
+      audit.push({ field, sheet: sheet.name, column: null, unit: null, confidence: "unresolved", note: `Sheet "${sheet.name}" is missing or empty.` });
+      return out;
+    }
+    const headers = headersFor(sheet.rows);
+    const idCol = exactHeader(headers, idCols);
+    const nameCol = firstHeader(headers, ["VM", "VM Name"]);
+    const vmCount = distinctCount(sheet.rows, (r) => str(idCol ? r[idCol] : nameCol ? r[nameCol] : ""));
+    const cap = readCapacity(sheet.rows, capacityCols, PLAUSIBLE.vmStorage, vmCount, audit, field, sheet.name, source);
+    for (const row of sheet.rows) {
+      const key = vmKey(str(idCol ? row[idCol] : ""), str(nameCol ? row[nameCol] : ""));
       if (!key) continue;
-      const peakGhz = vmPerfPeakGhzCol ? toNum(row[vmPerfPeakGhzCol]) : 0;
-      const avgGhz = vmPerfAvgGhzCol ? toNum(row[vmPerfAvgGhzCol]) : 0;
-      const peakMem = vmPerfPeakMemCol ? toNum(row[vmPerfPeakMemCol]) : 0;
-      vmPerfByName.set(key, {
-        cpuUsed: {
-          p95: null,
-          peak: peakGhz > 0 ? peakGhz / hostClockGhz : null,
-          average: avgGhz > 0 ? avgGhz / hostClockGhz : null,
-        },
-        ramUsedGiB: peakMem > 0 ? peakMem / 1024 : null,
-      });
+      out.set(key, (out.get(key) ?? 0) + cap.valueGiB(row));
     }
-    audit.push({
-      field: "VM CPU usage",
-      sheet: vmPerfSheet.name,
-      column: vmPerfPeakGhzCol ?? vmPerfAvgGhzCol,
-      unit: "GHz",
-      confidence: "header",
-      note: `Per-VM CPU usage converted to physical cores at the host clock of ${hostClockGhz} GHz, for ${vmPerfByName.size} of ${vmSheet.rows.length} VMs.`,
-    });
-  } else if (source === "liveoptics" && vmPerfSheet.rows.length) {
-    audit.push({
-      field: "VM CPU usage",
-      sheet: vmPerfSheet.name,
-      column: null,
-      unit: null,
-      confidence: "unresolved",
-      note: "Found a VM performance sheet but no host clock speed to convert GHz into cores, so CPU falls back to allocated vCPU.",
-    });
-  }
+    return out;
+  };
+
+  const diskGiBByVm = spec.diskSheet
+    ? sumPerVm(rowsFromSheet(workbook, spec.diskSheet.names), spec.diskSheet.idCols, spec.diskSheet.capacityCols, "VM storage, provisioned (virtual disk capacity)")
+    : null;
+  const partGiBByVm = sumPerVm(
+    rowsFromSheet(workbook, spec.partitionSheet.names),
+    spec.partitionSheet.idCols,
+    spec.partitionSheet.consumedCols,
+    "VM storage, consumed (guest partitions)",
+  );
 
   const guestOsCounts = new Map<string, number>();
   const topVmCandidates: TopVm[] = [];
@@ -1289,53 +1302,56 @@ function parseGeneric(
   const soleCluster = hostsByCluster.size === 1 ? Array.from(hostsByCluster.keys())[0] : null;
   let powerStateKnown = false;
   let ambiguousClusterVms = 0;
+  let unjoinable = 0;
 
-  /**
-   * Place a VM on a cluster, most reliable route first.
-   *
-   * The host row is where cluster membership is authoritative, so a VM's host
-   * name settles it outright. Failing that, the VM sheet's own triple has to
-   * match a cluster the host sheet produced. A bare cluster name is only trusted
-   * when exactly one cluster answers to it.
-   */
   function resolveVmClusterKey(row: Record<string, unknown>, clusterName: string): string {
     const hostName = str(vmHostCol ? row[vmHostCol] : "").toLowerCase();
     const viaHost = hostName ? clusterKeyByHostName.get(hostName) : undefined;
     if (viaHost) return viaHost;
-
     if (clusterName) {
-      const triple = clusterKeyOf(
-        str(vmVcenterCol ? row[vmVcenterCol] : ""),
-        str(vmDcCol ? row[vmDcCol] : ""),
-        clusterName,
-      );
+      const triple = clusterKeyOf(str(vmVcenterCol ? row[vmVcenterCol] : ""), str(vmDcCol ? row[vmDcCol] : ""), clusterName);
       if (hostsByCluster.has(triple)) return triple;
-
       const candidates = keysByClusterName.get(clusterName.toLowerCase());
       if (candidates?.size === 1) return Array.from(candidates)[0];
       if (candidates && candidates.size > 1) ambiguousClusterVms += 1;
-      // A cluster the host sheet never mentioned still deserves to exist.
       return triple;
     }
-
-    // With one cluster in the file, unlabelled VMs belong to it.
     return soleCluster ?? clusterKeyOf("", "", "Environment");
   }
 
-  const vmIdCol = firstHeader(vmHeaders, ["UUID", "InstanceUUID", "MOB ID", "VM UUID"]);
   vmSheet.rows.forEach((row, rowIndex) => {
     const name = str(vmNameCol ? row[vmNameCol] : "") || "Unnamed VM";
+    const id = str(vmIdCol ? row[vmIdCol] : "");
+    const key = vmKey(id, name);
+    if (!key) unjoinable += 1;
     const vmClusterName = str(vmClusterCol ? row[vmClusterCol] : "");
     const clusterKey = resolveVmClusterKey(row, vmClusterName);
     const clusterName = clusterMeta.get(clusterKey)?.name ?? (vmClusterName || "Environment");
     const poweredOn = vmPowerCol ? parsePowerState(row[vmPowerCol]) : null;
     if (poweredOn != null) powerStateKnown = true;
-    const partition = partitionByVm.get(name.toLowerCase());
+
+    const provisionedGiB = diskGiBByVm
+      ? key
+        ? (diskGiBByVm.get(key) ?? 0)
+        : 0
+      : vmProvisioned
+        ? vmProvisioned.valueGiB(row)
+        : 0;
+    let consumedGiB = 0;
+    let consumedSource: VmRecord["consumedSource"] = "none";
+    if (key && partGiBByVm.has(key)) {
+      consumedGiB = partGiBByVm.get(key) ?? 0;
+      consumedSource = "partition";
+    } else if (vmUsed.resolution.unit && hasValues([row], vmUsed.resolution.header)) {
+      consumedGiB = vmUsed.valueGiB(row);
+      consumedSource = "vm-level";
+    }
+
     const facts: VmFacts = {
       vcpu: vmVcpuCol ? toNum(row[vmVcpuCol]) : 0,
       ramGiB: vmMemory.valueGiB(row),
-      provisionedTiB: partition ? partition.provisionedTiB : vmProvisioned.valueGiB(row) / GIB_PER_TIB,
-      consumedTiB: partition ? partition.consumedTiB : vmConsumed.valueGiB(row) / GIB_PER_TIB,
+      provisionedTiB: provisionedGiB / GIB_PER_TIB,
+      consumedTiB: consumedGiB / GIB_PER_TIB,
     };
     const os = osFamily(vmOsCol ? row[vmOsCol] : "");
     guestOsCounts.set(os, (guestOsCounts.get(os) ?? 0) + 1);
@@ -1343,74 +1359,51 @@ function parseGeneric(
       name,
       cluster: clusterName,
       vcpu: Math.round(facts.vcpu),
-      ramGiB: Number(facts.ramGiB.toFixed(1)),
-      storageTiB: Number(facts.provisionedTiB.toFixed(2)),
+      ramGiB: facts.ramGiB,
+      storageTiB: facts.provisionedTiB,
       poweredOn: poweredOn !== false,
     };
     topVmCandidates.push(entry);
     vmsByCluster.set(clusterKey, [...(vmsByCluster.get(clusterKey) ?? []), { facts, entry, poweredOn }]);
-
-    // The row index guarantees uniqueness where an export gives no id and
-    // repeats VM names, which obfuscated files routinely do.
-    const perf = vmPerfByName.get(name.toLowerCase());
     vmRecords.push({
-      id: `${str(vmIdCol ? row[vmIdCol] : "") || name}#${rowIndex}`,
+      id: `${id || name}#${rowIndex}`,
       name,
       clusterId: clusterKey,
       clusterName,
       poweredOn,
       os,
-      vcpu: Number(facts.vcpu.toFixed(2)),
-      ramGiB: Number(facts.ramGiB.toFixed(3)),
-      storageProvisionedTiB: Number(facts.provisionedTiB.toFixed(4)),
-      storageConsumedTiB: Number(facts.consumedTiB.toFixed(4)),
-      cpuUsed: perf?.cpuUsed ?? emptyCpuUsage(),
-      ramUsedGiB: perf?.ramUsedGiB ?? null,
+      vcpu: facts.vcpu,
+      ramGiB: facts.ramGiB,
+      storageProvisionedTiB: facts.provisionedTiB,
+      storageConsumedTiB: facts.consumedTiB,
+      consumedSource,
+      // Neither RVTools nor LiveOptics carries a 95th-percentile CPU figure.
+      cpuUsed: emptyCpuUsage(),
+      ramUsedGiB: null,
     });
   });
 
-  // Datastore capacity is only used when nothing per-VM was resolvable — it
-  // describes the array, not the guests, and double-counts shared LUNs.
-  const anyVmStorage = Array.from(vmsByCluster.values()).some((list) => list.some((v) => v.facts.provisionedTiB > 0));
-  let datastoreTiB = 0;
-  if (!anyVmStorage && datastoreSheet.rows.length) {
-    const dsCap = readCapacity(
-      datastoreSheet.rows,
-      ["Capacity MiB", "Capacity (MiB)", "Capacity GiB", "Capacity (GiB)", "Capacity"],
-      PLAUSIBLE.datastore,
-      datastoreSheet.rows.length,
-      audit,
-      "Datastore capacity (fallback)",
-      datastoreSheet.name,
-    );
-    datastoreTiB = (dsCap.resolution.totalGiB ?? 0) / GIB_PER_TIB;
-  }
+  audit.push({
+    field: "VM CPU usage (95th percentile)",
+    sheet: vmSheet.name,
+    column: null,
+    unit: null,
+    confidence: "unresolved",
+    note: `${source === "rvtools" ? "RVTools" : "LiveOptics"} exports carry no 95th-percentile CPU figure, so every VM is sized at vCPU / ratio.`,
+  });
+  if (unjoinable) notes.push(`${unjoinable} VM(s) have no id and share a name with another VM, so their disks and partitions could not be joined.`);
+  if (ambiguousClusterVms) notes.push(`${ambiguousClusterVms} VM(s) named a cluster that exists in more than one datacenter and gave no host to join through.`);
 
   const clusterKeys = Array.from(new Set([...hostsByCluster.keys(), ...vmsByCluster.keys()]));
-  // Two clusters can legitimately share a name across datacenters. They stay
-  // separate entities; only their labels get a suffix so the UI can tell them
-  // apart.
   const displayNames = labelCollisions(
     clusterKeys.map((key) => clusterMeta.get(key)?.name ?? vmsByCluster.get(key)?.[0]?.entry.cluster ?? "Environment"),
   );
-  // VM records were built against the raw cluster key; restate them against the
-  // cluster ids the rest of the tool uses.
   const clusterIdByKey = new Map(clusterKeys.map((key, index) => [key, `cluster-${index}-${key}`]));
   for (const vm of vmRecords) {
-    const id = vm.clusterId ? clusterIdByKey.get(vm.clusterId) : undefined;
-    vm.clusterId = id ?? null;
-    const index = clusterKeys.indexOf(vm.clusterId?.replace(/^cluster-\d+-/, "") ?? "");
+    const rawKey = vm.clusterId ?? "";
+    vm.clusterId = clusterIdByKey.get(rawKey) ?? null;
+    const index = clusterKeys.indexOf(rawKey);
     if (index >= 0) vm.clusterName = displayNames[index];
-  }
-
-  // With only datastore capacity to go on, every VM gets an equal share of it so
-  // the per-VM table and the totals tell the same story.
-  if (datastoreTiB > 0 && vmRecords.length > 0) {
-    const perVm = datastoreTiB / vmRecords.length;
-    for (const vm of vmRecords) {
-      vm.storageProvisionedTiB = Number(perVm.toFixed(4));
-      vm.storageConsumedTiB = 0;
-    }
   }
 
   const clusterDetails: ParsedCluster[] = clusterKeys.map((clusterKey, index) => {
@@ -1425,22 +1418,10 @@ function parseGeneric(
       if (facts.vcpu > maxVmVcpu) maxVmVcpu = facts.vcpu;
       if (facts.ramGiB > maxVmRamGiB) maxVmRamGiB = facts.ramGiB;
     }
-
-    // Spread the datastore fallback across clusters by VM share.
-    if (datastoreTiB > 0 && vmSheet.rows.length > 0) {
-      const share = members.length / vmSheet.rows.length;
-      slices.all.partitionConfiguredTiB = datastoreTiB * share;
-      slices.all.diskProvisionedTiB = datastoreTiB * share;
-      const onShare = slices.all.vms > 0 ? slices.on.vms / slices.all.vms : 0;
-      slices.on.partitionConfiguredTiB = datastoreTiB * share * onShare;
-      slices.off.partitionConfiguredTiB = datastoreTiB * share * (1 - onShare);
-    }
-
     const all = roundSlice(slices.all);
     const totalCpuCores = hosts.reduce((s, h) => s + h.cores, 0);
     const totalMemoryGiB = hosts.reduce((s, h) => s + h.ramGiB, 0);
     const observed = observedFromHosts(hosts, utilBasis, utilSource);
-
     return {
       id: clusterIdByKey.get(clusterKey)!,
       name: displayNames[index],
@@ -1459,11 +1440,11 @@ function parseGeneric(
       aggRamGiB: all.ramGiB,
       aggStorageProvisionedTiB: all.partitionConfiguredTiB,
       aggStorageConsumedTiB: all.partitionConsumedTiB,
-      maxVmVcpu: Number(maxVmVcpu.toFixed(2)),
-      maxVmRamGiB: Number(maxVmRamGiB.toFixed(2)),
-      totalCpuCores: Number(totalCpuCores.toFixed(2)),
+      maxVmVcpu,
+      maxVmRamGiB,
+      totalCpuCores,
       consumedCpuCores: observed?.cpuPCores ?? null,
-      totalMemoryGiB: Number(totalMemoryGiB.toFixed(2)),
+      totalMemoryGiB,
       consumedMemoryGiB: observed?.ramGiB ?? null,
       totalStorageTiB: all.partitionConfiguredTiB,
       consumedStorageTiB: all.partitionConsumedTiB,
@@ -1475,16 +1456,8 @@ function parseGeneric(
     };
   });
 
-  const notes = [`Parsed as ${source} from sheets: ${hostSheet.name}, ${vmSheet.name}.`];
-  if (ambiguousClusterVms > 0) {
-    notes.push(
-      `${ambiguousClusterVms} VM${ambiguousClusterVms === 1 ? "" : "s"} named a cluster that exists in more than one datacenter and gave no host to join through, so their placement is a best guess.`,
-    );
-  }
+  notes.unshift(`Parsed as ${source} from sheets: ${hostSheet.name}, ${vmSheet.name}.`);
   if (!powerStateKnown) notes.push("No VM power state column found, so every VM is treated as running.");
-  if (!anyVmStorage && datastoreTiB > 0) {
-    notes.push("No per-VM storage columns found, so capacity was taken from the datastore sheet and split by VM count.");
-  }
 
   return finalize({
     source,
@@ -1498,6 +1471,7 @@ function parseGeneric(
     guestOs: rankGuestOs(guestOsCounts),
     topVms: rankTopVms(topVmCandidates),
     vms: vmRecords,
+    volumeGroups: [],
     hostCpuUtilPct: hostCpuUtil.average ?? perfCpuUtil.average,
     hostMemoryUtilPct: hostMemUtil.average ?? perfMemUtil.average,
     hostCount: hostSheet.rows.length,
@@ -1558,6 +1532,7 @@ function finalize(input: {
   guestOs: { name: string; count: number }[];
   topVms: TopVm[];
   vms: VmRecord[];
+  volumeGroups: VolumeGroupRecord[];
   hostCpuUtilPct: number | null;
   hostMemoryUtilPct: number | null;
   hostCount: number;
@@ -1581,7 +1556,15 @@ function finalize(input: {
     notes.push(`${unresolved.length} column${unresolved.length === 1 ? "" : "s"} could not be read reliably. See the parsed inputs panel.`);
   }
 
-  const plausibility = checkPlausibility({
+  const unitIssues = input.audit
+    .filter((a) => a.implausible)
+    .map((a) => ({
+      field: a.field,
+      observed: `"${a.column}" read as ${a.unit}`,
+      expected: "a physically possible value",
+      detail: a.note,
+    }));
+  const plausibility = [...unitIssues, ...checkPlausibility({
     vms: all.vms,
     hosts: input.hostCount,
     vcpu: all.vcpu,
@@ -1590,7 +1573,7 @@ function finalize(input: {
     vmStorageConsumedTiB: all.partitionConsumedTiB,
     hostCores: totalCpuCores,
     hostRamGiB: totalMemoryGiB,
-  });
+  })];
 
   return {
     source: input.source,
@@ -1624,6 +1607,7 @@ function finalize(input: {
     guestOs: input.guestOs,
     topVms: input.topVms,
     vms: input.vms,
+    volumeGroups: input.volumeGroups,
     snapshots: input.snapshots,
     hostCpuUtilPct: input.hostCpuUtilPct,
     hostMemoryUtilPct: input.hostMemoryUtilPct,

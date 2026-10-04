@@ -1,20 +1,16 @@
 // Unit resolution for spreadsheet imports.
 //
-// Collector, RVTools and LiveOptics all describe the same facts in different
-// columns and different units, and some exports carry no unit in the header at
-// all ("Capacity", "Consumed", "Total"). Guessing from the header alone is how a
-// 20 TiB estate becomes 25,000,000 TiB and the sizer asks for 341,000 nodes.
+// Collector, RVTools and LiveOptics describe the same facts in different columns
+// and units. Units are never guessed:
+//   1. A unit printed in the header ("Capacity (MiB)") is authoritative.
+//   2. A header with no unit ("Memory", "# Memory", "Memory Size") takes the
+//      unit the tool is documented to use, from the caller's registry entry.
+//   3. Otherwise the column is unresolved and contributes nothing.
+// Magnitude is only ever used to *check* the result: a value that is physically
+// impossible is reported so the build is blocked, never silently re-read in
+// another unit.
 //
-// So units are resolved in this order:
-//   1. An explicit unit token in the header ("Capacity (MiB)") is believed —
-//      but only if the resulting per-entity magnitude is physically possible.
-//   2. Otherwise the scale is inferred from magnitude: try every unit and keep
-//      the one that puts the average VM/host/datastore in a plausible range,
-//      breaking ties toward the most typical real-world value.
-//   3. If no interpretation is plausible, the value is reported as unresolved
-//      rather than silently returning 0 or a nonsense number.
-//
-// Every resolution records what it did so the UI can show its work.
+// Every resolution records what it did so the UI and report can show their work.
 
 export type Unit = "B" | "KiB" | "MiB" | "GiB" | "TiB" | "KB" | "MB" | "GB" | "TB";
 
@@ -41,9 +37,6 @@ export function toTiB(value: number, unit: Unit): number {
   return (value * TO_GIB[unit]) / GIB_PER_TIB;
 }
 
-// Units worth testing when the header doesn't say, ordered small to large.
-const CANDIDATE_UNITS: Unit[] = ["B", "KiB", "MiB", "MB", "GiB", "GB", "TiB", "TB"];
-
 export function normalizeHeader(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -51,32 +44,25 @@ export function normalizeHeader(value: unknown): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-// An explicit unit token in the header, if there is one. Checked longest-first
-// so "mib" doesn't get shadowed by "b", and binary before decimal.
+// The unit printed in a header, if any. Only a whole-word token counts, so
+// "Number of Reads" is not megabytes and "Memory" is not a unit.
+const UNIT_TOKENS: [RegExp, Unit][] = [
+  [/(?:^|[^a-z])tib(?![a-z])/i, "TiB"],
+  [/(?:^|[^a-z])gib(?![a-z])/i, "GiB"],
+  [/(?:^|[^a-z])mib(?![a-z])/i, "MiB"],
+  [/(?:^|[^a-z])kib(?![a-z])/i, "KiB"],
+  [/(?:^|[^a-z])tb(?![a-z])/i, "TB"],
+  [/(?:^|[^a-z])gb(?![a-z])/i, "GB"],
+  [/(?:^|[^a-z])mb(?![a-z])/i, "MB"],
+  [/(?:^|[^a-z])kb(?![a-z])/i, "KB"],
+  [/(?:^|[^a-z])bytes?(?![a-z])/i, "B"],
+];
+
 export function unitFromHeader(header: string): Unit | null {
-  const h = normalizeHeader(header);
-  const tokens: [string, Unit][] = [
-    ["tib", "TiB"],
-    ["gib", "GiB"],
-    ["mib", "MiB"],
-    ["kib", "KiB"],
-    ["tbytes", "TB"],
-    ["gbytes", "GB"],
-    ["mbytes", "MB"],
-    ["kbytes", "KB"],
-    ["bytes", "B"],
-    ["tb", "TB"],
-    ["gb", "GB"],
-    ["mb", "MB"],
-    ["kb", "KB"],
-  ];
-  for (const [token, unit] of tokens) {
-    if (h.includes(token)) return unit;
+  const raw = String(header ?? "");
+  for (const [pattern, unit] of UNIT_TOKENS) {
+    if (pattern.test(raw)) return unit;
   }
-  // A standalone trailing "B" ("Size B", "Capacity (B)") means bytes. This has to
-  // be tested against the raw header — normalising strips the very whitespace and
-  // brackets that make the B standalone ("Size B" -> "sizeb").
-  if (/(?:^|[\s(\[_\-/])b[)\]]?\s*$/i.test(String(header).trim())) return "B";
   return null;
 }
 
@@ -93,7 +79,7 @@ export const PLAUSIBLE: Record<string, Plausibility> = {
   datastore: { min: 10, max: 4194304, typical: 20480, label: "capacity per datastore" },
 };
 
-export type Confidence = "header" | "magnitude" | "header-overridden" | "unresolved";
+export type Confidence = "header" | "registry" | "unresolved";
 
 export type UnitResolution = {
   // The column that was read, or null when no candidate matched.
@@ -111,28 +97,6 @@ export function unresolved(note: string): UnitResolution {
   return { header: null, unit: null, totalGiB: null, perEntityGiB: null, confidence: "unresolved", note };
 }
 
-const DECIMAL_UNITS: Unit[] = ["KB", "MB", "GB", "TB"];
-
-function score(perEntityGiB: number, band: Plausibility): number | null {
-  if (!(perEntityGiB > 0)) return null;
-  if (perEntityGiB < band.min || perEntityGiB > band.max) return null;
-  // Distance in log space from the typical value — units are 1024x apart, so a
-  // log-scale comparison is the only sensible one.
-  return Math.abs(Math.log(perEntityGiB / band.typical));
-}
-
-// MiB and MB are only 2.4% apart, so magnitude can never separate them. Two
-// nudges settle it: virtualization exports are overwhelmingly binary, and the
-// caller may know a given tool's convention outright (Collector reports host
-// memory in decimal GB). Neither can rescue an implausible value — they only
-// break ties between interpretations that already passed the band check.
-function adjustedScore(unit: Unit, distance: number, prefer?: Unit): number {
-  let adjusted = distance;
-  if (DECIMAL_UNITS.includes(unit)) adjusted += 0.12;
-  if (prefer && unit === prefer) adjusted -= 0.3;
-  return adjusted;
-}
-
 function median(values: number[]): number {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -141,14 +105,11 @@ function median(values: number[]): number {
 }
 
 /**
- * A robust estimate of what one entity holds, in the column's own units.
- *
- * The mean is unusable here: real exports contain corrupt rows (one masked
- * Collector file carries a single partition of 8,796,093,022,208 MiB — 8.4 EiB,
- * 99.99% of that column's sum). A mean lets that one row decide the unit for the
- * whole estate, which silently turned 783 TB of storage into 8.8 TB. The median
- * row is unaffected by it; scaling by rows-per-entity turns it into a per-VM or
- * per-host figure that the plausibility band can judge.
+ * What one entity typically holds, in the column's own units, for the
+ * plausibility check only. The median row is used because real exports carry
+ * corrupt rows (one masked Collector file has a single 8.4 EiB partition) that
+ * would swamp a mean; scaling by rows-per-entity turns it into a per-VM or
+ * per-host figure.
  */
 function perEntityEstimate(values: number[], entities: number): number {
   const positive = values.filter((v) => v > 0);
@@ -160,78 +121,53 @@ function perEntityEstimate(values: number[], entities: number): number {
 /**
  * Resolve a capacity column to GiB.
  *
- * @param values     Every value in the column, in its own (unknown) units.
- * @param entities   Number of things the column is spread across (VMs, hosts…).
- * @param band       What one entity plausibly looks like.
+ * @param values        Every value in the column.
+ * @param entities      Number of things the column is spread across (VMs, hosts).
+ * @param band          What one entity plausibly holds; used only to report an
+ *                      impossible result, never to change the unit.
+ * @param registryUnit  The tool's documented unit for a header that prints none.
  */
 export function resolveCapacity(
   header: string | null,
   values: number[],
   entities: number,
   band: Plausibility,
-  prefer?: Unit,
+  registryUnit?: Unit,
 ): UnitResolution {
   if (!header) return unresolved(`No ${band.label} column found.`);
-  const rawTotal = values.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
-  if (!(rawTotal > 0)) {
-    return { header, unit: null, totalGiB: 0, perEntityGiB: 0, confidence: "unresolved", note: `"${header}" is empty or zero.` };
-  }
   const declared = unitFromHeader(header);
-  // Judge the unit on the robust estimate, but report the real per-entity average.
-  const probe = perEntityEstimate(values, entities);
-
-  if (declared) {
-    const perEntity = toGiB(probe, declared);
-    if (score(perEntity, band) != null) {
-      return {
-        header,
-        unit: declared,
-        totalGiB: toGiB(rawTotal, declared),
-        perEntityGiB: perEntity,
-        confidence: "header",
-        note: `"${header}" read as ${declared} (${fmt(perEntity)} GiB ${band.label}).`,
-      };
-    }
-  }
-
-  // Either the header said nothing, or what it said produces an impossible
-  // number. Fall back to magnitude.
-  let best: { unit: Unit; distance: number; perEntity: number } | null = null;
-  for (const unit of CANDIDATE_UNITS) {
-    const perEntity = toGiB(probe, unit);
-    const raw = score(perEntity, band);
-    if (raw == null) continue;
-    const distance = adjustedScore(unit, raw, prefer);
-    if (!best || distance < best.distance) best = { unit, distance, perEntity };
-  }
-
-  if (!best) {
-    const declaredNote = declared
-      ? ` Header claims ${declared}, which would mean ${fmt(toGiB(probe, declared))} GiB ${band.label}.`
-      : "";
+  const unit = declared ?? registryUnit ?? null;
+  if (!unit) {
     return {
       header,
       unit: null,
       totalGiB: null,
       perEntityGiB: null,
       confidence: "unresolved",
-      note: `"${header}" could not be read as a capacity in any unit. No interpretation gives a believable ${band.label}.${declaredNote}`,
+      note: `"${header}" prints no unit and this tool has no documented unit for it, so it was not used.`,
     };
   }
-
+  const confidence: Confidence = declared ? "header" : "registry";
+  const rawTotal = values.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
+  const perEntity = toGiB(perEntityEstimate(values, entities), unit);
+  const source = declared ? `the header states ${unit}` : `the export prints no unit; this tool documents ${unit}`;
+  const typical = `${fmtDecimal(perEntity * GB_PER_GIB)} GB ${band.label}`;
+  const plausible = !(rawTotal > 0) || (perEntity >= band.min && perEntity <= band.max);
   return {
     header,
-    unit: best.unit,
-    totalGiB: toGiB(rawTotal, best.unit),
-    perEntityGiB: best.perEntity,
-    confidence: declared ? "header-overridden" : "magnitude",
-    note: declared
-      ? `"${header}" claims ${declared}, but that gives an impossible ${band.label}, so it was read as ${best.unit} instead (${fmt(best.perEntity)} GiB ${band.label}).`
-      : `"${header}" carries no unit, so ${best.unit} was inferred from magnitude (${fmt(best.perEntity)} GiB ${band.label}).`,
+    unit,
+    totalGiB: toGiB(rawTotal, unit),
+    perEntityGiB: perEntity,
+    confidence,
+    note: plausible
+      ? `"${header}" read as ${unit} (${source}); typical ${typical}.`
+      : `"${header}" read as ${unit} (${source}), which gives an impossible ${typical}. The column or the export is wrong; the build is blocked until it is checked.`,
   };
 }
 
-function fmt(value: number): string {
+const GB_PER_GIB = 1024 ** 3 / 1e9;
+
+function fmtDecimal(value: number): string {
   if (!Number.isFinite(value)) return "-";
   if (value >= 100) return value.toFixed(0);
   if (value >= 1) return value.toFixed(1);

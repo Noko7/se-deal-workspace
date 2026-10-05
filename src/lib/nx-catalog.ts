@@ -46,16 +46,28 @@ export type NxModel = {
   cpuFamily: string; // as stated on the sheet
   formFactor: string; // e.g. "1U1N"
   nodesPerBlock: number;
-  socketsPerNode: 1 | 2;
+  socketsPerNode: 1 | 2 | 4; // the (largest) socket count
+  // Partner envelopes offer several socket counts (e.g. "Single or Dual").
+  socketOptions?: number[];
   cpus: NxCpu[]; // every option; cores PER CPU
   ramTotalsGiB: number[]; // DIMM count x DIMM size over stated options, deduped, ascending
   ramNote: string; // DIMM slots, sizes, counts allowed (for the report)
   drives: DriveLayout[];
+  // Partner envelopes: RAM scales with populated sockets; raw TB is capped.
+  ramMaxPerSocketGiB?: number | null;
+  maxRawTB?: number | null;
   bootDevice: string | null; // verbatim
   psu: string;
   excluded: boolean;
   excludedReason: string | null;
   autoEligible: boolean;
+  // Build vendor; undefined = Nutanix NX. Partner rows are envelopes from the
+  // hardware platform spec sheet (oem-catalog.ts), not exact BOMs.
+  platform?: "Dell" | "HPE" | "Cisco" | "Lenovo" | "Fsas Tech" | "Fujitsu";
+  envelope?: boolean;
+  useCases?: NxUseCase[];
+  // Sizer Guide: ROBO models may size 1- and 2-node clusters (RF2).
+  roboCapable?: boolean;
   sources: string[];
   notes: string[];
 };
@@ -112,6 +124,7 @@ export const NX_MODELS: NxModel[] = [
     excluded: false,
     excludedReason: null,
     autoEligible: false,
+    roboCapable: true,
     sources: [
       "System-Specs-NX1120ASG10.pdf p.3 (form factor, all-NVMe only)",
       "p.6 (CPU, memory, boot)",
@@ -120,6 +133,7 @@ export const NX_MODELS: NxModel[] = [
       "p.13-14 (DIMM rules and installation order)",
     ],
     notes: [
+      "Partner spec sheet (Oct 2026) lists 2x/4x NVMe and 96 GB DIMMs; the System Specifications PDF (2 drives, 32/64 GB DIMMs) is kept.",
       "Selectable but skipped by the automatic step-through (autoEligible=false).",
       "All-NVMe only; partial population is not supported, so exactly 2 drives. No SSD or HDD option.",
       "The 8024P is flagged 'Excluded from ENERGY STAR certification' on the sheet.",
@@ -165,6 +179,7 @@ export const NX_MODELS: NxModel[] = [
     excluded: false,
     excludedReason: null,
     autoEligible: true,
+    roboCapable: true,
     sources: [
       "System-Specs-NX1175SG10.pdf p.3 (drive configs, 30% hybrid rule)",
       "p.8 (CPU)",
@@ -223,6 +238,7 @@ export const NX_MODELS: NxModel[] = [
       "p.18-19 (DIMM rules and installation order)",
     ],
     notes: [
+      "Partner spec sheet (Oct 2026) reads \"4x NVMe + 2x HDD\" with no all-SSD option; its 102.72 TB maximum matches 2 NVMe + 4 HDD. The System Specifications PDF is kept.",
       "Hybrid NVMe capacity-share rule: not stated on this sheet (the 30% rule appears only in the NX-1175S-G10 sheet), so minNvmeCapacityShare is null.",
       "nodesPerBlock 2 (Node A, Node B); the sheet does not say whether a one-node population is supported.",
       "SSD sizes are 3.84/7.68 TB only (no 15.36 TB SSD). Hybrid is fixed at 2 NVMe + 4 HDD.",
@@ -307,6 +323,7 @@ export const NX_MODELS: NxModel[] = [
       "p.20-22 (DIMM rules and population order)",
     ],
     notes: [
+      "Partner spec sheet (Oct 2026) omits 96 GB DIMMs; the PDF spec table (which lists them) is kept.",
       "Conflict: spec table (p.9) lists 96 GB DIMMs but the population table (pp.21-22) lists only 64/128 GB. User ruling: include the 96 GB totals.",
       "All-NVMe, 4 to 20 drives in even counts. Compute-only (0 drives) excluded.",
       "NVMe+NST configs (6 NVMe + 14 NST; 4 NVMe + 16 NST) excluded: NUS-only. NST rows are not modelled.",
@@ -483,6 +500,7 @@ export const NX_MODELS: NxModel[] = [
       "p.19-21 (DIMM rules and population order)",
     ],
     notes: [
+      "Partner spec sheet (Oct 2026) memory table differs from the PDF; the PDF is kept.",
       "HCI supports all-SSD and all-NVMe, 2 to 12 drives in even counts. No hybrid (SSD+HDD) option.",
       "NVMe+NST (4 NVMe + 8 NST) is NUS-only and excluded; SED variants and compute-only excluded.",
       "SSD sizes are 3.84/7.68 TB only (no 15.36 TB SSD).",

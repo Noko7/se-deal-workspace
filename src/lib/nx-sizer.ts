@@ -14,6 +14,7 @@
 // states one.
 
 import { GENERIC_MODEL, GENERIC_SKU, NX_MODELS, NX_USE_CASES, findNxModel, type NxUseCase, type DriveLayout, type NxCpu, type NxModel } from "@/lib/nx-catalog";
+import { OEM_MODELS, oemModelsFor, oemPlatformLabel, type OemVendor } from "@/lib/oem-catalog";
 import { applyAdjustment, type ParsedEnvironment, type VmAdjustments, type VmRecord } from "@/lib/simple-sizer-core";
 
 const GIB = 1024 ** 3;
@@ -47,6 +48,9 @@ export const SIZING_CONSTANTS = {
   // Sizer Guide p.56/p.80: data-center models need >= 3 nodes. RF3 tolerates two
   // failures (AOS 7.6 p.34) and needs >= 5 nodes.
   minNodesByRf: { 2: 3, 3: 5 } as Record<Rf, number>,
+  // Sizer Guide p.56/p.80: ROBO models may also size 1- and 2-node clusters
+  // (RF2 only; a 2-node cluster needs a Witness VM).
+  minNodesRobo: 1,
   // CVM storage reservation per node (user ruling; decimal GB).
   cvmStorage: {
     bootHomeGB: 280,
@@ -142,10 +146,16 @@ export const PC_PROFILES: PcProfile[] = [
 
 export type NxSizerSettings = {
   // "Generic" sizes vendor-neutral hardware with the fewest nodes (default).
-  // "auto" picks among the NX models for `useCase`. Anything else is a fixed
-  // NX model.
+  // "auto" picks among the `platform` models for `useCase`. Anything else is a
+  // fixed model (NX or partner).
   modelSku: "auto" | string;
+  // Sizer Guide Automatic Mode: Vendor, then the models. "Nutanix" = NX;
+  // otherwise a partner (OEM) from the hardware platform spec sheet.
+  platform: "Nutanix" | OemVendor;
+  // Also enables 1- and 2-node clusters on ROBO-capable models when "robo".
   useCase: NxUseCase;
+  // The SE's node count for the build (total across clusters); null = as sized.
+  nodeCountOverride: number | null;
   workloadBasis: "poweredOn" | "all";
   // "utilization": each VM's 95th-percentile CPU, falling back to vCPU / ratio
   // where the export has none. "configuration": vCPU / ratio for every VM.
@@ -163,6 +173,9 @@ export type NxSizerSettings = {
   includePoweredOffStorage: boolean;
   // Compression savings the SE expects, 0-1. Off by default (user ruling).
   compressionSavings: number;
+  // Expected growth of the VM workload per resource, as a fraction (0.2 = +20%).
+  // Applied to the VMs (not Prism Central), before compression and RF.
+  growth: { cpu: number; ram: number; storage: number };
   rf: Rf;
   // Nodes the cluster must survive losing: N+0, N+1 (default), N+2.
   failoverNodes: 0 | 1 | 2;
@@ -178,7 +191,9 @@ export type NxSizerSettings = {
 
 export const DEFAULT_NX_SETTINGS: NxSizerSettings = {
   modelSku: GENERIC_SKU,
+  platform: "Nutanix",
   useCase: "general",
+  nodeCountOverride: null,
   workloadBasis: "poweredOn",
   cpuBasis: "utilization",
   vcpuPerPcore: 4,
@@ -187,6 +202,7 @@ export const DEFAULT_NX_SETTINGS: NxSizerSettings = {
   storageBasis: "consumed",
   includePoweredOffStorage: true,
   compressionSavings: 0,
+  growth: { cpu: 0, ram: 0, storage: 0 },
   rf: 2,
   failoverNodes: 1,
   targetUtilization: 0.5,
@@ -350,12 +366,14 @@ export function buildWorkload(parsed: ParsedEnvironment, settings: NxSizerSettin
 // ---------------------------------------------------------------------------
 
 export type NxDemand = {
-  cpu: { vmCores: number; pcCores: number; total: number };
-  ram: { vmGiB: number; vmOverheadGiB: number; pcGiB: number; pcOverheadGiB: number; total: number };
+  cpu: { vmCores: number; growthCores: number; pcCores: number; total: number };
+  ram: { vmGiB: number; vmOverheadGiB: number; growthGiB: number; pcGiB: number; pcOverheadGiB: number; total: number };
   storage: {
     vmsTiB: number;
     volumeGroupsTiB: number;
     pcTiB: number;
+    // VM data (+ volume groups) x storage growth; logicalTiB includes it.
+    growthTiB: number;
     logicalTiB: number;
     compressionSavings: number;
     afterCompressionTiB: number;
@@ -368,6 +386,12 @@ function perVmOverheadGiB(ahv: AhvOverhead, vcpu: number, ramGiB: number): numbe
   return mibToGiB(ahv.perVmBaseMiB + ahv.perVmPerVcpuMiB * vcpu + ahv.perVmPerRamGiBMiB * ramGiB);
 }
 
+/** Growth fractions, clamped to 0-500% (settings saved before growth existed have none). */
+export function growthOf(settings: Pick<NxSizerSettings, "growth">): { cpu: number; ram: number; storage: number } {
+  const c = (v: number | undefined) => Math.min(5, Math.max(0, Number.isFinite(v) ? (v as number) : 0));
+  return { cpu: c(settings.growth?.cpu), ram: c(settings.growth?.ram), storage: c(settings.growth?.storage) };
+}
+
 export function buildDemand(parsed: ParsedEnvironment, workload: NxWorkload, settings: NxSizerSettings): NxDemand {
   const ahv = AHV_PRESETS[settings.ahvPreset];
   const { running } = selectVms(parsed, settings);
@@ -378,22 +402,28 @@ export function buildDemand(parsed: ParsedEnvironment, workload: NxWorkload, set
   const pcCores = pc ? pc.vcpu / Math.max(1, settings.vcpuPerPcore) : 0;
   const pcTiB = pc ? (settings.storageBasis === "consumed" ? pc.storageGiB : pc.vdiskGiB) / 1024 : 0;
 
-  const logical = workload.storage.vmsTiB + workload.storage.volumeGroupsTiB + pcTiB;
+  const g = growthOf(settings);
+  const growthCores = workload.cpuCores * g.cpu;
+  const growthGiB = (workload.ramGiB + vmOverhead) * g.ram;
+  const growthTiB = (workload.storage.vmsTiB + workload.storage.volumeGroupsTiB) * g.storage;
+  const logical = workload.storage.vmsTiB + workload.storage.volumeGroupsTiB + growthTiB + pcTiB;
   const savings = Math.min(0.95, Math.max(0, settings.compressionSavings));
   const afterCompression = logical * (1 - savings);
   return {
-    cpu: { vmCores: workload.cpuCores, pcCores, total: workload.cpuCores + pcCores },
+    cpu: { vmCores: workload.cpuCores, growthCores, pcCores, total: workload.cpuCores + growthCores + pcCores },
     ram: {
       vmGiB: workload.ramGiB,
       vmOverheadGiB: vmOverhead,
+      growthGiB,
       pcGiB: pc?.ramGiB ?? 0,
       pcOverheadGiB: pcOverhead,
-      total: workload.ramGiB + vmOverhead + (pc?.ramGiB ?? 0) + pcOverhead,
+      total: workload.ramGiB + vmOverhead + growthGiB + (pc?.ramGiB ?? 0) + pcOverhead,
     },
     storage: {
       vmsTiB: workload.storage.vmsTiB,
       volumeGroupsTiB: workload.storage.volumeGroupsTiB,
       pcTiB,
+      growthTiB,
       logicalTiB: logical,
       compressionSavings: savings,
       afterCompressionTiB: afterCompression,
@@ -412,6 +442,7 @@ export type DriveSet = { media: "NVMe" | "SSD" | "HDD"; count: number; sizeTB: n
 export type NodeConfig = {
   model: NxModel;
   cpu: NxCpu;
+  sockets: number;
   cores: number;
   ramGiB: number;
   drives: DriveSet;
@@ -495,13 +526,20 @@ export function nodeConfigs(model: NxModel): NodeConfig[] {
     .filter((layout): layout is Extract<DriveLayout, { kind: "uniform" }> => layout.kind === "uniform")
     .flatMap(driveSets);
   const out: NodeConfig[] = [];
-  for (const cpu of model.cpus) {
-    const cores = cpu.coresPerCpu * model.socketsPerNode;
-    if (cores < SIZING_CONSTANTS.minCoresPerNode) continue;
-    for (const ramGiB of model.ramTotalsGiB) {
-      for (const drives of sets) {
-        const rawTB = drives.reduce((s, d) => s + d.count * d.sizeTB, 0);
-        out.push({ model, cpu, cores, ramGiB, drives, rawTB });
+  const socketOptions = model.socketOptions?.length ? model.socketOptions : [model.socketsPerNode];
+  for (const sockets of socketOptions) {
+    // Partner envelopes: RAM scales with populated sockets.
+    const ramCap = model.ramMaxPerSocketGiB ? model.ramMaxPerSocketGiB * sockets : Number.POSITIVE_INFINITY;
+    for (const cpu of model.cpus) {
+      const cores = cpu.coresPerCpu * sockets;
+      if (cores < SIZING_CONSTANTS.minCoresPerNode) continue;
+      for (const ramGiB of model.ramTotalsGiB) {
+        if (ramGiB > ramCap) continue;
+        for (const drives of sets) {
+          const rawTB = drives.reduce((s, d) => s + d.count * d.sizeTB, 0);
+          if (model.maxRawTB != null && rawTB > model.maxRawTB + 1e-6) continue;
+          out.push({ model, cpu, sockets, cores, ramGiB, drives, rawTB });
+        }
       }
     }
   }
@@ -529,7 +567,7 @@ export type NxFit = {
   // Nodes each resource needs to land at the target utilization with all nodes up.
   nodesForTarget: { cpu: number; ram: number; storage: number };
   workingNodes: number;
-  driver: "cpu" | "ram" | "storage" | "minimum";
+  driver: "cpu" | "ram" | "storage" | "minimum" | "override";
   clusters: ClusterPlan[];
   totalNodes: number;
   totalCores: number;
@@ -548,9 +586,8 @@ function needed(demand: number, perNode: number): number {
  * Split working nodes into clusters of at most `maxNodesPerCluster`, each with
  * its own failover nodes and each at or above the RF minimum.
  */
-export function planClusters(workingNodes: number, failover: number, rf: Rf): ClusterPlan[] {
+export function planClusters(workingNodes: number, failover: number, rf: Rf, min = SIZING_CONSTANTS.minNodesByRf[rf]): ClusterPlan[] {
   const max = SIZING_CONSTANTS.maxNodesPerCluster;
-  const min = SIZING_CONSTANTS.minNodesByRf[rf];
   const perClusterWorking = max - failover;
   const count = Math.max(1, Math.ceil(workingNodes / perClusterWorking));
   const base = Math.floor(workingNodes / count);
@@ -559,6 +596,23 @@ export function planClusters(workingNodes: number, failover: number, rf: Rf): Cl
     const working = base + (i < remainder ? 1 : 0);
     const nodes = Math.max(min, working + failover);
     return { nodes, workingNodes: nodes - failover, failoverNodes: failover, raisedToMinimum: nodes > working + failover };
+  });
+}
+
+/** Smallest cluster this model may be sized at (Sizer Guide ROBO rule). */
+export function minClusterNodes(model: NxModel, settings: Pick<NxSizerSettings, "rf" | "useCase">): number {
+  if (settings.rf === 2 && settings.useCase === "robo" && model.roboCapable) return SIZING_CONSTANTS.minNodesRobo;
+  return SIZING_CONSTANTS.minNodesByRf[settings.rf];
+}
+
+/** Split an SE-chosen total into clusters of at most 32, each with its own failover nodes. */
+export function splitTotalNodes(total: number, failover: number): ClusterPlan[] {
+  const count = Math.max(1, Math.ceil(total / SIZING_CONSTANTS.maxNodesPerCluster));
+  const base = Math.floor(total / count);
+  const remainder = total % count;
+  return Array.from({ length: count }, (_, i) => {
+    const nodes = base + (i < remainder ? 1 : 0);
+    return { nodes, workingNodes: Math.max(0, nodes - failover), failoverNodes: failover, raisedToMinimum: false };
   });
 }
 
@@ -579,7 +633,9 @@ export function fitConfig(config: NodeConfig, demand: NxDemand, workload: NxWork
   // nodes left after the failover nodes are lost (at 100%).
   const allUp = Math.max(nodesForTarget.cpu, nodesForTarget.ram, nodesForTarget.storage);
   const working = Math.max(1, nodesFor.cpu, nodesFor.ram, nodesFor.storage, allUp - settings.failoverNodes);
-  const clusters = Number.isFinite(working) ? planClusters(working, settings.failoverNodes, settings.rf) : [];
+  const clusters = Number.isFinite(working)
+    ? planClusters(working, settings.failoverNodes, settings.rf, minClusterNodes(config.model, settings))
+    : [];
   const totalNodes = clusters.reduce((s, c) => s + c.nodes, 0);
   const driver: NxFit["driver"] = clusters.some((c) => c.raisedToMinimum)
     ? "minimum"
@@ -672,7 +728,10 @@ export type NxRecommendation = {
   settings: NxSizerSettings;
   workload: NxWorkload;
   demand: NxDemand;
+  // The build as reported: the sized fit, or the SE's node count when set.
   fit: NxFit | null;
+  // Nodes the sizing arrived at before any SE override (null when nothing fits).
+  sizedNodes: number | null;
   attempts: ModelAttempt[];
   // Utilization of the recommended build, with every node up and with the
   // failover nodes lost (per cluster, failover nodes carry no workload).
@@ -713,7 +772,7 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
     fit = r.best;
     if (!fit) blockers.push(`No generic node up to 256 cores and 2 TiB of RAM can host the largest VM (${r.reason}).`);
   } else if (settings.modelSku !== "auto") {
-    const model = findNxModel(settings.modelSku);
+    const model = findHardwareModel(settings.modelSku);
     if (!model || model.excluded) {
       blockers.push(`${settings.modelSku} is not an approved HCI model for VM sizing.`);
     } else {
@@ -727,16 +786,34 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
     // the one needing the fewest nodes wins, then the fewest cores. A model is passed over only when no
     // configuration of it can host the largest VM.
     const useCase = NX_USE_CASES[settings.useCase] ?? NX_USE_CASES.general;
-    for (const sku of useCase.models) {
-      const model = findNxModel(sku);
-      if (!model || model.excluded) continue;
+    const candidates = autoModels(settings.platform ?? "Nutanix", settings.useCase);
+    const vendorLabel = platformLabel(settings.platform ?? "Nutanix");
+    for (const model of candidates) {
       const r = bestFitForModel(model, demand, workload, settings, denser);
-      attempts.push({ sku, fits: r.best != null, reason: r.reason });
+      attempts.push({ sku: model.sku, fits: r.best != null, reason: r.reason });
       if (r.best && (!fit || denser(r.best, fit))) fit = r.best;
     }
-    if (!fit) {
-      blockers.push(`No ${useCase.label} NX model can host the largest VM on a single node.`);
+    if (!candidates.length) {
+      blockers.push(`The spec sheet lists no ${vendorLabel} all-flash model for ${useCase.label.toLowerCase()}. Choose another use case or vendor.`);
+    } else if (!fit) {
+      blockers.push(`No ${vendorLabel} model for ${useCase.label.toLowerCase()} can host the largest VM on a single node.`);
     }
+  }
+
+  const sizedNodes = fit ? fit.totalNodes : null;
+  if (fit && settings.nodeCountOverride != null && settings.nodeCountOverride !== fit.totalNodes) {
+    fit = overrideNodes(fit, Math.max(1, Math.round(settings.nodeCountOverride)), settings, warnings, blockers);
+  }
+  if (fit && fit.config.model.envelope) {
+    warnings.push(
+      `${fit.config.model.sku} is sized from the partner spec sheet maxima: ${platformLabel(fit.config.model.platform!)} builds the exact CPU SKU, DIMM and drive layout within them.`,
+    );
+  }
+  if (fit && fit.clusters.some((k) => k.nodes === 1)) {
+    warnings.push("1-node cluster: RF2 is kept across the node's drives, with no protection from a node failure. Replicate to another site.");
+  }
+  if (fit && fit.clusters.some((k) => k.nodes === 2)) {
+    warnings.push("2-node cluster: requires a Witness VM outside the cluster (Sizer Guide ROBO models).");
   }
 
   if (workload.runningVms === 0) blockers.push("No running VMs to size.");
@@ -789,6 +866,7 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
     workload,
     demand,
     fit,
+    sizedNodes,
     attempts,
     utilization: fit ? utilizationOf(fit, demand) : null,
     warnings,
@@ -796,6 +874,58 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
   };
 }
 
-export function approvedModels(): NxModel[] {
-  return NX_MODELS.filter((m) => !m.excluded);
+export function approvedModels(platform: NxSizerSettings["platform"] = "Nutanix"): NxModel[] {
+  const models = platform === "Nutanix" ? NX_MODELS : oemModelsFor(platform);
+  return models.filter((m) => !m.excluded);
+}
+
+/** NX or partner model by SKU. */
+export function findHardwareModel(sku: string): NxModel | null {
+  return findNxModel(sku) ?? OEM_MODELS.find((m) => m.sku === sku) ?? null;
+}
+
+export function platformLabel(platform: NxSizerSettings["platform"]): string {
+  return platform === "Nutanix" ? "Nutanix NX" : oemPlatformLabel(platform);
+}
+
+/** The models Auto considers: NX by the positioning guide, partners by the sheet's use cases. */
+export function autoModels(platform: NxSizerSettings["platform"], useCase: NxUseCase): NxModel[] {
+  if (platform === "Nutanix") {
+    const uc = NX_USE_CASES[useCase] ?? NX_USE_CASES.general;
+    return uc.models.map((sku) => findNxModel(sku)).filter((m): m is NxModel => m != null && !m.excluded);
+  }
+  return approvedModels(platform).filter((m) => m.useCases?.includes(useCase));
+}
+
+// The SE sets the node count: same node configuration, clusters re-split, and
+// the shortfall (if any) reported rather than hidden.
+function overrideNodes(fit: NxFit, total: number, settings: NxSizerSettings, warnings: string[], blockers: string[]): NxFit {
+  const sized = fit.totalNodes;
+  const clusters = splitTotalNodes(total, settings.failoverNodes);
+  const next: NxFit = {
+    ...fit,
+    clusters,
+    totalNodes: total,
+    totalCores: total * fit.config.cores,
+    workingNodes: clusters.reduce((s, k) => s + k.workingNodes, 0),
+    driver: "override",
+  };
+  warnings.push(`Node count set by the SE to ${total} (sized: ${sized}).`);
+  const min = minClusterNodes(fit.config.model, settings);
+  if (clusters.some((k) => k.nodes < min)) {
+    blockers.push(`${total} nodes is below the ${min}-node minimum cluster for RF${settings.rf}${min < 3 ? "" : " on this model"}.`);
+  }
+  const working = next.workingNodes;
+  if (
+    working < fit.nodesFor.cpu ||
+    working < fit.nodesFor.ram ||
+    working < fit.nodesFor.storage
+  ) {
+    blockers.push(
+      `${total} nodes cannot carry the workload with ${settings.failoverNodes} node${settings.failoverNodes === 1 ? "" : "s"} lost per cluster: at least ${Math.max(fit.nodesFor.cpu, fit.nodesFor.ram, fit.nodesFor.storage) + settings.failoverNodes} are needed.`,
+    );
+  } else if (total < Math.max(fit.nodesForTarget.cpu, fit.nodesForTarget.ram, fit.nodesForTarget.storage)) {
+    warnings.push(`${total} nodes run above the ${Math.round(settings.targetUtilization * 100)}% target utilization with every node up.`);
+  }
+  return next;
 }

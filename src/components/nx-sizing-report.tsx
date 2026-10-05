@@ -11,13 +11,13 @@
 
 import type { ReactNode } from "react";
 import type { ParsedEnvironment } from "@/lib/simple-sizer-core";
-import type { NxRecommendation } from "@/lib/nx-sizer";
+import { growthOf, platformLabel, type NxRecommendation } from "@/lib/nx-sizer";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
 import { buildHeadline, buildSubtitle, capacityLines, cpuSpec, driveLabel, ramSpec, storageRequirement, type ReportMeta } from "@/lib/nx-report";
 import { NX_USE_CASES, isGenericModel } from "@/lib/nx-catalog";
 
 const SOURCE_LABEL = { collector_excel: "Nutanix Collector", rvtools: "RVTools", liveoptics: "LiveOptics" } as const;
-const DRIVER_LABEL = { cpu: "CPU workload", ram: "Memory workload", storage: "Storage workload" } as const;
+const DRIVER_LABEL = { cpu: "CPU workload", ram: "Memory workload", storage: "Storage workload", override: "SE choice" } as const;
 
 export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment; rec: NxRecommendation; meta: ReportMeta }) {
   const fit = rec.fit!;
@@ -35,6 +35,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
   const notes = [...rec.warnings, ...parsed.notes];
   const sr = storageRequirement(rec);
   const generic = isGenericModel(c.model);
+  const vendor = platformLabel(c.model.platform ?? "Nutanix");
   const n = fit.totalNodes;
   const tb = (tib: number) => fmtStorage(tib, 1);
   const copies = s.rf === 3 ? "three times" : "twice";
@@ -51,12 +52,17 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
     (w.cpuSqlVms ? `, and ${w.cpuSqlVms} SQL VM${w.cpuSqlVms === 1 ? "" : "s"} at vCPU / ${s.sqlVcpuPerPcore}` : "");
   const ramBasis = s.memoryBasis === "consumed" ? "memory from measured 95th-percentile use (provisioned where not measured)" : "memory as provisioned";
   const storageBasis = `storage as ${s.storageBasis}${s.includePoweredOffStorage ? ", including powered-off VMs" : ", powered-on VMs only"}`;
+  const g = growthOf(s);
+  const growth =
+    g.cpu || g.ram || g.storage
+      ? `Growth allowance on the VM workload: CPU +${Math.round(g.cpu * 100)}%, memory +${Math.round(g.ram * 100)}%, storage +${Math.round(g.storage * 100)}%.`
+      : "No growth allowance added.";
   const reduction = s.compressionSavings ? `${Math.round(s.compressionSavings * 100)}% compression savings assumed.` : "No data reduction assumed.";
 
   return (
     <article className="sizer-report bg-white text-[12px] leading-relaxed text-charcoal-900">
       <header className="border-b-2 border-iris-500 pb-5">
-        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-iris-600">{generic ? "Nutanix hardware requirement" : "Nutanix NX hardware sizing"}</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-iris-600">{generic ? "Nutanix hardware requirement" : `${vendor} hardware sizing`}</p>
         <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-tight">{meta.customer || "Customer environment"}</h1>
         <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1 text-[10.5px] text-charcoal-600">
           <span>Prepared by: {meta.preparedBy || "-"}</span>
@@ -78,7 +84,9 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             <Fact label="Failover">{failover}</Fact>
             <Fact label="Target utilization">{s.targetUtilization >= 1 ? "None (failover limit only)" : `${target}% with all nodes up`}</Fact>
             <Fact label="Total physical cores">{fmtInt(fit.totalCores)}</Fact>
-            <Fact label="Node count set by">{fit.driver === "minimum" ? `RF${s.rf} minimum cluster size` : DRIVER_LABEL[fit.driver]}</Fact>
+            <Fact label="Node count set by">
+              {fit.driver === "minimum" ? `RF${s.rf} minimum cluster size` : fit.driver === "override" ? `SE choice (sized: ${rec.sizedNodes})` : DRIVER_LABEL[fit.driver]}
+            </Fact>
           </dl>
         </div>
       </Section>
@@ -126,6 +134,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
       </Section>
 
       <Section title="Cluster capacity and utilization">
+        <UtilChart util={u} failoverLabel={s.failoverNodes > 0 ? `With ${lostLabel}` : null} />
         <Table
           head={[
             "Resource",
@@ -164,7 +173,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             {w.prismCentral ? `, plus Prism Central (${w.prismCentral.label})` : ""}. The existing hosts do not shape the build.
           </li>
           <li>
-            <strong>Workload basis:</strong> {cpuBasis}; {ramBasis}; {storageBasis}. {reduction}
+            <strong>Workload basis:</strong> {cpuBasis}; {ramBasis}; {storageBasis}. {growth} {reduction}
           </li>
           <li>
             <strong>Target utilization:</strong>{" "}
@@ -189,7 +198,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             <strong>{generic ? "Hardware" : "Model choice"}:</strong>{" "}
             {generic
               ? "generic hardware. The fewest nodes that carry the workload are used, each sized up to 256 cores, 2 TB of RAM and 184 TB of raw all-flash; then the fewest total cores, since NCI is licensed per core. Any partner platform that meets or exceeds this per-node specification qualifies."
-              : `${s.modelSku === "auto" ? `${c.model.sku}, chosen for ${NX_USE_CASES[s.useCase].label.toLowerCase()} as the model that needs the fewest nodes.` : `${c.model.sku} was selected by the SE.`} Within it, the configuration with the fewest total cores is used, since NCI is licensed per core.`}
+              : `${s.modelSku === "auto" ? `${c.model.sku}, chosen from the ${vendor} models for ${NX_USE_CASES[s.useCase].label.toLowerCase()} as the model that needs the fewest nodes.` : `${c.model.sku} was selected by the SE.`} Within it, the configuration with the fewest total cores is used, since NCI is licensed per core.${c.model.envelope ? ` The per-node figures sit within the ${c.model.sku} maxima on the Nutanix hardware platform spec sheet; ${vendor} builds the exact CPU SKU, DIMM and drive layout.` : ""}`}
           </li>
         </ul>
       </Section>
@@ -227,7 +236,9 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
       <footer className="mt-10 border-t border-charcoal-200 pt-3 text-[9.5px] leading-normal text-charcoal-500">
         {UNIT_FOOTNOTE} {generic
           ? "This is a minimum per-node requirement; a partner may meet it with any Nutanix-qualified platform, with equal or larger CPU, memory or drives."
-          : "Hardware options from Nutanix NX G10 System Specifications."}{" "}
+          : c.model.envelope
+            ? `Hardware envelope from the Nutanix hardware platform spec sheet (${vendor}); confirm the final configuration with the partner.`
+            : "Hardware options from Nutanix NX G10 System Specifications."}{" "}
         Final part numbers and DIMM layouts are confirmed with the build partner.
       </footer>
     </article>
@@ -235,6 +246,59 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
 }
 
 /** One report section. Print CSS keeps each section whole on a page. */
+type Util = { allUp: number; failover: number };
+
+// The on-screen utilization bars, for print: every node up (solid) over the
+// failover-node-lost figure (light). Bars stop at 100%; the figure says more.
+function UtilChart({ util, failoverLabel }: { util: { cpu: Util; ram: Util; storage: Util }; failoverLabel: string | null }) {
+  const rows: [string, Util][] = [
+    ["CPU", util.cpu],
+    ["Memory", util.ram],
+    ["Storage", util.storage],
+  ];
+  const pct = (v: number) => `${fmtNum(v, 1)}%`;
+  return (
+    <div className="mb-5 rounded-lg border border-charcoal-200 px-5 py-4">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[9.5px] text-charcoal-600">
+        <span className="font-medium uppercase tracking-[0.12em]">{failoverLabel ? `With every node up / ${failoverLabel.toLowerCase()}` : "With every node up"}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-3 rounded-sm bg-viz-compute" /> All nodes up
+        </span>
+        {failoverLabel ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-3 rounded-sm bg-iris-200" /> {failoverLabel}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-3">
+        {rows.map(([label, v]) => (
+          <div key={label}>
+            <div className="flex items-baseline justify-between text-[11px]">
+              <span className="text-charcoal-700">{label}</span>
+              <span className="font-mono tabular-nums text-charcoal-900">
+                {pct(v.allUp)}
+                {failoverLabel ? ` / ${pct(v.failover)}` : ""}
+              </span>
+            </div>
+            <div className="relative mt-1 h-2 rounded-full bg-charcoal-100">
+              {failoverLabel ? (
+                <div className="absolute inset-y-0 left-0 rounded-full bg-iris-200" style={{ width: `${Math.min(100, v.failover)}%` }} />
+              ) : null}
+              <div
+                className={`absolute inset-y-0 left-0 rounded-full ${v.failover > 100 ? "bg-rose-500" : "bg-viz-compute"}`}
+                style={{ width: `${Math.min(100, v.allUp)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[9.5px] leading-relaxed text-charcoal-500">
+        Percent of usable capacity, after CVM, AHV and the 5% safety buffer are removed from every node.
+      </p>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-9">

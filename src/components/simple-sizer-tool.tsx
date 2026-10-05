@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, FileDown, FileSpreadsheet, RotateCcw, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { parseSizerWorkbook } from "@/lib/simple-sizer";
@@ -10,6 +10,7 @@ import {
   DEFAULT_NX_SETTINGS,
   PC_PROFILES,
   approvedModels,
+  platformLabel,
   recommendNx,
   vmCpuCores,
   isExcluded,
@@ -21,8 +22,10 @@ import {
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage, gibToGB, tibToTB } from "@/lib/sizer-format";
 import { SizingReport } from "@/components/nx-sizing-report";
 import { ImportedPanel } from "@/components/sizer-imported";
-import { buildHeadline, buildSubtitle, capacityLines, cpuSpec, driveLabel, ramSpec, type ReportMeta } from "@/lib/nx-report";
+import { buildBreakdown, buildHeadline, buildSubtitle, capacityLines, cpuSpec, driveLabel, ramSpec, type ReportMeta } from "@/lib/nx-report";
 import { GENERIC_SKU, NX_USE_CASES, type NxUseCase } from "@/lib/nx-catalog";
+import { OEM_VENDORS } from "@/lib/oem-catalog";
+import { addSizerStats, getSizerStats, seedSizerStats, subscribeSizerStats, type SizerStats } from "@/lib/sizer-stats";
 
 const ICON = { strokeWidth: 1.5 } as const;
 const PRESS = "transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]";
@@ -32,7 +35,7 @@ const SOURCE_LABEL: Record<SizerSource, string> = {
   liveoptics: "LiveOptics",
 };
 
-export function SimpleSizerTool() {
+export function SimpleSizerTool({ initialStats = null }: { initialStats?: SizerStats | null }) {
   const [source, setSource] = useState<SizerSource>("collector_excel");
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -43,6 +46,16 @@ export function SimpleSizerTool() {
   const [printing, setPrinting] = useState(false);
 
   const rec = useMemo(() => (parsed ? recommendNx(parsed, settings) : null), [parsed, settings]);
+
+  // Global usage counters (counts only, see lib/sizer-stats-store.ts). Each file counts once, however
+  // often it is re-read or re-sized; a solution counts the first time it sizes.
+  const counted = useRef<{ parsed: Set<string>; sized: Set<string> }>({ parsed: new Set(), sized: new Set() });
+  const fileKey = file ? `${file.name}|${file.size}|${file.lastModified}` : null;
+  useEffect(() => {
+    if (!fileKey || !rec?.fit || counted.current.sized.has(fileKey)) return;
+    counted.current.sized.add(fileKey);
+    addSizerStats({ solutions: 1 });
+  }, [fileKey, rec]);
   // Include or leave out VMs from the imported view; shares state with the VM table.
   const excludeVms = useCallback((ids: string[], excluded: boolean) => {
     setSettings((prev) => {
@@ -70,6 +83,11 @@ export function SimpleSizerTool() {
       const result = parseSizerWorkbook(bytes, nextSource, next.name, next.size);
       if (!result.vms.length) throw new Error("No VMs were found. Check the file matches the selected source.");
       setParsed(result);
+      const key = `${next.name}|${next.size}|${next.lastModified}`;
+      if (!counted.current.parsed.has(key)) {
+        counted.current.parsed.add(key);
+        addSizerStats({ vms: result.vms.length, clusters: result.clusters });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "The file could not be read.");
     } finally {
@@ -96,6 +114,7 @@ export function SimpleSizerTool() {
 
   return (
     <div className="space-y-4">
+      <StatsBoard initial={initialStats} />
       <section className="overflow-hidden rounded-[1.75rem] border border-charcoal-200 bg-white shadow-[0_18px_40px_-24px_rgba(49,49,49,0.22)]">
         <div className="grid gap-px bg-charcoal-200 lg:grid-cols-[0.95fr_1.25fr]">
           <div className="bg-white p-6 md:p-8">
@@ -215,7 +234,9 @@ export function SimpleSizerTool() {
         <>
           <ImportedPanel parsed={parsed} adjustments={settings.vmAdjustments} onExclude={excludeVms} />
           <Issues rec={rec} />
-          {rec.fit ? <Recommendation rec={rec} /> : null}
+          {rec.fit ? (
+            <Recommendation rec={rec} onNodes={(n) => setSettings((prev) => ({ ...prev, nodeCountOverride: n }))} />
+          ) : null}
           {rec.fit ? <CapacityMath rec={rec} /> : null}
           <WorkloadPanel parsed={parsed} rec={rec} />
           <VmTable parsed={parsed} settings={settings} onSettings={setSettings} />
@@ -233,6 +254,37 @@ export function SimpleSizerTool() {
           )
         : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stats board: global running totals across everyone using the tool
+// ---------------------------------------------------------------------------
+
+function StatsBoard({ initial }: { initial: SizerStats | null }) {
+  seedSizerStats(initial);
+  const stats = useSyncExternalStore(subscribeSizerStats, getSizerStats, () => initial) ?? initial;
+  const tiles: [string, number | undefined][] = [
+    ["VMs parsed", stats?.vms],
+    ["Clusters parsed", stats?.clusters],
+    ["Solutions sized", stats?.solutions],
+  ];
+  return (
+    <section aria-label="Simple Sizer totals" className="rounded-[1.75rem] border border-charcoal-200 bg-white px-6 py-4 md:px-8">
+      <dl className="grid grid-cols-3 divide-x divide-charcoal-200">
+        {tiles.map(([label, value]) => (
+          <div key={label} className="px-4 first:pl-0 last:pr-0">
+            <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">{label}</dt>
+            <dd className="mt-1 font-mono text-2xl font-semibold tabular-nums tracking-tight text-charcoal-900 md:text-3xl">
+              {value == null ? "–" : fmtInt(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-[11px] text-charcoal-500">
+        Totals across everyone using the Simple Sizer. Only these three counts are kept; files, customers and VM details never leave the browser.
+      </p>
+    </section>
   );
 }
 
@@ -386,23 +438,68 @@ function SizeFor({
 
       <div className="grid gap-4 border-t border-charcoal-200 pt-5 sm:grid-cols-2">
         <Field
-          label="Hardware"
-          htmlFor="opt-model"
-          helper="Generic sizes the fewest, densest dual-socket nodes (up to 256 cores, 2 TB RAM, 184 TB raw) as a requirement any partner can build. NX Auto picks from the models for the use case."
+          label="Hardware vendor"
+          htmlFor="opt-vendor"
+          helper="Generic sizes the fewest, densest dual-socket nodes (up to 256 cores, 2 TB RAM, 184 TB raw) as a requirement any partner can build. A vendor sizes its own platforms; partner (OEM) models come from the Nutanix hardware platform spec sheet."
         >
-          <select id="opt-model" value={settings.modelSku} onChange={(e) => set("modelSku", e.target.value)} className="h-10 w-full">
+          <select
+            id="opt-vendor"
+            value={settings.modelSku === GENERIC_SKU ? GENERIC_SKU : settings.platform}
+            onChange={(e) => {
+              const v = e.target.value;
+              // A new vendor starts at Auto; the SE's node count no longer applies.
+              onChange(
+                v === GENERIC_SKU
+                  ? { ...settings, modelSku: GENERIC_SKU, nodeCountOverride: null }
+                  : { ...settings, platform: v as NxSizerSettings["platform"], modelSku: "auto", nodeCountOverride: null },
+              );
+            }}
+            className="h-10 w-full"
+          >
             <option value={GENERIC_SKU}>Generic (fewest nodes)</option>
-            <option value="auto">NX Auto (by use case)</option>
-            {approvedModels().map((m) => (
-              <option key={m.sku} value={m.sku}>
-                {m.sku}
-              </option>
-            ))}
+            <option value="Nutanix">{platformLabel("Nutanix")}</option>
+            <optgroup label="Partner (OEM)">
+              {OEM_VENDORS.map((v) => (
+                <option key={v} value={v}>
+                  {platformLabel(v)}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </Field>
-        {settings.modelSku === "auto" ? (
-          <Field label="Use case" htmlFor="opt-usecase" helper={NX_USE_CASES[settings.useCase].helper}>
-            <select id="opt-usecase" value={settings.useCase} onChange={(e) => set("useCase", e.target.value as NxUseCase)} className="h-10 w-full">
+        {settings.modelSku !== GENERIC_SKU ? (
+          <Field
+            label="Model"
+            htmlFor="opt-model"
+            helper={settings.platform === "Nutanix" ? "Auto picks the model needing the fewest nodes for the use case." : "Auto picks among the partner models the spec sheet lists for the use case. Partners build the exact layout within the sheet maxima."}
+          >
+            <select
+              id="opt-model"
+              value={settings.modelSku}
+              onChange={(e) => onChange({ ...settings, modelSku: e.target.value, nodeCountOverride: null })}
+              className="h-10 w-full"
+            >
+              <option value="auto">Auto (by use case)</option>
+              {approvedModels(settings.platform).map((m) => (
+                <option key={m.sku} value={m.sku}>
+                  {m.sku}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+        {settings.modelSku !== GENERIC_SKU ? (
+          <Field
+            label="Use case"
+            htmlFor="opt-usecase"
+            helper={`${settings.platform === "Nutanix" && settings.modelSku === "auto" ? NX_USE_CASES[settings.useCase].helper + " " : ""}ROBO allows 1- and 2-node clusters on ROBO models (RF2).`}
+          >
+            <select
+              id="opt-usecase"
+              value={settings.useCase}
+              onChange={(e) => onChange({ ...settings, useCase: e.target.value as NxUseCase, nodeCountOverride: null })}
+              className="h-10 w-full"
+            >
               {(Object.keys(NX_USE_CASES) as NxUseCase[]).map((k) => (
                 <option key={k} value={k}>
                   {NX_USE_CASES[k].label}
@@ -433,6 +530,37 @@ function SizeFor({
             <option value={3}>RF3</option>
           </select>
         </Field>
+        <div className="grid gap-2 sm:col-span-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-charcoal-600">Growth %</p>
+          <div className="grid grid-cols-3 gap-3">
+            {(
+              [
+                ["cpu", "CPU"],
+                ["ram", "Memory"],
+                ["storage", "Storage"],
+              ] as const
+            ).map(([k, label]) => (
+              <label key={k} htmlFor={`opt-growth-${k}`} className="grid gap-1 text-xs font-medium text-charcoal-700">
+                {label}
+                <input
+                  id={`opt-growth-${k}`}
+                  type="number"
+                  min={0}
+                  max={500}
+                  step={5}
+                  value={Math.round(settings.growth[k] * 100)}
+                  onChange={(e) =>
+                    set("growth", { ...settings.growth, [k]: Math.min(500, Math.max(0, Number(e.target.value) || 0)) / 100 })
+                  }
+                  className="h-10 w-full font-mono"
+                />
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] leading-snug text-charcoal-500">
+            Added to the VM workload before sizing (not Prism Central). Storage growth applies before compression and RF.
+          </p>
+        </div>
         <Field label="Compression savings %" htmlFor="opt-comp" helper="0 unless the customer data supports it.">
           <input
             id="opt-comp"
@@ -517,9 +645,19 @@ function Issues({ rec }: { rec: NxRecommendation }) {
   );
 }
 
-function Recommendation({ rec }: { rec: NxRecommendation }) {
+function Recommendation({ rec, onNodes }: { rec: NxRecommendation; onNodes: (n: number | null) => void }) {
   const fit = rec.fit!;
   const c = fit.config;
+  const overridden = rec.settings.nodeCountOverride != null;
+  // Typed count, applied on Enter or blur so a half-typed number never resizes.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft == null) return;
+    const n = Math.round(Number(draft));
+    setDraft(null);
+    if (!draft.trim() || !Number.isFinite(n) || n < 1) return;
+    onNodes(n === rec.sizedNodes ? null : Math.min(512, n));
+  };
   return (
     <section className="rounded-[1.75rem] border border-charcoal-200 bg-white p-6 shadow-[0_18px_40px_-24px_rgba(49,49,49,0.18)] md:p-8">
       <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr]">
@@ -533,14 +671,47 @@ function Recommendation({ rec }: { rec: NxRecommendation }) {
             {fit.clusters.length === 1
               ? `One cluster, RF${rec.settings.rf}, N+${rec.settings.failoverNodes}.`
               : `${fit.clusters.length} clusters (${fit.clusters.map((k) => k.nodes).join(" + ")} nodes), RF${rec.settings.rf}, N+${rec.settings.failoverNodes} each.`}{" "}
-            Node count set by {fit.driver === "minimum" ? `the RF${rec.settings.rf} minimum` : fit.driver.toUpperCase()}.
+            Node count set by{" "}
+            {fit.driver === "minimum" ? `the RF${rec.settings.rf} minimum` : fit.driver === "override" ? "you" : fit.driver.toUpperCase()}.
           </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-charcoal-200 bg-charcoal-50 px-4 py-3">
+            <label htmlFor="opt-nodes" className="grid gap-1 text-xs font-medium text-charcoal-700">
+              Nodes in the build
+              <input
+                id="opt-nodes"
+                type="number"
+                min={1}
+                max={512}
+                step={1}
+                value={draft ?? String(fit.totalNodes)}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commit();
+                  if (e.key === "Escape") setDraft(null);
+                }}
+                className="h-9 w-24 font-mono tabular-nums"
+              />
+            </label>
+            <p className="min-w-[12rem] flex-1 text-[11px] leading-snug text-charcoal-500">
+              {overridden
+                ? `Sized at ${rec.sizedNodes} nodes. The report and PDF use your count; utilization and warnings follow it.`
+                : "Change the count before exporting; the report and PDF follow it."}
+            </p>
+            {overridden ? (
+              <button
+                type="button"
+                onClick={() => onNodes(null)}
+                className={`${PRESS} inline-flex items-center gap-1.5 rounded-full border border-charcoal-300 bg-white px-3 py-1.5 text-xs text-charcoal-700 hover:border-iris-400 hover:bg-iris-50`}
+              >
+                <RotateCcw {...ICON} className="h-3.5 w-3.5" /> Use sized count
+              </button>
+            ) : null}
+          </div>
           <dl className="mt-6 divide-y divide-charcoal-200 border-y border-charcoal-200 text-sm">
             <Row k="CPU per node" v={cpuSpec(c)} />
-            <Row k="Cores per node" v={fmtInt(c.cores)} />
             <Row k="RAM per node" v={`${ramSpec(c.ramGiB)} (DIMM capacity)`} />
             <Row k="Drives per node" v={driveLabel(c.drives)} />
-            <Row k="Raw storage per node" v={`${fmtNum(c.rawTB, 2)} TB`} />
           </dl>
         </div>
         <div>
@@ -567,7 +738,52 @@ function Recommendation({ rec }: { rec: NxRecommendation }) {
           </div>
         </div>
       </div>
+      <Breakdown fit={fit} />
     </section>
+  );
+}
+
+function Breakdown({ fit }: { fit: NonNullable<NxRecommendation["fit"]> }) {
+  const b = buildBreakdown(fit);
+  return (
+    <div className="mt-8 border-t border-charcoal-200 pt-5">
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-charcoal-500">Per node and per cluster</p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[32rem] text-sm">
+          <thead>
+            <tr className="border-b border-charcoal-200 text-left align-bottom">
+              <th scope="col" className="py-2 pr-4 font-medium text-charcoal-600">
+                <span className="sr-only">Item</span>
+              </th>
+              {b.columns.map((col) => (
+                <th key={col.label} scope="col" className="py-2 pl-4 text-right font-medium text-charcoal-900">
+                  {col.label}
+                  <span className="block text-[11px] font-normal text-charcoal-500">{col.detail}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-charcoal-100">
+            {b.rows.map((r) => (
+              <tr key={r.label}>
+                <th scope="row" className="py-2 pr-4 text-left font-normal text-charcoal-600">
+                  {r.label}
+                </th>
+                {r.values.map((v, i) => (
+                  <td key={b.columns[i].label} className="py-2 pl-4 text-right font-mono tabular-nums text-charcoal-900">
+                    {v}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-charcoal-500">
+        Usable is what remains after the CVM, AHV and the 5% safety buffer. Usable storage is before RF{" "}
+        copies: the workload is counted at RF times its size against it.
+      </p>
+    </div>
   );
 }
 

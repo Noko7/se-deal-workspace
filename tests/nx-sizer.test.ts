@@ -4,12 +4,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { findNxModel, NX_MODELS } from "@/lib/nx-catalog";
+import { OEM_MODELS, inferDrives, parseSockets } from "@/lib/oem-catalog";
+import { OEM_SHEET } from "@/lib/oem-spec-sheet";
+import { buildBreakdown } from "@/lib/nx-report";
 import {
   CVM_PCORES_PER_NODE,
   DEFAULT_NX_SETTINGS,
   PC_PROFILES,
   SIZING_CONSTANTS,
   approvedModels,
+  autoModels,
+  growthOf,
+  findHardwareModel,
   buildDemand,
   buildWorkload,
   cvmRamGiBFor,
@@ -67,6 +73,7 @@ function node(over: Partial<NodeConfig> = {}): NodeConfig {
   return {
     model: m1175,
     cpu: m1175.cpus[0],
+    sockets: 1,
     cores: 24,
     ramGiB: 512,
     drives: [{ media: "NVMe", count: 4, sizeTB: 7.68 }],
@@ -365,12 +372,13 @@ describe("compression and replication factor", () => {
 // A demand shaped by hand so the node counts are checkable.
 function demand(over: { cpu?: number; ram?: number; rawTiB?: number }): NxDemand {
   return {
-    cpu: { vmCores: over.cpu ?? 1, pcCores: 0, total: over.cpu ?? 1 },
-    ram: { vmGiB: over.ram ?? 1, vmOverheadGiB: 0, pcGiB: 0, pcOverheadGiB: 0, total: over.ram ?? 1 },
+    cpu: { vmCores: over.cpu ?? 1, growthCores: 0, pcCores: 0, total: over.cpu ?? 1 },
+    ram: { vmGiB: over.ram ?? 1, vmOverheadGiB: 0, growthGiB: 0, pcGiB: 0, pcOverheadGiB: 0, total: over.ram ?? 1 },
     storage: {
       vmsTiB: 0,
       volumeGroupsTiB: 0,
       pcTiB: 0,
+      growthTiB: 0,
       logicalTiB: 0,
       compressionSavings: 0,
       afterCompressionTiB: 0,
@@ -592,14 +600,16 @@ describe("Sizer-style import options", () => {
 
 describe("model selection", () => {
   it("ROBO: takes the small single-socket node with the fewest cores, then the least raw", () => {
-    // A tiny workload fits at the RF2 minimum of 3 nodes on a 12-core
-    // single-socket node (3 x 12 = 36 cores). Every candidate is listed in attempts.
+    // A tiny workload fits on one 12-core single-socket node; ROBO models may
+    // size 2-node clusters (Sizer Guide), so N+1 gives 2 x 12 = 24 cores.
+    // Every candidate is listed in attempts.
     const rec = recommendNx(env(Array.from({ length: 10 }, () => vm())), settings({ useCase: "robo" }));
     assert.ok(rec.fit);
-    assert.equal(rec.fit.totalNodes, 3);
+    assert.equal(rec.fit.totalNodes, 2);
     assert.equal(rec.fit.config.model.socketsPerNode, 1);
-    assert.equal(rec.fit.totalCores, 36);
+    assert.equal(rec.fit.totalCores, 24);
     assert.deepEqual(rec.blockers, []);
+    assert.ok(rec.warnings.some((w) => /Witness/.test(w)));
     assert.deepEqual(rec.attempts.map((a) => a.sku), ["NX-1120AS-G10", "NX-1175S-G10", "NX-3035-G10"]);
   });
 
@@ -794,5 +804,192 @@ describe("generic hardware", () => {
     const g = recommendNx(env([vm({ vcpu: 40, ramGiB: 64 })]), generic());
     assert.ok(g.fit);
     assert.ok(g.fit.config.cores >= 40);
+  });
+});
+
+// --- Sizer Guide ROBO rule ----------------------------------------------------
+
+describe("ROBO cluster minimum", () => {
+  it("only ROBO-capable models in the ROBO use case go below 3 nodes, RF2 only", () => {
+    const vms = Array.from({ length: 10 }, () => vm());
+    assert.equal(recommendNx(env(vms), settings({ useCase: "robo", failoverNodes: 0 })).fit!.totalNodes, 1);
+    // Not ROBO use case: the data-center minimum applies to the same model.
+    assert.equal(recommendNx(env(vms), settings({ modelSku: "NX-1175S-G10", useCase: "general" })).fit!.totalNodes, 3);
+    // NX-3035 is not a ROBO model.
+    assert.equal(recommendNx(env(vms), settings({ modelSku: "NX-3035-G10", useCase: "robo" })).fit!.totalNodes, 3);
+    // RF3 keeps 5.
+    assert.equal(recommendNx(env(vms), settings({ useCase: "robo", rf: 3 })).fit!.totalNodes, 5);
+  });
+});
+
+// --- SE node count override ----------------------------------------------------
+
+describe("node count override", () => {
+  const vms = Array.from({ length: 300 }, () => vm({ vcpu: 8, ramGiB: 32 }));
+
+  it("keeps the sized config and re-splits clusters at the SE's count", () => {
+    const sized = recommendNx(env(vms), settings({ modelSku: "NX-8170-G10" }));
+    const n = sized.fit!.totalNodes + 4;
+    const rec = recommendNx(env(vms), settings({ modelSku: "NX-8170-G10", nodeCountOverride: n }));
+    assert.equal(rec.sizedNodes, sized.fit!.totalNodes);
+    assert.equal(rec.fit!.totalNodes, n);
+    assert.equal(rec.fit!.driver, "override");
+    assert.equal(rec.fit!.config.cores, sized.fit!.config.cores);
+    assert.equal(rec.fit!.totalCores, n * sized.fit!.config.cores);
+    assert.ok(rec.utilization!.cpu.allUp < sized.utilization!.cpu.allUp);
+    assert.deepEqual(rec.blockers, []);
+  });
+
+  it("blocks a count that cannot carry the workload after failover", () => {
+    const rec = recommendNx(env(vms), settings({ modelSku: "NX-3035-G10", nodeCountOverride: 3 }));
+    assert.equal(rec.fit!.totalNodes, 3);
+    assert.ok(rec.blockers.some((b) => /cannot carry the workload/.test(b)));
+  });
+
+  it("blocks a count below the cluster minimum", () => {
+    const rec = recommendNx(env([vm()]), settings({ modelSku: "NX-8170-G10", nodeCountOverride: 2 }));
+    assert.ok(rec.blockers.some((b) => /minimum cluster/.test(b)));
+  });
+
+  it("splits over 32 nodes into clusters", () => {
+    const rec = recommendNx(env([vm()]), settings({ modelSku: "NX-8170-G10", nodeCountOverride: 40 }));
+    assert.deepEqual(rec.fit!.clusters.map((k) => k.nodes), [20, 20]);
+  });
+});
+
+// --- Partner (OEM) platforms from the hardware spec sheet ----------------------
+
+describe("OEM catalog", () => {
+  it("has unique SKUs and only all-flash, non-GPU models approved", () => {
+    const skus = OEM_MODELS.map((m) => m.sku);
+    assert.equal(new Set(skus).size, skus.length);
+    for (const m of OEM_MODELS.filter((x) => !x.excluded)) {
+      assert.ok(m.drives.length && m.drives.every((d) => d.kind === "uniform"), m.sku);
+      assert.ok(m.cpus.length, m.sku);
+      assert.ok(m.ramTotalsGiB.length, m.sku);
+    }
+    assert.equal(OEM_MODELS.find((m) => m.sku === "HPE ProLiant DX4120 Gen11 24LFF")?.excluded, true); // NVMe+HDD only
+    assert.equal(OEM_MODELS.find((m) => m.sku === "Lenovo HX650a V4")?.excluded, true); // GPU
+  });
+
+  it("infers drive bays from max storage", () => {
+    const row = (name: string) => OEM_SHEET.find((r) => r.name === name)!;
+    assert.deepEqual(inferDrives(row("XC7625-24N")), { bays: 20, sizesTB: [3.84, 7.68, 15.36] });
+    assert.deepEqual(inferDrives(row("HCIAF240C-M7SN/UCSC-C240-M7SN")), { bays: 24, sizesTB: [3.8, 7.6, 15.3] });
+    assert.equal(inferDrives(row("XC4000")).bays, 2);
+  });
+
+  it("parses socket options", () => {
+    assert.deepEqual(parseSockets("Single or Dual Intel Xeon 4th/5th Gen."), [1, 2]);
+    assert.deepEqual(parseSockets("Quad Intel Xeon 4th Gen."), [4]);
+    assert.deepEqual(parseSockets("None or Dual AMD Genoa"), [2]);
+  });
+
+  it("keeps every config inside the sheet maxima", () => {
+    const m = OEM_MODELS.find((x) => x.sku === "HPE ProLiant DX360 Gen11 10NVMe")!;
+    const configs = nodeConfigs(m);
+    assert.ok(configs.length);
+    for (const c of configs) {
+      assert.ok(c.rawTB <= 153.6 + 1e-6);
+      assert.ok(c.cpu.coresPerCpu <= 64);
+      assert.ok(c.ramGiB <= 2048 * c.sockets);
+    }
+    assert.ok(configs.some((c) => c.sockets === 1) && configs.some((c) => c.sockets === 2));
+  });
+
+  it("sizes a fixed partner model and notes the envelope", () => {
+    const rec = recommendNx(env(vms300()), settings({ modelSku: "Dell XC670-16", platform: "Dell" }));
+    assert.ok(rec.fit);
+    assert.equal(rec.fit.config.model.platform, "Dell");
+    assert.ok(rec.warnings.some((w) => /partner spec sheet maxima/.test(w)));
+  });
+
+  it("Auto picks among the chosen vendor's models for the use case", () => {
+    const rec = recommendNx(env(vms300()), settings({ platform: "Lenovo", useCase: "database" }));
+    assert.ok(rec.fit);
+    assert.equal(rec.fit.config.model.platform, "Lenovo");
+    assert.ok(rec.attempts.length > 1);
+    assert.ok(rec.attempts.every((a) => a.sku.startsWith("Lenovo ")));
+    assert.ok(autoModels("Lenovo", "database").every((m) => m.useCases?.includes("database")));
+  });
+
+  it("ROBO partner models may size 2-node clusters", () => {
+    const rec = recommendNx(env(Array.from({ length: 10 }, () => vm())), settings({ platform: "Cisco", useCase: "robo" }));
+    assert.ok(rec.fit);
+    assert.equal(rec.fit.totalNodes, 2);
+    assert.equal(rec.fit.config.model.roboCapable, true);
+  });
+
+  it("approvedModels lists the vendor's models", () => {
+    assert.ok(approvedModels("HPE").length > 5);
+    assert.ok(approvedModels("HPE").every((m) => m.platform === "HPE"));
+    assert.ok(approvedModels().every((m) => m.platform == null));
+    assert.equal(findHardwareModel("Dell XC670-16")?.platform, "Dell");
+  });
+});
+
+function vms300() {
+  return Array.from({ length: 300 }, () => vm({ vcpu: 8, ramGiB: 32 }));
+}
+
+// --- Recommended build breakdown ----------------------------------------------
+
+describe("build breakdown", () => {
+  it("one cluster: per node and per cluster columns", () => {
+    const rec = recommendNx(env([vm()]), settings({ modelSku: "NX-8170-G10" }));
+    const b = buildBreakdown(rec.fit!);
+    assert.deepEqual(b.columns.map((c) => c.label), ["Per node", "Per cluster"]);
+    const cores = b.rows.find((r) => r.label === "Physical cores")!;
+    assert.equal(cores.values[1], (rec.fit!.config.cores * 3).toLocaleString());
+    assert.equal(b.rows.find((r) => r.label === "Nodes")!.values[1], "3 (2 after failover)");
+  });
+
+  it("several clusters: same-size clusters share a column, plus a build total", () => {
+    const rec = recommendNx(env([vm()]), settings({ modelSku: "NX-8170-G10", nodeCountOverride: 41 }));
+    const b = buildBreakdown(rec.fit!);
+    // 41 nodes -> 21 + 20.
+    assert.deepEqual(b.columns.map((c) => c.label), ["Per node", "Per cluster (21 nodes)", "Per cluster (20 nodes)", "Build total"]);
+    assert.equal(b.rows.find((r) => r.label === "Nodes")!.values[3], "41 (39 after failover)");
+    const even = buildBreakdown(recommendNx(env([vm()]), settings({ modelSku: "NX-8170-G10", nodeCountOverride: 40 })).fit!);
+    assert.match(even.columns[1].detail, /x 2 clusters/);
+  });
+});
+
+// --- growth -------------------------------------------------------------------
+
+describe("growth", () => {
+  const vms = [vm({ vcpu: 8, ramGiB: 64, storageConsumedTiB: 2 }), vm({ vcpu: 8, ramGiB: 64, storageConsumedTiB: 2 })];
+  const demandFor = (over: Partial<NxSizerSettings>) => {
+    const s = settings({ cpuBasis: "configuration", ...over });
+    const parsed = env(vms);
+    return buildDemand(parsed, buildWorkload(parsed, s), s);
+  };
+
+  it("adds each resource's growth to the VM workload only", () => {
+    const base = demandFor({});
+    const g = demandFor({ growth: { cpu: 0.5, ram: 0.25, storage: 1 } });
+    close(g.cpu.growthCores, base.cpu.vmCores * 0.5, "cpu growth");
+    close(g.cpu.total, base.cpu.total * 1.5, "cpu total");
+    close(g.ram.growthGiB, (base.ram.vmGiB + base.ram.vmOverheadGiB) * 0.25, "ram growth");
+    close(g.storage.growthTiB, base.storage.vmsTiB, "storage doubles");
+    close(g.storage.rawTiB, base.storage.rawTiB * 2, "RF applies to grown data");
+  });
+
+  it("leaves Prism Central out and compression after growth", () => {
+    const g = demandFor({ prismCentral: PC_PROFILES[0].id, growth: { cpu: 1, ram: 1, storage: 1 }, compressionSavings: 0.5 });
+    close(g.cpu.growthCores, g.cpu.vmCores, "PC not grown");
+    close(g.storage.afterCompressionTiB, (g.storage.vmsTiB * 2 + g.storage.pcTiB) * 0.5, "compression after growth");
+  });
+
+  it("growth can raise the node count", () => {
+    const big = Array.from({ length: 300 }, () => vm({ vcpu: 8, ramGiB: 32 }));
+    const base = recommendNx(env(big), settings({ modelSku: "NX-8170-G10" })).fit!.totalNodes;
+    const grown = recommendNx(env(big), settings({ modelSku: "NX-8170-G10", growth: { cpu: 1, ram: 1, storage: 1 } })).fit!.totalNodes;
+    assert.ok(grown > base, `${grown} > ${base}`);
+  });
+
+  it("clamps bad or missing values", () => {
+    assert.deepEqual(growthOf({ growth: { cpu: -1, ram: 99, storage: Number.NaN } }), { cpu: 0, ram: 5, storage: 0 });
+    assert.deepEqual(growthOf({} as never), { cpu: 0, ram: 0, storage: 0 });
   });
 });

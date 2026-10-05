@@ -3,9 +3,9 @@
 // leaves the itemised math out.
 
 import { genericCpuClass, isGenericModel } from "@/lib/nx-catalog";
-import type { NodeConfig } from "@/lib/nx-sizer";
+import type { NodeConfig, NxFit } from "@/lib/nx-sizer";
 import { AHV_PRESETS, CVM_PCORES_PER_NODE, SIZING_CONSTANTS, type NxRecommendation } from "@/lib/nx-sizer";
-import { fmtInt, fmtNum, fmtRam, tibToTB } from "@/lib/sizer-format";
+import { fmtInt, fmtNum, fmtRam, fmtStorage, tibToTB } from "@/lib/sizer-format";
 
 export type ReportMeta = {
   customer: string;
@@ -19,6 +19,8 @@ export function driveLabel(drives: { media: string; count: number; sizeTB: numbe
 }
 
 /** The itemised CPU / memory / storage math shown on the sizer page. */
+const pctOf = (fraction: number) => `${fmtNum(fraction * 100, 1)}%`;
+
 export function capacityLines(rec: NxRecommendation): { title: string; rows: [string, string, boolean?][] }[] {
   const fit = rec.fit!;
   const cap = fit.capacity;
@@ -41,6 +43,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
             : `VMs (vCPU / ${s.vcpuPerPcore}`) + (rec.workload.cpuSqlVms ? `, ${rec.workload.cpuSqlVms} SQL at vCPU/${s.sqlVcpuPerPcore})` : ")"),
           fmtNum(d.cpu.vmCores, 2),
         ],
+        ...(d.cpu.growthCores ? ([[`Growth (+${pctOf(s.growth.cpu)})`, `+${fmtNum(d.cpu.growthCores, 2)}`]] as [string, string][]) : []),
         ...(d.cpu.pcCores ? ([[`Prism Central`, fmtNum(d.cpu.pcCores, 2)]] as [string, string][]) : []),
         ["Workload", fmtNum(d.cpu.total, 2), true],
       ],
@@ -56,6 +59,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
         [`Usable on ${working} working nodes`, fmtRam(cap.ram.usable * working)],
         [s.memoryBasis === "consumed" ? `VMs, consumed (${rec.workload.ramMeasuredVms} measured)` : "VMs, provisioned", fmtRam(d.ram.vmGiB)],
         ["AHV per-VM overhead", fmtRam(d.ram.vmOverheadGiB)],
+        ...(d.ram.growthGiB ? ([[`Growth (+${pctOf(s.growth.ram)})`, `+${fmtRam(d.ram.growthGiB)}`]] as [string, string][]) : []),
         ...(d.ram.pcGiB ? ([["Prism Central (+ overhead)", fmtRam(d.ram.pcGiB + d.ram.pcOverheadGiB)]] as [string, string][]) : []),
         ["Workload", fmtRam(d.ram.total), true],
       ],
@@ -70,6 +74,7 @@ export function capacityLines(rec: NxRecommendation): { title: string; rows: [st
         [`Usable raw on ${working} working nodes`, tb(cap.storage.usable * working)],
         [`VM data, ${s.storageBasis}${s.includePoweredOffStorage ? "" : " (powered on)"}`, tb(d.storage.vmsTiB)],
         ...(d.storage.volumeGroupsTiB ? ([["Volume groups with no VM", tb(d.storage.volumeGroupsTiB)]] as [string, string][]) : []),
+        ...(d.storage.growthTiB ? ([[`Growth (+${pctOf(s.growth.storage)})`, `+${tb(d.storage.growthTiB)}`]] as [string, string][]) : []),
         ...(d.storage.pcTiB ? ([["Prism Central", tb(d.storage.pcTiB)]] as [string, string][]) : []),
         ...(d.storage.compressionSavings
           ? ([[`Compression (-${Math.round(d.storage.compressionSavings * 100)}%)`, `-${tb(d.storage.logicalTiB - d.storage.afterCompressionTiB)}`]] as [string, string][])
@@ -135,13 +140,62 @@ export function buildSubtitle(c: NodeConfig): string {
   if (isGenericModel(c.model)) {
     return `Dual-socket, ${c.cpu.coresPerCpu} cores per CPU · ${ramSpec(c.ramGiB)} RAM · ${driveLabel(c.drives)} all-flash`;
   }
-  return `${c.model.formFactor}, ${c.model.socketsPerNode}-socket ${c.model.vendor} ${c.model.cpuFamily}`;
+  if (c.model.envelope) return `${c.model.formFactor}, ${c.sockets}-socket ${c.model.cpuFamily} · partner-built within the spec sheet maxima`;
+  return `${c.model.formFactor}, ${c.sockets}-socket ${c.model.vendor} ${c.model.cpuFamily}`;
 }
 
 /** The CPU line a partner quotes from. */
 export function cpuSpec(c: NodeConfig): string {
   if (isGenericModel(c.model)) {
-    return `${c.model.socketsPerNode} x ${c.cpu.coresPerCpu}-core CPUs (${c.cores} cores per node), ${genericCpuClass(c.cpu.coresPerCpu)}, current generation`;
+    return `${c.sockets} x ${c.cpu.coresPerCpu}-core CPUs (${c.cores} cores per node), ${genericCpuClass(c.cpu.coresPerCpu)}, current generation`;
   }
-  return `${c.model.socketsPerNode} x ${c.cpu.model} (${c.cpu.coresPerCpu} cores, ${c.cpu.baseGHz} GHz)`;
+  if (c.model.envelope) return `${c.sockets} x ${c.cpu.model} (${c.cores} cores per node; partner picks the SKU)`;
+  return `${c.sockets} x ${c.cpu.model} (${c.cpu.coresPerCpu} cores, ${c.cpu.baseGHz} GHz)`;
+}
+
+export type BuildBreakdown = {
+  // Column headers after the row label: per node, one per distinct cluster
+  // size, then the build total when there is more than one cluster.
+  columns: { label: string; detail: string }[];
+  rows: { label: string; values: string[] }[];
+};
+
+/** The build per node, per cluster and in total: hardware, and what is usable after CVM, AHV and the buffer. */
+export function buildBreakdown(fit: NxFit): BuildBreakdown {
+  const c = fit.config;
+  const cap = fit.capacity;
+  // Clusters of the same size share a column ("x 2 clusters").
+  const sizes = new Map<number, { count: number; working: number; failover: number }>();
+  for (const k of fit.clusters) {
+    const e = sizes.get(k.nodes);
+    if (e) e.count += 1;
+    else sizes.set(k.nodes, { count: 1, working: k.workingNodes, failover: k.failoverNodes });
+  }
+  const groups = [...sizes.entries()].sort((a, b) => b[0] - a[0]);
+  const multi = fit.clusters.length > 1;
+  const columns = [
+    { label: "Per node", detail: `${c.sockets} x ${c.cpu.coresPerCpu} cores` },
+    ...groups.map(([nodes, g]) => ({
+      label: multi ? `Per cluster (${nodes} nodes)` : "Per cluster",
+      detail: `${nodes} nodes, N+${g.failover}${g.count > 1 ? ` · x ${g.count} clusters` : ""}`,
+    })),
+    ...(multi ? [{ label: "Build total", detail: `${fit.clusters.length} clusters, ${fit.totalNodes} nodes` }] : []),
+  ];
+  const counts = [1, ...groups.map(([nodes]) => nodes), ...(multi ? [fit.totalNodes] : [])];
+  const workingFor = (i: number) =>
+    i === 0 ? null : i <= groups.length ? groups[i - 1][1].working : fit.clusters.reduce((t, k) => t + k.workingNodes, 0);
+  const row = (label: string, f: (n: number, i: number) => string) => ({ label, values: counts.map((n, i) => f(n, i)) });
+  return {
+    columns,
+    rows: [
+      row("Nodes", (n, i) => (i === 0 ? "1" : `${fmtInt(n)} (${fmtInt(workingFor(i))} after failover)`)),
+      row("Physical cores", (n) => fmtInt(c.cores * n)),
+      row("Usable cores (after CVM)", (n) => fmtInt(cap.cpu.usable * n)),
+      row("RAM (DIMM capacity)", (n) => ramSpec(c.ramGiB * n)),
+      row("Usable RAM", (n) => fmtRam(cap.ram.usable * n)),
+      row("Data drives", (n) => (n === 1 ? driveLabel(c.drives) : `${fmtInt(c.drives.reduce((t, d) => t + d.count, 0) * n)} drives`)),
+      row("Raw storage", (n) => `${fmtNum(c.rawTB * n, 2)} TB`),
+      row("Usable storage (before RF)", (n) => fmtStorage(cap.storage.usable * n, 2)),
+    ],
+  };
 }

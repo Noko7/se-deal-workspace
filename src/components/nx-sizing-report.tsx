@@ -13,7 +13,8 @@ import type { ReactNode } from "react";
 import type { ParsedEnvironment } from "@/lib/simple-sizer-core";
 import type { NxRecommendation } from "@/lib/nx-sizer";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
-import { driveLabel, type ReportMeta } from "@/lib/nx-report";
+import { buildHeadline, buildSubtitle, capacityLines, cpuSpec, driveLabel, ramSpec, storageRequirement, type ReportMeta } from "@/lib/nx-report";
+import { NX_USE_CASES, isGenericModel } from "@/lib/nx-catalog";
 
 const SOURCE_LABEL = { collector_excel: "Nutanix Collector", rvtools: "RVTools", liveoptics: "LiveOptics" } as const;
 const DRIVER_LABEL = { cpu: "CPU workload", ram: "Memory workload", storage: "Storage workload" } as const;
@@ -32,6 +33,11 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
   const target = Math.round(s.targetUtilization * 100);
   const pct = (v: number) => `${fmtNum(v, 0)}%`;
   const notes = [...rec.warnings, ...parsed.notes];
+  const sr = storageRequirement(rec);
+  const generic = isGenericModel(c.model);
+  const n = fit.totalNodes;
+  const tb = (tib: number) => fmtStorage(tib, 1);
+  const copies = s.rf === 3 ? "three times" : "twice";
 
   const layout = multi ? `${fit.clusters.length} clusters of ${fit.clusters.map((k) => k.nodes).join(" + ")} nodes` : `1 cluster of ${fit.totalNodes} nodes`;
   const failover =
@@ -39,9 +45,10 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
   const lostLabel = `${s.failoverNodes} node${s.failoverNodes === 1 ? "" : "s"} down${multi ? " per cluster" : ""}`;
 
   const cpuBasis =
-    s.cpuBasis === "utilization"
+    (s.cpuBasis === "utilization"
       ? `CPU from measured 95th-percentile use (vCPU / ${s.vcpuPerPcore} where not measured)`
-      : `CPU at configured vCPU / ${s.vcpuPerPcore}`;
+      : `CPU at configured vCPU / ${s.vcpuPerPcore}`) +
+    (w.cpuSqlVms ? `, and ${w.cpuSqlVms} SQL VM${w.cpuSqlVms === 1 ? "" : "s"} at vCPU / ${s.sqlVcpuPerPcore}` : "");
   const ramBasis = s.memoryBasis === "consumed" ? "memory from measured 95th-percentile use (provisioned where not measured)" : "memory as provisioned";
   const storageBasis = `storage as ${s.storageBasis}${s.includePoweredOffStorage ? ", including powered-off VMs" : ", powered-on VMs only"}`;
   const reduction = s.compressionSavings ? `${Math.round(s.compressionSavings * 100)}% compression savings assumed.` : "No data reduction assumed.";
@@ -49,7 +56,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
   return (
     <article className="sizer-report bg-white text-[12px] leading-relaxed text-charcoal-900">
       <header className="border-b-2 border-iris-500 pb-5">
-        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-iris-600">Nutanix NX hardware sizing</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-iris-600">{generic ? "Nutanix hardware requirement" : "Nutanix NX hardware sizing"}</p>
         <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-tight">{meta.customer || "Customer environment"}</h1>
         <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1 text-[10.5px] text-charcoal-600">
           <span>Prepared by: {meta.preparedBy || "-"}</span>
@@ -62,11 +69,9 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
       <Section title="Recommendation">
         <div className="rounded-lg border border-iris-200 bg-iris-50 px-6 py-5">
           <p className="text-[22px] font-semibold leading-tight tracking-tight">
-            {fit.totalNodes} x {c.model.sku}
+            {buildHeadline(fit.totalNodes, c)}
           </p>
-          <p className="mt-1 text-charcoal-700">
-            {c.model.formFactor}, {c.model.socketsPerNode}-socket {c.model.vendor} {c.model.cpuFamily}
-          </p>
+          <p className="mt-1 text-charcoal-700">{buildSubtitle(c)}</p>
           <dl className="mt-5 grid grid-cols-3 gap-x-6 gap-y-4">
             <Fact label="Cluster layout">{layout}</Fact>
             <Fact label="Data protection">RF{s.rf}</Fact>
@@ -83,13 +88,41 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
           textValues
           head={["Component", "Specification"]}
           rows={[
-            ["CPU", `${c.model.socketsPerNode} x ${c.cpu.model} (${c.cpu.coresPerCpu} cores, ${c.cpu.baseGHz} GHz)`],
+            ["CPU", cpuSpec(c)],
             ["Physical cores", fmtInt(c.cores)],
-            ["Memory", fmtRam(c.ramGiB)],
+            ["Memory", `${ramSpec(c.ramGiB)} (DIMM capacity)`],
             ["Data drives", driveLabel(c.drives)],
-            ["Raw storage", `${fmtNum(c.rawTB, 1)} TB`],
+            ["Raw flash capacity", `${tb(sr.node.rawTiB)} per node (${tb(sr.node.rawTiB * n)} across ${n} nodes)`],
           ]}
         />
+      </Section>
+
+      <Section title="Storage: raw drive capacity">
+        <Table
+          head={["", "Per node", `Cluster (${n} nodes)`]}
+          rows={[
+            ["Raw drive capacity in this build", tb(sr.node.rawTiB), tb(sr.node.rawTiB * n)],
+            ["Less Nutanix CVM reserve", `-${tb(sr.node.cvmTiB)}`, `-${tb(sr.node.cvmTiB * n)}`],
+            ["Less 5% safety buffer", `-${tb(sr.node.bufferTiB)}`, `-${tb(sr.node.bufferTiB * n)}`],
+            ["Usable raw capacity", tb(sr.node.usableTiB), tb(sr.node.usableTiB * n)],
+            [`Raw space the workload uses (RF${s.rf})`, tb(sr.workloadRawTiB / n), tb(sr.workloadRawTiB)],
+          ]}
+          strongRows={[3, 4]}
+        />
+        <div className="mt-4 rounded-lg border border-charcoal-200 bg-charcoal-50 px-5 py-4">
+          <p className="text-[9.5px] font-medium uppercase tracking-[0.12em] text-charcoal-600">Minimum raw flash required</p>
+          <p className="mt-1 text-[16px] font-semibold">
+            {tb(sr.node.minRawTiB)} per node · {tb(sr.node.minRawTiB * n)} per cluster
+          </p>
+          <p className="mt-1 text-[10.5px] text-charcoal-700">
+            The least raw drive capacity that carries this workload {sr.target < 1 ? `at ${target}% with all ${n} nodes up` : "at the failover limit"}
+            {s.failoverNodes > 0 ? ` and still fits with ${lostLabel}` : ""}, after the CVM reserve and safety buffer. Any all-flash layout at or above this works; the build above
+            installs {tb(sr.node.rawTiB)} per node.
+          </p>
+        </div>
+        <p className="mt-3 text-[10.5px] text-charcoal-600">
+          The VMs store {tb(sr.dataTiB)} of data. RF{s.rf} keeps every block {copies}, so that data takes {tb(sr.workloadRawTiB)} of raw drive space across the cluster.
+        </p>
       </Section>
 
       <Section title="Cluster capacity and utilization">
@@ -111,7 +144,7 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             ],
             ["Memory", fmtRam(fit.totalNodes * cap.ram.usable), fmtRam(d.ram.total), pct(u.ram.allUp), ...(s.failoverNodes > 0 ? [pct(u.ram.failover)] : [])],
             [
-              `Storage (raw, RF${s.rf})`,
+              `Storage (usable raw, RF${s.rf})`,
               fmtStorage(fit.totalNodes * cap.storage.usable, 1),
               fmtStorage(d.storage.rawTiB, 1),
               pct(u.storage.allUp),
@@ -153,11 +186,10 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
             {fmtRam(cap.ram.ahvHostGiB)} of memory for AHV, CVM metadata storage, and a 5% safety buffer on memory and storage.
           </li>
           <li>
-            <strong>Model choice:</strong>{" "}
-            {s.modelSku === "auto"
-              ? `${c.model.sku}, chosen automatically as the smallest NX model in the sizing order that fits the largest VM on one node.`
-              : `${c.model.sku} was selected by the SE.`}{" "}
-            Within it, the configuration with the fewest total cores is used, since NCI is licensed per core.
+            <strong>{generic ? "Hardware" : "Model choice"}:</strong>{" "}
+            {generic
+              ? "generic hardware. The fewest nodes that carry the workload are used, each sized up to 256 cores, 2 TB of RAM and 184 TB of raw all-flash; then the fewest total cores, since NCI is licensed per core. Any partner platform that meets or exceeds this per-node specification qualifies."
+              : `${s.modelSku === "auto" ? `${c.model.sku}, chosen for ${NX_USE_CASES[s.useCase].label.toLowerCase()} as the model that needs the fewest nodes.` : `${c.model.sku} was selected by the SE.`} Within it, the configuration with the fewest total cores is used, since NCI is licensed per core.`}
           </li>
         </ul>
       </Section>
@@ -172,8 +204,31 @@ export function SizingReport({ parsed, rec, meta }: { parsed: ParsedEnvironment;
         </Section>
       ) : null}
 
+      {meta.includeDetail ? (
+        <div className="sizer-appendix">
+          <h2 className="border-b border-charcoal-200 pb-1 text-[14px] font-semibold text-charcoal-900">Appendix: platform overhead and capacity math</h2>
+          <p className="mt-2 text-[10.5px] text-charcoal-600">
+            What each node gives up to the Nutanix platform, and how the workload is totalled. {working} of {n} nodes carry the workload with {s.failoverNodes} node
+            {s.failoverNodes === 1 ? "" : "s"} down.
+          </p>
+          {capacityLines(rec).map((block) => (
+            <section key={block.title} className="mt-6">
+              <h3 className="mb-2 text-[12px] font-semibold">{block.title}</h3>
+              <Table
+                head={["Item", "Value"]}
+                rows={block.rows.map(([k, v]) => [k, v])}
+                strongRows={block.rows.flatMap(([, , strong], i) => (strong ? [i] : []))}
+              />
+            </section>
+          ))}
+        </div>
+      ) : null}
+
       <footer className="mt-10 border-t border-charcoal-200 pt-3 text-[9.5px] leading-normal text-charcoal-500">
-        {UNIT_FOOTNOTE} Hardware options from Nutanix NX G10 System Specifications. Final part numbers and DIMM layouts are confirmed with the build partner.
+        {UNIT_FOOTNOTE} {generic
+          ? "This is a minimum per-node requirement; a partner may meet it with any Nutanix-qualified platform, with equal or larger CPU, memory or drives."
+          : "Hardware options from Nutanix NX G10 System Specifications."}{" "}
+        Final part numbers and DIMM layouts are confirmed with the build partner.
       </footer>
     </article>
   );
@@ -199,14 +254,24 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Numeric columns right-align; `textValues` left-aligns them for specifications. */
-function Table({ head, rows, textValues = false }: { head: string[]; rows: string[][]; textValues?: boolean }) {
+function Table({
+  head,
+  rows,
+  textValues = false,
+  strongRows = [],
+}: {
+  head: string[];
+  rows: string[][];
+  textValues?: boolean;
+  strongRows?: number[];
+}) {
   const valueAlign = textValues ? "text-left" : "text-right tabular-nums";
   return (
     <table className="w-full border-collapse">
       <thead>
         <tr className="bg-charcoal-50">
           {head.map((h, i) => (
-            <th key={h} className={`border-b border-charcoal-300 px-3 py-2 font-semibold ${i > 0 ? valueAlign : "text-left"} ${textValues && i === 0 ? "w-40" : ""}`}>
+            <th key={`${i}-${h}`} className={`border-b border-charcoal-300 px-3 py-2 font-semibold ${i > 0 ? valueAlign : "text-left"} ${textValues && i === 0 ? "w-40" : ""}`}>
               {h}
             </th>
           ))}
@@ -214,7 +279,7 @@ function Table({ head, rows, textValues = false }: { head: string[]; rows: strin
       </thead>
       <tbody>
         {rows.map((r, ri) => (
-          <tr key={ri} className="border-b border-charcoal-100">
+          <tr key={ri} className={`border-b border-charcoal-100 ${strongRows.includes(ri) ? "font-semibold" : ""}`}>
             {r.map((cell, i) => (
               <td key={i} className={`px-3 py-2 align-top ${i > 0 ? valueAlign : "text-charcoal-700"}`}>
                 {cell}

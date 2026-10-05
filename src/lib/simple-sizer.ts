@@ -33,6 +33,7 @@ import {
   type Unit,
   type UnitResolution,
 } from "@/lib/sizer-units";
+import { fmtStorage } from "@/lib/sizer-format";
 
 class ParseWorkbookError extends Error {
   constructor(message: string) {
@@ -84,16 +85,17 @@ function headersFor(rows: Record<string, unknown>[]): string[] {
 // Physical NICs per host. Optional and additive: no export is required to carry
 // them, and nothing here feeds the sizing maths.
 const NIC_COUNT_HEADERS = ["# NICs", "NICs", "NIC Count", "Number of NICs", "Num NICs", "# Network Adapters", "Network Adapters"];
-const NIC_SHEETS = ["vNIC", "vNICs", "vPNIC", "vHostNIC", "vPhysicalNIC", "Host NICs", "NICs"];
+const NIC_SHEETS = ["vNics", "vNIC", "vNICs", "vPNIC", "vHostNIC", "vPhysicalNIC", "Host NICs", "NICs"];
 
 function buildNicLookup(workbook: XLSX.WorkBook): (hostKeys: string[]) => HostNic[] {
   const sheet = rowsFromSheet(workbook, NIC_SHEETS);
   if (!sheet.rows.length) return () => [];
   const headers = headersFor(sheet.rows);
   const hostCol = firstHeader(headers, ["Host", "Host Name", "Hostname", "Host MOID"]);
-  const nameCol = firstHeader(headers, ["Device", "Network Adapter", "Adapter", "NIC", "Name"]);
+  const nameCol = firstHeader(headers, ["Network Device", "Device", "Network Adapter", "Adapter", "NIC", "Name"]);
   const speedCol = firstHeader(headers, ["Speed (Mbps)", "Link Speed", "Speed"]);
-  const driverCol = firstHeader(headers, ["Driver"]);
+  const driverCol = firstHeader(headers, ["Drivers", "Driver"]);
+  const statusCol = firstHeader(headers, ["Host Nic Status", "Link Status", "Status"]);
   const macCol = firstHeader(headers, ["MAC", "MAC Address"]);
   if (!hostCol) return () => [];
   const byHost = new Map<string, HostNic[]>();
@@ -106,8 +108,41 @@ function buildNicLookup(workbook: XLSX.WorkBook): (hostKeys: string[]) => HostNi
       speedMbps: speed > 0 ? speed : null,
       driver: str(driverCol ? row[driverCol] : "") || null,
       mac: str(macCol ? row[macCol] : "") || null,
+      status: str(statusCol ? row[statusCol] : "") || null,
     };
     byHost.set(key, [...(byHost.get(key) ?? []), nic]);
+  }
+  return (hostKeys) => {
+    for (const k of hostKeys) {
+      const hit = byHost.get(k.toLowerCase());
+      if (hit) return hit;
+    }
+    return [];
+  };
+}
+
+// Nutanix Insights / Collector exports of AHV clusters list NIC cards per host
+// on "Node Details" as NIC1..NIC3 SKU + quantity (e.g. C-NIC-25GSFP2-A-CM x 2).
+function buildNodeDetailNics(workbook: XLSX.WorkBook): (hostKeys: string[]) => HostNic[] {
+  const sheet = rowsFromSheet(workbook, ["Node Details"]);
+  if (!sheet.rows.length) return () => [];
+  const headers = headersFor(sheet.rows);
+  const hostCol = firstHeader(headers, ["Host Name"]);
+  const moidCol = firstHeader(headers, ["MOID"]);
+  const byHost = new Map<string, HostNic[]>();
+  for (const row of sheet.rows) {
+    const nics: HostNic[] = [];
+    for (const n of [1, 2, 3, 4]) {
+      const sku = str(row[`NIC${n} SKU`]);
+      const qty = Math.round(toNum(row[`NIC${n} Quantity`]));
+      if (!sku || qty <= 0) continue;
+      const gb = /(\d+)G/i.exec(sku.replace(/^C-NIC-/i, ""));
+      for (let i = 0; i < qty; i++) nics.push({ name: sku, speedMbps: gb ? Number(gb[1]) * 1000 : null, driver: null, mac: null });
+    }
+    for (const col of [hostCol, moidCol]) {
+      const key = col ? str(row[col]).toLowerCase() : "";
+      if (key && nics.length) byHost.set(key, nics);
+    }
   }
   return (hostKeys) => {
     for (const k of hostKeys) {
@@ -525,10 +560,10 @@ function observedFromHosts(hosts: HostRecord[], basis: UtilizationBasis, source:
  * Rows whose VM is not in the inventory but which belong to a volume group are
  * kept as unowned volume groups; any other unmatched row is counted and reported.
  */
-type StorageTotals = { provisionedGiB: number; consumedGiB: number; hasPartitions: boolean; hasDisks: boolean };
+type StorageTotals = { provisionedGiB: number; consumedGiB: number; hasPartitions: boolean; hasDisks: boolean; offDiskGiB: number };
 
 function emptyStorage(): StorageTotals {
-  return { provisionedGiB: 0, consumedGiB: 0, hasPartitions: false, hasDisks: false };
+  return { provisionedGiB: 0, consumedGiB: 0, hasPartitions: false, hasDisks: false, offDiskGiB: 0 };
 }
 
 function isTrue(value: unknown): boolean {
@@ -611,7 +646,12 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
   const hostCpuPctCol = firstHeader(hostHeaders, ["CPU Usage %", "CPU Usage"]);
   const hostMemPctCol = firstHeader(hostHeaders, ["Memory Usage %", "Memory Usage"]);
   const hostNicCountCol = firstHeader(hostHeaders, NIC_COUNT_HEADERS);
-  const nicsFor = buildNicLookup(workbook);
+  const nicSheetFor = buildNicLookup(workbook);
+  const nodeDetailFor = buildNodeDetailNics(workbook);
+  const nicsFor = (keys: string[]) => {
+    const fromSheet = nicSheetFor(keys);
+    return fromSheet.length ? fromSheet : nodeDetailFor(keys);
+  };
 
   const hostMemory = readCapacity(
     vhosts.rows,
@@ -930,10 +970,31 @@ function parseCollector(workbook: XLSX.WorkBook, fileName: string, fileSizeBytes
       continue;
     }
     const row = vmByName.has(vm.name.toLowerCase()) ? listByName.get(vm.name.toLowerCase()) : undefined;
-    if (row && listConsumed.resolution.unit) {
+    // A blank cell is "not reported", not zero: leave the VM on provisioned.
+    if (row && listConsumed.resolution.unit && hasValues([row], listConsumed.resolution.header)) {
       vm.storage.consumedGiB = listConsumed.valueGiB(row);
       vm.consumedSource = "vm-level";
     }
+  }
+
+  // Guest volumes that are not on the VM's virtual disks (in-guest iSCSI, a
+  // mapped LUN, a mounted share) show up as partitions bigger than the disks.
+  // That data is not part of the VM, so a handful of such VMs are capped at
+  // their disk capacity and named. When most VMs look like this, the columns
+  // are wrong instead, and the plausibility check blocks the build.
+  const withDisks = Array.from(vms.values()).filter((vm) => vm.storage.hasDisks && vm.storage.provisionedGiB > 0);
+  const offDisk = withDisks.filter((vm) => vm.storage.consumedGiB > vm.storage.provisionedGiB * 1.05);
+  if (offDisk.length && offDisk.length <= Math.max(3, withDisks.length * 0.1)) {
+    for (const vm of offDisk) {
+      vm.storage.offDiskGiB = vm.storage.consumedGiB - vm.storage.provisionedGiB;
+      vm.storage.consumedGiB = vm.storage.provisionedGiB;
+    }
+    const big = offDisk
+      .sort((a, b) => b.storage.offDiskGiB - a.storage.offDiskGiB)
+      .map((vm) => `${vm.name} (${fmtStorage(vm.storage.offDiskGiB / GIB_PER_TIB, 2)})`);
+    notes.push(
+      `${offDisk.length} VM(s) report more used space inside the guest than their virtual disks hold, usually in-guest iSCSI or a mapped LUN: ${big.join(", ")}. That storage is not on the VMs' disks and is not counted; each is capped at its disk capacity. Edit the VM's storage if that data moves to Nutanix.`,
+    );
   }
   if (orphanRows) notes.push(`${orphanRows} disk/partition row(s) reference a VM missing from vInfo and are not part of a volume group; they are not counted.`);
 

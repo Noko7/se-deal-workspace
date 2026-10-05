@@ -13,7 +13,7 @@
 // value was decided by the sizing owner because neither reference document
 // states one.
 
-import { AUTO_ORDER, NX_MODELS, findNxModel, type DriveLayout, type NxCpu, type NxModel } from "@/lib/nx-catalog";
+import { GENERIC_MODEL, GENERIC_SKU, NX_MODELS, NX_USE_CASES, findNxModel, type NxUseCase, type DriveLayout, type NxCpu, type NxModel } from "@/lib/nx-catalog";
 import { applyAdjustment, type ParsedEnvironment, type VmAdjustments, type VmRecord } from "@/lib/simple-sizer-core";
 
 const GIB = 1024 ** 3;
@@ -141,13 +141,20 @@ export const PC_PROFILES: PcProfile[] = [
 // ---------------------------------------------------------------------------
 
 export type NxSizerSettings = {
-  // "auto" steps through AUTO_ORDER starting with NX-1175S-G10.
+  // "Generic" sizes vendor-neutral hardware with the fewest nodes (default).
+  // "auto" picks among the NX models for `useCase`. Anything else is a fixed
+  // NX model.
   modelSku: "auto" | string;
+  useCase: NxUseCase;
   workloadBasis: "poweredOn" | "all";
   // "utilization": each VM's 95th-percentile CPU, falling back to vCPU / ratio
   // where the export has none. "configuration": vCPU / ratio for every VM.
   cpuBasis: "utilization" | "configuration";
   vcpuPerPcore: number;
+  // VMs whose name contains "SQL" are sized at vCPU / this ratio whatever the
+  // CPU basis: database servers get a fixed, conservative overcommit instead of
+  // measured use. 0 turns the rule off.
+  sqlVcpuPerPcore: number;
   // "consumed": each VM's 95th-percentile memory where the export has it,
   // falling back to configured memory.
   memoryBasis: "provisioned" | "consumed";
@@ -170,10 +177,12 @@ export type NxSizerSettings = {
 };
 
 export const DEFAULT_NX_SETTINGS: NxSizerSettings = {
-  modelSku: "auto",
+  modelSku: GENERIC_SKU,
+  useCase: "general",
   workloadBasis: "poweredOn",
   cpuBasis: "utilization",
   vcpuPerPcore: 4,
+  sqlVcpuPerPcore: 2,
   memoryBasis: "provisioned",
   storageBasis: "consumed",
   includePoweredOffStorage: true,
@@ -204,6 +213,8 @@ export type NxWorkload = {
   cpuCores: number;
   cpuMeasuredVms: number;
   cpuFallbackVms: number;
+  // Running VMs with "SQL" in the name, sized at vCPU / sqlVcpuPerPcore.
+  cpuSqlVms: number;
   ramGiB: number;
   // Running VMs sized on measured memory (consumed basis only).
   ramMeasuredVms: number;
@@ -257,13 +268,19 @@ export function vmStorageTiB(vm: VmRecord, basis: "consumed" | "provisioned"): n
   return vm.storageConsumedTiB;
 }
 
+export function isSqlVm(vm: { name: string }): boolean {
+  return /sql/i.test(vm.name);
+}
+
 export function vmCpuCores(
   vm: VmRecord,
   vcpuPerPcore: number,
   basis: NxSizerSettings["cpuBasis"] = "utilization",
-): { cores: number; measured: boolean } {
-  if (basis === "utilization" && vm.cpuUsed.p95 != null) return { cores: vm.cpuUsed.p95, measured: true };
-  return { cores: vm.vcpu / Math.max(1, vcpuPerPcore), measured: false };
+  sqlVcpuPerPcore = 0,
+): { cores: number; measured: boolean; sql: boolean } {
+  if (sqlVcpuPerPcore > 0 && isSqlVm(vm)) return { cores: vm.vcpu / sqlVcpuPerPcore, measured: false, sql: true };
+  if (basis === "utilization" && vm.cpuUsed.p95 != null) return { cores: vm.cpuUsed.p95, measured: true, sql: false };
+  return { cores: vm.vcpu / Math.max(1, vcpuPerPcore), measured: false, sql: false };
 }
 
 export function vmRamGiB(vm: VmRecord, basis: NxSizerSettings["memoryBasis"]): { ramGiB: number; measured: boolean } {
@@ -275,12 +292,14 @@ export function buildWorkload(parsed: ParsedEnvironment, settings: NxSizerSettin
   const { kept, running, excluded } = selectVms(parsed, settings);
   let cpuCores = 0;
   let measured = 0;
+  let sql = 0;
   let ramGiB = 0;
   let ramMeasured = 0;
   for (const vm of running) {
-    const c = vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis);
+    const c = vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis, settings.sqlVcpuPerPcore);
     cpuCores += c.cores;
     if (c.measured) measured += 1;
+    if (c.sql) sql += 1;
     const r = vmRamGiB(vm, settings.memoryBasis);
     ramGiB += r.ramGiB;
     if (r.measured) ramMeasured += 1;
@@ -306,7 +325,8 @@ export function buildWorkload(parsed: ParsedEnvironment, settings: NxSizerSettin
     vcpu: running.reduce((s, vm) => s + vm.vcpu, 0),
     cpuCores,
     cpuMeasuredVms: measured,
-    cpuFallbackVms: running.length - measured,
+    cpuFallbackVms: running.length - measured - sql,
+    cpuSqlVms: sql,
     ramGiB,
     ramMeasuredVms: ramMeasured,
     storage: {
@@ -569,15 +589,19 @@ export function fitConfig(config: NodeConfig, demand: NxDemand, workload: NxWork
         ? "ram"
         : "cpu";
 
-  // The largest VM must fit inside one node's usable envelope (user ruling:
-  // vCPU <= node cores - CVM cores; RAM <= usable RAM after CVM, AHV, buffer).
+  // The largest VM must fit on one node. AHV will not start a VM with more vCPU
+  // than the host has physical cores (AHV configuration maximums), so vCPU is
+  // checked against the node's physical cores. The CVM's share is not taken
+  // off: the VM's CPU load is already in the cluster workload. RAM must fit in
+  // the usable RAM after CVM, AHV and the buffer.
   const ahv = AHV_PRESETS[settings.ahvPreset];
+  const threads = config.cores;
   const reasons: string[] = [];
   for (const vm of [workload.largestVm.byVcpu, workload.largestVm.byRam]) {
     if (!vm) continue;
     const ramNeed = vm.ramGiB + perVmOverheadGiB(ahv, vm.vcpu, vm.ramGiB);
-    if (vm.vcpu > capacity.cpu.usable) {
-      reasons.push(`${vm.name}: ${vm.vcpu} vCPU exceeds ${capacity.cpu.usable} usable cores per node`);
+    if (vm.vcpu > threads) {
+      reasons.push(`${vm.name}: ${vm.vcpu} vCPU exceeds ${threads} physical cores per node`);
     }
     if (ramNeed > capacity.ram.usable) {
       reasons.push(`${vm.name}: RAM exceeds usable RAM per node`);
@@ -610,11 +634,19 @@ function better(a: NxFit, b: NxFit): boolean {
   return a.config.rawTB < b.config.rawTB;
 }
 
+// Generic hardware: fewest nodes first (fewer, denser nodes), then fewest
+// cores, then the least RAM and raw storage.
+function denser(a: NxFit, b: NxFit): boolean {
+  if (a.totalNodes !== b.totalNodes) return a.totalNodes < b.totalNodes;
+  return better(a, b);
+}
+
 export function bestFitForModel(
   model: NxModel,
   demand: NxDemand,
   workload: NxWorkload,
   settings: NxSizerSettings,
+  prefer: (a: NxFit, b: NxFit) => boolean = better,
 ): { best: NxFit | null; anyLargestVmFit: boolean; reason: string | null } {
   let best: NxFit | null = null;
   let lastReason: string | null = null;
@@ -625,7 +657,7 @@ export function bestFitForModel(
       lastReason = fit.largestVmReason;
       continue;
     }
-    if (!best || better(fit, best)) best = fit;
+    if (!best || prefer(fit, best)) best = fit;
   }
   return { best, anyLargestVmFit: best != null, reason: best ? null : lastReason };
 }
@@ -675,7 +707,12 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
   const blockers: string[] = parsed.plausibility.map((p) => `${p.field}: ${p.observed} (expected ${p.expected}). ${p.detail}`);
 
   let fit: NxFit | null = null;
-  if (settings.modelSku !== "auto") {
+  if (settings.modelSku === GENERIC_SKU) {
+    const r = bestFitForModel(GENERIC_MODEL, demand, workload, settings, denser);
+    attempts.push({ sku: GENERIC_SKU, fits: r.best != null, reason: r.reason });
+    fit = r.best;
+    if (!fit) blockers.push(`No generic node up to 256 cores and 2 TiB of RAM can host the largest VM (${r.reason}).`);
+  } else if (settings.modelSku !== "auto") {
     const model = findNxModel(settings.modelSku);
     if (!model || model.excluded) {
       blockers.push(`${settings.modelSku} is not an approved HCI model for VM sizing.`);
@@ -686,20 +723,19 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
       if (!fit) blockers.push(`No ${model.sku} configuration can host the largest VM (${r.reason}). Choose a larger model.`);
     }
   } else {
-    // Step through the approved order; a model is passed over only when no
-    // configuration of it can host the largest VM (user ruling).
-    for (const sku of AUTO_ORDER) {
+    // Every model listed for the use case is sized at its densest configuration;
+    // the one needing the fewest nodes wins, then the fewest cores. A model is passed over only when no
+    // configuration of it can host the largest VM.
+    const useCase = NX_USE_CASES[settings.useCase] ?? NX_USE_CASES.general;
+    for (const sku of useCase.models) {
       const model = findNxModel(sku);
-      if (!model) continue;
-      const r = bestFitForModel(model, demand, workload, settings);
+      if (!model || model.excluded) continue;
+      const r = bestFitForModel(model, demand, workload, settings, denser);
       attempts.push({ sku, fits: r.best != null, reason: r.reason });
-      if (r.best) {
-        fit = r.best;
-        break;
-      }
+      if (r.best && (!fit || denser(r.best, fit))) fit = r.best;
     }
     if (!fit) {
-      blockers.push("No approved NX model can host the largest VM on a single node.");
+      blockers.push(`No ${useCase.label} NX model can host the largest VM on a single node.`);
     }
   }
 
@@ -719,6 +755,11 @@ export function recommendNx(parsed: ParsedEnvironment, settings: NxSizerSettings
   if (settings.cpuBasis === "utilization" && workload.cpuFallbackVms > 0) {
     warnings.push(
       `${workload.cpuFallbackVms} of ${workload.runningVms} running VMs have no 95th-percentile CPU figure and are sized at vCPU / ${settings.vcpuPerPcore}.`,
+    );
+  }
+  if (workload.cpuSqlVms > 0) {
+    warnings.push(
+      `${workload.cpuSqlVms} running VM(s) with "SQL" in the name are sized at vCPU / ${settings.sqlVcpuPerPcore} (${settings.sqlVcpuPerPcore}:1), not measured use.`,
     );
   }
   if (workload.storage.basis === "consumed" && workload.storage.provisionedFallbackVms > 0) {

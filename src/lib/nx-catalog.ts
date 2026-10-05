@@ -17,7 +17,8 @@
 //   - NX-9183-G10: minimum 4 drives (spec table also shows 0).
 //   - NST (NVMe Storage Tier) configs are excluded (NUS-only), SED variants are
 //     excluded (same capacities), compute-only (0 drive) configs are excluded.
-//   - autoEligible = may be chosen by the automatic step-through (see AUTO_ORDER).
+//   - autoEligible = recorded from the original sizing order; NX Auto now picks
+//     from the models listed for a use case (see NX_USE_CASES).
 //     NX-1120AS-G10 is selectable but not auto. NX-8155AS-G10 (storage-only),
 //     NX-9183-G10 (GPU-required) and NX-8150G-G10 (GPU platform) are excluded.
 //
@@ -564,17 +565,90 @@ export const NX_MODELS: NxModel[] = [
   },
 ];
 
-// Order the automatic step-through tries models in (first that fits wins).
-export const AUTO_ORDER: string[] = [
-  "NX-1175S-G10",
-  "NX-3060S-G10",
-  "NX-3035-G10",
-  "NX-8173AS-G10",
-  "NX-8170-G10",
-  "NX-8170A-G10",
-  "NX-8150-G10",
-];
-
 export function findNxModel(sku: string): NxModel | null {
   return NX_MODELS.find((m) => m.sku === sku) ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Generic hardware: a vendor-neutral requirement a build partner can fulfil.
+// Not an NX model and never in a use case list. Bounds follow current dual-socket
+// x86 servers and Nutanix limits:
+//   - AHV will not start a VM with more vCPU than the host's physical cores
+//     (Nutanix AHV configuration maximums), so cores per node are checked
+//     against the largest VM.
+//   - Up to 2 x 128 cores (AMD EPYC 9005) = 256 cores per node.
+//   - Up to 2 TiB RAM per node (user ruling; AHV allows more).
+//   - All-flash NVMe up to 12 x 15.36 TB = 184.32 TB raw, inside the 185 TB
+//     all-flash per-node figure supported for 1-hour RPO on NCI 7.5.
+// ---------------------------------------------------------------------------
+
+export const GENERIC_SKU = "Generic";
+
+export const GENERIC_MODEL: NxModel = {
+  sku: GENERIC_SKU,
+  vendor: "Intel",
+  cpuFamily: "x86 (Intel Xeon or AMD EPYC)",
+  formFactor: "Any",
+  nodesPerBlock: 1,
+  socketsPerNode: 2,
+  cpus: [8, 12, 16, 20, 24, 28, 32, 36, 48, 64, 72, 96, 128].map((c) => ({ model: `${c}-core x86 CPU`, coresPerCpu: c, baseGHz: 0 })),
+  ramTotalsGiB: [256, 384, 512, 768, 1024, 1536, 2048],
+  ramNote: "Any balanced DIMM population giving the stated total.",
+  drives: [{ kind: "uniform", media: "NVMe", counts: [2, 4, 6, 8, 10, 12], sizesTB: [1.92, 3.84, 7.68, 15.36] }],
+  bootDevice: null,
+  psu: "Redundant",
+  excluded: false,
+  excludedReason: null,
+  autoEligible: false,
+  sources: ["Nutanix AHV configuration maximums", "Nutanix NCI 7.5 all-flash per-node capacity"],
+  notes: [],
+};
+
+export function isGenericModel(model: NxModel): boolean {
+  return model.sku === GENERIC_SKU;
+}
+
+/** The CPU class a partner should quote for a given core count per socket. */
+export function genericCpuClass(coresPerSocket: number): string {
+  if (coresPerSocket <= 32) return "Intel Xeon Gold / Xeon 6, or AMD EPYC";
+  if (coresPerSocket <= 86) return "Intel Xeon 6 / Platinum, or AMD EPYC";
+  return "AMD EPYC or Intel Xeon 6 (high core count)";
+}
+
+// ---------------------------------------------------------------------------
+// Use cases (SE positioning guide). NX Auto only considers the models listed
+// for the chosen use case, then picks the one needing the fewest nodes, then
+// the fewest cores. Small single-socket nodes (1120AS, 1175S) are ROBO/edge
+// profiles and are not offered for general consolidation. GPU platforms
+// (8150G, 9183) and the storage-only 8155AS stay excluded from VM sizing.
+// ---------------------------------------------------------------------------
+
+export type NxUseCase = "general" | "database" | "robo" | "vdi" | "storage";
+
+export const NX_USE_CASES: Record<NxUseCase, { label: string; helper: string; models: string[] }> = {
+  general: {
+    label: "General virtualization / consolidation",
+    helper: "Dual-socket platforms: NX-3035, NX-8170, NX-8150, NX-8170A.",
+    models: ["NX-3035-G10", "NX-8170-G10", "NX-8150-G10", "NX-8170A-G10"],
+  },
+  database: {
+    label: "Databases / business-critical / high memory",
+    helper: "NX-8170, NX-8150 (up to 4 TB RAM), NX-8170A.",
+    models: ["NX-8170-G10", "NX-8150-G10", "NX-8170A-G10"],
+  },
+  robo: {
+    label: "ROBO / edge / small sites",
+    helper: "NX-1120AS, NX-1175S, NX-3035: low cost, small node profiles.",
+    models: ["NX-1120AS-G10", "NX-1175S-G10", "NX-3035-G10"],
+  },
+  vdi: {
+    label: "Dense VDI / compute-dense, space-constrained",
+    helper: "NX-3060S (2U/4-node), NX-3035. No GPU.",
+    models: ["NX-3060S-G10", "NX-3035-G10"],
+  },
+  storage: {
+    label: "Storage-heavy (Files, Objects, unstructured data)",
+    helper: "NX-8173AS (16 E3.S drives), NX-8150 (up to 20 drives).",
+    models: ["NX-8173AS-G10", "NX-8150-G10"],
+  },
+};

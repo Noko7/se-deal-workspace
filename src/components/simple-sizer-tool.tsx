@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, FileDown, FileSpreadsheet, RotateCcw, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { parseSizerWorkbook } from "@/lib/simple-sizer";
@@ -21,7 +21,8 @@ import {
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage, gibToGB, tibToTB } from "@/lib/sizer-format";
 import { SizingReport } from "@/components/nx-sizing-report";
 import { ImportedPanel } from "@/components/sizer-imported";
-import { capacityLines, driveLabel, type ReportMeta } from "@/lib/nx-report";
+import { buildHeadline, buildSubtitle, capacityLines, cpuSpec, driveLabel, ramSpec, type ReportMeta } from "@/lib/nx-report";
+import { GENERIC_SKU, NX_USE_CASES, type NxUseCase } from "@/lib/nx-catalog";
 
 const ICON = { strokeWidth: 1.5 } as const;
 const PRESS = "transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]";
@@ -38,10 +39,18 @@ export function SimpleSizerTool() {
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedEnvironment | null>(null);
   const [settings, setSettings] = useState<NxSizerSettings>(DEFAULT_NX_SETTINGS);
-  const [meta, setMeta] = useState<ReportMeta>({ customer: "", preparedBy: "" });
+  const [meta, setMeta] = useState<ReportMeta>({ customer: "", preparedBy: "", includeDetail: false });
   const [printing, setPrinting] = useState(false);
 
   const rec = useMemo(() => (parsed ? recommendNx(parsed, settings) : null), [parsed, settings]);
+  // Include or leave out VMs from the imported view; shares state with the VM table.
+  const excludeVms = useCallback((ids: string[], excluded: boolean) => {
+    setSettings((prev) => {
+      const next = { ...prev.vmAdjustments };
+      for (const id of ids) next[id] = { ...next[id], excluded };
+      return { ...prev, vmAdjustments: next };
+    });
+  }, []);
 
   // The file is read as soon as it is chosen, like Sizer's import: the options
   // then apply live to the workloads it found.
@@ -170,6 +179,15 @@ export function SimpleSizerTool() {
                 <FileDown {...ICON} className="h-4 w-4" />
                 {printing ? "Preparing PDF" : "Sizing report (PDF)"}
               </button>
+              <label className="inline-flex items-center gap-2 px-2 text-sm text-charcoal-700">
+                <input
+                  type="checkbox"
+                  checked={meta.includeDetail}
+                  onChange={(e) => setMeta({ ...meta, includeDetail: e.target.checked })}
+                  className="h-4 w-4 accent-iris-500"
+                />
+                Include overhead appendix
+              </label>
               {file ? (
                 <button
                   type="button"
@@ -195,7 +213,7 @@ export function SimpleSizerTool() {
 
       {!parsing && parsed && rec ? (
         <>
-          <ImportedPanel parsed={parsed} />
+          <ImportedPanel parsed={parsed} adjustments={settings.vmAdjustments} onExclude={excludeVms} />
           <Issues rec={rec} />
           {rec.fit ? <Recommendation rec={rec} /> : null}
           {rec.fit ? <CapacityMath rec={rec} /> : null}
@@ -321,6 +339,19 @@ function SizeFor({
         />
       </Field>
 
+      <Field label="SQL VMs vCPU:pCore ratio" htmlFor="opt-sql-ratio" helper='VMs with "SQL" in the name are sized at vCPU / this ratio, ignoring measured use. 0 turns it off.'>
+        <input
+          id="opt-sql-ratio"
+          type="number"
+          min={0}
+          max={15}
+          step={0.1}
+          value={settings.sqlVcpuPerPcore}
+          onChange={(e) => set("sqlVcpuPerPcore", Math.min(15, Math.max(0, Number(e.target.value) || 0)))}
+          className="h-10 w-40 font-mono"
+        />
+      </Field>
+
       <Group title="Memory">
         <Choice
           name="Memory"
@@ -354,9 +385,14 @@ function SizeFor({
       </Group>
 
       <div className="grid gap-4 border-t border-charcoal-200 pt-5 sm:grid-cols-2">
-        <Field label="NX model" htmlFor="opt-model" helper="Auto starts at NX-1175S-G10 and steps up only if the largest VM does not fit.">
+        <Field
+          label="Hardware"
+          htmlFor="opt-model"
+          helper="Generic sizes the fewest, densest dual-socket nodes (up to 256 cores, 2 TB RAM, 184 TB raw) as a requirement any partner can build. NX Auto picks from the models for the use case."
+        >
           <select id="opt-model" value={settings.modelSku} onChange={(e) => set("modelSku", e.target.value)} className="h-10 w-full">
-            <option value="auto">Auto</option>
+            <option value={GENERIC_SKU}>Generic (fewest nodes)</option>
+            <option value="auto">NX Auto (by use case)</option>
             {approvedModels().map((m) => (
               <option key={m.sku} value={m.sku}>
                 {m.sku}
@@ -364,6 +400,17 @@ function SizeFor({
             ))}
           </select>
         </Field>
+        {settings.modelSku === "auto" ? (
+          <Field label="Use case" htmlFor="opt-usecase" helper={NX_USE_CASES[settings.useCase].helper}>
+            <select id="opt-usecase" value={settings.useCase} onChange={(e) => set("useCase", e.target.value as NxUseCase)} className="h-10 w-full">
+              {(Object.keys(NX_USE_CASES) as NxUseCase[]).map((k) => (
+                <option key={k} value={k}>
+                  {NX_USE_CASES[k].label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
         <Field label="Target utilization" htmlFor="opt-tu" helper="Share of usable CPU, memory and storage consumed with every node up.">
           <select id="opt-tu" value={settings.targetUtilization} onChange={(e) => set("targetUtilization", Number(e.target.value))} className="h-10 w-full">
             <option value={0.5}>50%</option>
@@ -473,15 +520,15 @@ function Issues({ rec }: { rec: NxRecommendation }) {
 function Recommendation({ rec }: { rec: NxRecommendation }) {
   const fit = rec.fit!;
   const c = fit.config;
-  const model = c.model;
   return (
     <section className="rounded-[1.75rem] border border-charcoal-200 bg-white p-6 shadow-[0_18px_40px_-24px_rgba(49,49,49,0.18)] md:p-8">
       <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr]">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-viz-compute">Recommended build</p>
           <p className="mt-2 text-3xl font-semibold tracking-tighter text-charcoal-900">
-            {fit.totalNodes} x {model.sku}
+            {buildHeadline(fit.totalNodes, c)}
           </p>
+          <p className="mt-1 text-sm font-medium text-charcoal-800">{buildSubtitle(c)}</p>
           <p className="mt-1 text-sm text-charcoal-600">
             {fit.clusters.length === 1
               ? `One cluster, RF${rec.settings.rf}, N+${rec.settings.failoverNodes}.`
@@ -489,9 +536,9 @@ function Recommendation({ rec }: { rec: NxRecommendation }) {
             Node count set by {fit.driver === "minimum" ? `the RF${rec.settings.rf} minimum` : fit.driver.toUpperCase()}.
           </p>
           <dl className="mt-6 divide-y divide-charcoal-200 border-y border-charcoal-200 text-sm">
-            <Row k="CPU per node" v={`${model.socketsPerNode} x ${c.cpu.model} (${c.cpu.coresPerCpu} cores, ${c.cpu.baseGHz} GHz)`} />
+            <Row k="CPU per node" v={cpuSpec(c)} />
             <Row k="Cores per node" v={fmtInt(c.cores)} />
-            <Row k="RAM per node" v={fmtRam(c.ramGiB)} />
+            <Row k="RAM per node" v={`${ramSpec(c.ramGiB)} (DIMM capacity)`} />
             <Row k="Drives per node" v={driveLabel(c.drives)} />
             <Row k="Raw storage per node" v={`${fmtNum(c.rawTB, 2)} TB`} />
           </dl>
@@ -636,7 +683,7 @@ function VmTable({
         case "vcpu":
           return a.vcpu ?? vm.vcpu;
         case "cores":
-          return vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis).cores;
+          return vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis, settings.sqlVcpuPerPcore).cores;
         case "ram":
           return a.ramGiB ?? vm.ramGiB;
         case "consumed":
@@ -781,7 +828,7 @@ function VmTable({
             {rows.map((vm) => {
               const a = settings.vmAdjustments[vm.id] ?? {};
               const off = isExcluded(vm, settings.vmAdjustments);
-              const cpu = vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis);
+              const cpu = vmCpuCores(vm, settings.vcpuPerPcore, settings.cpuBasis, settings.sqlVcpuPerPcore);
               return (
                 <tr key={vm.id} className={off ? "opacity-50" : ""}>
                   <td className="py-1.5 pr-3">
@@ -799,9 +846,9 @@ function VmTable({
                   <td className="py-1.5 pr-3 text-right">
                     <NumberCell value={a.vcpu ?? vm.vcpu} onCommit={(v) => adjust(vm, { vcpu: v })} />
                   </td>
-                  <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-charcoal-700" title={cpu.measured ? "95th percentile" : `vCPU / ${settings.vcpuPerPcore}`}>
+                  <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-charcoal-700" title={cpu.sql ? `SQL VM: vCPU / ${settings.sqlVcpuPerPcore}` : cpu.measured ? "95th percentile" : `vCPU / ${settings.vcpuPerPcore}`}>
                     {fmtNum(cpu.cores, 2)}
-                    {cpu.measured ? "" : "*"}
+                    {cpu.sql ? <span className="ml-1 text-[10px] font-sans font-medium text-viz-compute">SQL</span> : cpu.measured ? "" : "*"}
                   </td>
                   <td className="py-1.5 pr-3 text-right">
                     <NumberCell
@@ -822,7 +869,9 @@ function VmTable({
         </table>
       </div>
       <div className="mt-3 flex items-center justify-between text-xs text-charcoal-500">
-        <span>* Sized at vCPU / {settings.vcpuPerPcore}.</span>
+        <span>
+          * Sized at vCPU / {settings.vcpuPerPcore}.{settings.sqlVcpuPerPcore > 0 ? ` SQL: name contains "SQL", sized at vCPU / ${settings.sqlVcpuPerPcore}.` : ""}
+        </span>
         <span className="flex items-center gap-2">
           <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded-full border border-charcoal-300 bg-white px-3 py-1 text-xs font-medium text-charcoal-700 hover:bg-charcoal-50 disabled:opacity-40">
             Previous

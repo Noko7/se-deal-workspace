@@ -2,11 +2,13 @@
 
 // "What was imported": everything the parser read from the export, laid out per
 // cluster. Each cluster opens to its totals, hardware configurations, every host
-// and every VM. Read-only; the editable VM list stays in the sizing flow.
+// and every VM. VMs can be included or left out of the build from here; figure
+// edits stay in the sizing flow's VM table.
 
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Boxes, Camera, ChevronDown, HardDrive } from "lucide-react";
-import type { HostRecord, ParsedCluster, ParsedEnvironment, VmRecord, VolumeGroupRecord } from "@/lib/simple-sizer-core";
+import type { HostRecord, ParsedCluster, ParsedEnvironment, VmAdjustments, VmRecord, VolumeGroupRecord } from "@/lib/simple-sizer-core";
+import { isExcluded } from "@/lib/nx-sizer";
 import { UNIT_FOOTNOTE, fmtInt, fmtNum, fmtRam, fmtStorage } from "@/lib/sizer-format";
 import { Meter, RankedBars, SplitMeter, Stat, VizKey } from "@/components/sizer-viz";
 import { StatusPill } from "@/components/ui";
@@ -69,7 +71,31 @@ function PowerDot({ on }: { on: boolean | null }) {
   );
 }
 
-export function ImportedPanel({ parsed }: { parsed: ParsedEnvironment }) {
+// Include / exclude state shared by every VM list in the panel.
+type Inclusion = { excluded: (vm: VmRecord) => boolean; set: (ids: string[], excluded: boolean) => void };
+const InclusionContext = createContext<Inclusion | null>(null);
+
+export function ImportedPanel({
+  parsed,
+  adjustments,
+  onExclude,
+}: {
+  parsed: ParsedEnvironment;
+  adjustments: VmAdjustments;
+  onExclude: (ids: string[], excluded: boolean) => void;
+}) {
+  const inclusion = useMemo<Inclusion>(
+    () => ({ excluded: (vm) => isExcluded(vm, adjustments), set: onExclude }),
+    [adjustments, onExclude],
+  );
+  return (
+    <InclusionContext.Provider value={inclusion}>
+      <ImportedBody parsed={parsed} />
+    </InclusionContext.Provider>
+  );
+}
+
+function ImportedBody({ parsed }: { parsed: ParsedEnvironment }) {
   const [open, setOpen] = useState(true);
   const on = parsed.poweredOn;
   const off = parsed.poweredOff;
@@ -464,12 +490,15 @@ function speedLabel(mbps: number | null): string {
 /** NIC count with each adapter's speed and driver on hover; "-" when the export has none. */
 function NicCell({ nics }: { nics: HostRecord["nics"] | null }) {
   if (!nics) return <span className="text-charcoal-400">-</span>;
-  const detail = nics.adapters.map((a) => [a.name, speedLabel(a.speedMbps), a.driver].filter(Boolean).join(" · ")).join("\n");
+  const detail = nics.adapters.map((a) => [a.name, speedLabel(a.speedMbps), a.driver, a.status].filter(Boolean).join(" · ")).join("\n");
+  const withStatus = nics.adapters.filter((a) => a.status);
+  const up = withStatus.filter((a) => /^up$/i.test(a.status ?? "")).length;
   const speeds = Array.from(new Set(nics.adapters.map((a) => speedLabel(a.speedMbps)).filter(Boolean)));
   return (
     <span title={detail || undefined} className="whitespace-nowrap">
       <span className="font-medium text-charcoal-900">{fmtInt(nics.count)}</span>
       {speeds.length ? <span className="text-charcoal-500"> × {speeds.join(", ")}</span> : null}
+      {withStatus.length ? <span className="text-charcoal-500"> ({fmtInt(up)} up)</span> : null}
     </span>
   );
 }
@@ -527,84 +556,200 @@ function HostList({ cluster }: { cluster: ParsedCluster }) {
   );
 }
 
+type VmSort = "name" | "os" | "vcpu" | "p95" | "ram" | "ramUsed" | "provisioned" | "consumed";
+
+const VM_SORT_VALUE: Record<Exclude<VmSort, "name" | "os">, (vm: VmRecord) => number> = {
+  vcpu: (vm) => vm.vcpu,
+  p95: (vm) => vm.cpuUsed.p95 ?? -1,
+  ram: (vm) => vm.ramGiB,
+  ramUsed: (vm) => vm.ramUsedGiB ?? -1,
+  provisioned: (vm) => vm.storageProvisionedTiB,
+  consumed: (vm) => (vm.consumedSource === "none" ? -1 : vm.storageConsumedTiB),
+};
+
+function SortHead({
+  k,
+  sort,
+  dir,
+  onSort,
+  right,
+  children,
+}: {
+  k: VmSort;
+  sort: VmSort;
+  dir: "desc" | "asc";
+  onSort: (k: VmSort) => void;
+  right?: boolean;
+  children: ReactNode;
+}) {
+  const active = sort === k;
+  return (
+    <th className={`px-3 pb-2 font-medium first:pl-0 last:pr-0 ${right ? "text-right" : ""}`} aria-sort={active ? (dir === "desc" ? "descending" : "ascending") : "none"}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 font-medium transition-colors hover:text-charcoal-900 ${active ? "text-charcoal-900" : ""}`}
+        title="Sort by this column; click again to reverse"
+      >
+        {children}
+        <span aria-hidden className={`text-[10px] ${active ? "text-viz-compute" : "text-charcoal-300"}`}>
+          {active && dir === "asc" ? "▲" : "▼"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function VmList({ vms, showCluster }: { vms: VmRecord[]; showCluster: boolean }) {
+  const inclusion = useContext(InclusionContext);
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(VM_PAGE);
+  const [sort, setSort] = useState<VmSort>("vcpu");
+  const [dir, setDir] = useState<"desc" | "asc">("desc");
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? vms.filter((vm) => vm.name.toLowerCase().includes(q) || vm.os.toLowerCase().includes(q)) : vms;
-  }, [vms, query]);
+    const rows = q ? vms.filter((vm) => vm.name.toLowerCase().includes(q) || vm.os.toLowerCase().includes(q)) : vms;
+    const sign = dir === "desc" ? -1 : 1;
+    return [...rows].sort((a, b) => {
+      if (sort === "name") return sign * a.name.localeCompare(b.name);
+      if (sort === "os") return sign * a.os.localeCompare(b.os) || a.name.localeCompare(b.name);
+      const v = VM_SORT_VALUE[sort];
+      return sign * (v(a) - v(b)) || a.name.localeCompare(b.name);
+    });
+  }, [vms, query, sort, dir]);
   const visible = filtered.slice(0, shown);
+  const excludedCount = inclusion ? vms.filter((vm) => inclusion.excluded(vm)).length : 0;
+
+  const by = (key: VmSort) => {
+    if (key === sort) setDir(dir === "desc" ? "asc" : "desc");
+    else {
+      setSort(key);
+      setDir(key === "name" || key === "os" ? "asc" : "desc");
+    }
+    setShown(VM_PAGE);
+  };
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setShown(VM_PAGE);
-          }}
-          placeholder="Search VM or guest OS"
-          aria-label="Search VMs"
-          className="w-56"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setShown(VM_PAGE);
+            }}
+            placeholder="Search VM or guest OS"
+            aria-label="Search VMs"
+            className="w-56"
+          />
+          {inclusion ? (
+            <>
+              <button
+                type="button"
+                onClick={() => inclusion.set(filtered.map((vm) => vm.id), false)}
+                className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 text-[11px] font-medium text-charcoal-700 hover:bg-charcoal-50`}
+              >
+                Include {query ? "matching" : "all"}
+              </button>
+              <button
+                type="button"
+                onClick={() => inclusion.set(filtered.map((vm) => vm.id), true)}
+                className={`${PRESS} rounded-full border border-charcoal-300 px-3 py-1 text-[11px] font-medium text-charcoal-700 hover:bg-charcoal-50`}
+              >
+                Exclude {query ? "matching" : "all"}
+              </button>
+            </>
+          ) : null}
+        </div>
         <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <VizKey series="storage" label="Powered on" />
           <VizKey series="muted" label="Powered off" />
         </span>
       </div>
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[52rem] text-xs">
+        <table className="w-full min-w-[56rem] text-xs">
           <thead>
             <tr className="border-b border-charcoal-200 text-left text-[11px] font-medium text-charcoal-500">
-              <Th>VM</Th>
+              {inclusion ? (
+                <th className="w-8 pb-2 pr-2 font-medium">
+                  <span className="sr-only">Include in the build</span>
+                </th>
+              ) : null}
+              <SortHead k="name" sort={sort} dir={dir} onSort={by}>VM</SortHead>
               {showCluster ? <Th>Cluster</Th> : null}
-              <Th>Guest OS</Th>
-              <Th right>vCPU</Th>
-              <Th right>CPU p95 (cores)</Th>
-              <Th right>Memory</Th>
-              <Th right>Memory used</Th>
-              <Th right>Storage provisioned</Th>
-              <Th right>Storage consumed</Th>
+              <SortHead k="os" sort={sort} dir={dir} onSort={by}>Guest OS</SortHead>
+              <SortHead k="vcpu" sort={sort} dir={dir} onSort={by} right>
+                vCPU
+              </SortHead>
+              <SortHead k="p95" sort={sort} dir={dir} onSort={by} right>
+                CPU p95 (cores)
+              </SortHead>
+              <SortHead k="ram" sort={sort} dir={dir} onSort={by} right>
+                Memory
+              </SortHead>
+              <SortHead k="ramUsed" sort={sort} dir={dir} onSort={by} right>
+                Memory used
+              </SortHead>
+              <SortHead k="provisioned" sort={sort} dir={dir} onSort={by} right>
+                Storage provisioned
+              </SortHead>
+              <SortHead k="consumed" sort={sort} dir={dir} onSort={by} right>
+                Storage consumed
+              </SortHead>
             </tr>
           </thead>
           <tbody className="divide-y divide-charcoal-100">
-            {visible.map((vm) => (
-              <tr key={vm.id}>
-                <td className="max-w-[18rem] py-1.5 pr-3">
-                  <span className="flex items-center gap-2">
-                    <PowerDot on={vm.poweredOn} />
-                    <span className="truncate font-medium text-charcoal-900" title={vm.name}>
-                      {vm.name}
+            {visible.map((vm) => {
+              const off = inclusion?.excluded(vm) ?? false;
+              return (
+                <tr key={vm.id} className={off ? "opacity-45" : undefined}>
+                  {inclusion ? (
+                    <td className="py-1.5 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={!off}
+                        onChange={(e) => inclusion.set([vm.id], !e.target.checked)}
+                        aria-label={`Include ${vm.name} in the build`}
+                        className="h-3.5 w-3.5 accent-iris-500"
+                      />
+                    </td>
+                  ) : null}
+                  <td className="max-w-[18rem] py-1.5 pr-3">
+                    <span className="flex items-center gap-2">
+                      <PowerDot on={vm.poweredOn} />
+                      <span className={`truncate font-medium text-charcoal-900 ${off ? "line-through decoration-charcoal-400" : ""}`} title={vm.name}>
+                        {vm.name}
+                      </span>
                     </span>
-                  </span>
-                </td>
-                {showCluster ? <td className="max-w-[12rem] truncate px-3 text-charcoal-600">{vm.clusterName ?? "-"}</td> : null}
-                <td className="max-w-[14rem] truncate px-3 text-charcoal-600" title={vm.os}>
-                  {vm.os || "-"}
-                </td>
-                <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(vm.vcpu)}</td>
-                <td className="px-3 text-right tabular-nums text-charcoal-700">{vm.cpuUsed.p95 == null ? "-" : fmtNum(vm.cpuUsed.p95, 2)}</td>
-                <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtRam(vm.ramGiB)}</td>
-                <td className="px-3 text-right tabular-nums text-charcoal-700">{vm.ramUsedGiB == null ? "-" : fmtRam(vm.ramUsedGiB)}</td>
-                <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtStorage(vm.storageProvisionedTiB, 2)}</td>
-                <td
-                  className="pl-3 text-right tabular-nums text-charcoal-700"
-                  title={vm.consumedSource === "none" ? "No consumed figure in the export" : vm.consumedSource === "vm-level" ? "From the VM-level used column" : undefined}
-                >
-                  {vm.consumedSource === "none" ? "-" : fmtStorage(vm.storageConsumedTiB, 2)}
-                  {vm.consumedSource === "vm-level" ? <span className="ml-1 text-charcoal-400">vm</span> : null}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  {showCluster ? <td className="max-w-[12rem] truncate px-3 text-charcoal-600">{vm.clusterName ?? "-"}</td> : null}
+                  <td className="max-w-[14rem] truncate px-3 text-charcoal-600" title={vm.os}>
+                    {vm.os || "-"}
+                  </td>
+                  <td className="px-3 text-right tabular-nums font-medium text-charcoal-900">{fmtInt(vm.vcpu)}</td>
+                  <td className="px-3 text-right tabular-nums text-charcoal-700">{vm.cpuUsed.p95 == null ? "-" : fmtNum(vm.cpuUsed.p95, 2)}</td>
+                  <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtRam(vm.ramGiB)}</td>
+                  <td className="px-3 text-right tabular-nums text-charcoal-700">{vm.ramUsedGiB == null ? "-" : fmtRam(vm.ramUsedGiB)}</td>
+                  <td className="px-3 text-right tabular-nums text-charcoal-700">{fmtStorage(vm.storageProvisionedTiB, 2)}</td>
+                  <td
+                    className="pl-3 text-right tabular-nums text-charcoal-700"
+                    title={vm.consumedSource === "none" ? "No consumed figure in the export" : vm.consumedSource === "vm-level" ? "From the VM-level used column" : undefined}
+                  >
+                    {vm.consumedSource === "none" ? "-" : fmtStorage(vm.storageConsumedTiB, 2)}
+                    {vm.consumedSource === "vm-level" ? <span className="ml-1 text-charcoal-400">vm</span> : null}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-charcoal-500">
         <span>
           Showing {fmtInt(visible.length)} of {fmtInt(filtered.length)}
-          {query ? ` matching "${query}"` : ""}.
+          {query ? ` matching "${query}"` : ""}
+          {inclusion ? ` · ${fmtInt(vms.length - excludedCount)} of ${fmtInt(vms.length)} included in the build` : ""}. Click a column header to sort.
         </span>
         {shown < filtered.length ? (
           <button

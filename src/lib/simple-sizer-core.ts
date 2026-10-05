@@ -52,6 +52,8 @@ export type HostNic = {
   speedMbps: number | null;
   driver: string | null;
   mac: string | null;
+  // Link state as the export reports it ("Up" / "Down"), when present.
+  status?: string | null;
 };
 
 export type HostRecord = {

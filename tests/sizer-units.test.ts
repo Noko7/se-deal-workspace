@@ -519,6 +519,34 @@ describe("Collector VM rows", () => {
     assert.equal(byId.get("d")?.consumedSource, "none");
   });
 
+  it("treats a blank vmList Consumed cell as not reported, not zero", () => {
+    const sheets = collectorSheets({
+      vPartition: [],
+      vmList: range(VMS).map((i) => ({ "VM Name": `vm-${i}`, "Consumed (MiB)": i === 0 ? "" : DISKS_PER_VM * PARTITION_GIB * MIB })),
+    });
+    const vm0 = parse("collector_excel", sheets).vms.find((v) => v.name === "vm-0")!;
+    assert.equal(vm0.consumedSource, "none"); // sized at provisioned, never at 0
+  });
+
+  it("caps a VM whose guest volumes exceed its virtual disks (in-guest iSCSI) and names it", () => {
+    // vm-0 has a 90 TiB guest volume on 2 x 100 GiB disks, like a Veeam repository.
+    const parsed = parse(
+      "collector_excel",
+      collectorSheets({
+        vPartition: [...perDisk("UUID", "Consumed (MiB)", PARTITION_GIB).filter((r) => r.UUID !== "u-0"), { UUID: "u-0", "Consumed (MiB)": 90 * 1024 * MIB }],
+      }),
+    );
+    const vm0 = parsed.vms.find((v) => v.name === "vm-0")!;
+    assert.ok(Math.abs(vm0.storageConsumedTiB - vm0.storageProvisionedTiB) < 1e-12);
+    assert.ok(parsed.notes.some((n) => /vm-0 \(/.test(n) && /iSCSI/.test(n)));
+    assert.deepEqual(parsed.plausibility, []);
+  });
+
+  it("still blocks when most VMs report more used than provisioned (a unit error)", () => {
+    const parsed = parse("collector_excel", collectorSheets({ vPartition: perDisk("UUID", "Consumed (MiB)", DISK_GIB * 1024) }));
+    assert.ok(parsed.plausibility.some((p) => /Consumed vs provisioned/.test(p.field)));
+  });
+
   it("keeps volume-group disks and partitions with no VM in vInfo as volume groups", () => {
     const parsed = parse(
       "collector_excel",

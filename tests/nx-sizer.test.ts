@@ -51,8 +51,9 @@ function env(vms: VmRecord[], extra: Record<string, unknown> = {}): ParsedEnviro
   return { vms, powerStateKnown: true, volumeGroups: [], plausibility: [], ...extra } as unknown as ParsedEnvironment;
 }
 
-// Existing rules are checked at the failover limit (target 1); the 50% target has its own tests.
-const settings = (over: Partial<NxSizerSettings> = {}): NxSizerSettings => ({ ...DEFAULT_NX_SETTINGS, targetUtilization: 1, ...over });
+// Existing rules are checked on the NX catalog ("auto") at the failover limit
+// (target 1); generic hardware and the 50% target have their own tests.
+const settings = (over: Partial<NxSizerSettings> = {}): NxSizerSettings => ({ ...DEFAULT_NX_SETTINGS, modelSku: "auto", targetUtilization: 1, ...over });
 
 function close(actual: number, expected: number, what: string, eps = 1e-6) {
   assert.ok(Math.abs(actual - expected) <= eps, `${what}: got ${actual}, expected ${expected}`);
@@ -590,39 +591,50 @@ describe("Sizer-style import options", () => {
 });
 
 describe("model selection", () => {
-  it("tries NX-1175S-G10 first and takes the fewest-core, then least-raw configuration", () => {
-    // 10 VMs x (2 vCPU, 8 GiB, 0.05 TiB): CPU 20 / 4 = 5 cores, RAM 80 + 1.05 = 81.05 GiB, 1 TiB raw.
-    // 12-core 6505P (usable 6 cores) is the fewest-core CPU; 128 GiB leaves 128 - 6.4 - 32 - 6.316 = 83.28.
-    // Every node count is capped by the RF2 minimum of 3 -> 36 cores. Smallest drive set is 2 x 3.84 TB NVMe.
-    const rec = recommendNx(env(Array.from({ length: 10 }, () => vm())), settings());
+  it("ROBO: takes the small single-socket node with the fewest cores, then the least raw", () => {
+    // A tiny workload fits at the RF2 minimum of 3 nodes on a 12-core
+    // single-socket node (3 x 12 = 36 cores). Every candidate is listed in attempts.
+    const rec = recommendNx(env(Array.from({ length: 10 }, () => vm())), settings({ useCase: "robo" }));
     assert.ok(rec.fit);
-    assert.equal(rec.fit.config.model.sku, "NX-1175S-G10");
-    assert.equal(rec.fit.config.cores, 12);
-    assert.equal(rec.fit.config.ramGiB, 128);
-    assert.deepEqual(rec.fit.config.drives, [{ media: "NVMe", count: 2, sizeTB: 3.84 }]);
     assert.equal(rec.fit.totalNodes, 3);
+    assert.equal(rec.fit.config.model.socketsPerNode, 1);
     assert.equal(rec.fit.totalCores, 36);
     assert.deepEqual(rec.blockers, []);
-    assert.deepEqual(rec.attempts.map((a) => a.sku), ["NX-1175S-G10"]);
+    assert.deepEqual(rec.attempts.map((a) => a.sku), ["NX-1120AS-G10", "NX-1175S-G10", "NX-3035-G10"]);
   });
 
-  it("keeps a VM of 30 vCPU on NX-1175S (36 cores - 6 = 30; vCPU <= cores - 6)", () => {
-    const rec = recommendNx(env([vm({ vcpu: 30, ramGiB: 16 })]), settings());
+  it("general consolidation only offers dual-socket platforms", () => {
+    const rec = recommendNx(env(Array.from({ length: 10 }, () => vm())), settings({ useCase: "general" }));
     assert.ok(rec.fit);
-    assert.equal(rec.fit.config.model.sku, "NX-1175S-G10");
-    assert.equal(rec.fit.config.cores, 36); // only the 36-core 6736P has 30 usable cores
+    assert.equal(rec.fit.config.model.socketsPerNode, 2);
+    assert.deepEqual(rec.attempts.map((a) => a.sku), ["NX-3035-G10", "NX-8170-G10", "NX-8150-G10", "NX-8170A-G10"]);
   });
 
-  it("steps from NX-1175S-G10 to NX-3060S-G10 when the largest VM needs more than 30 cores", () => {
-    // 32 vCPU > 36 - 6 = 30 on the biggest 1175S CPU; 3060S has 48 cores (42 usable).
-    const rec = recommendNx(env([vm({ vcpu: 32, ramGiB: 16 })]), settings());
+  it("picks the model needing the fewest nodes, then the fewest cores", () => {
+    // 300 VMs x 8 vCPU / 4 = 600 cores: the 128-core 8150/8170A need far fewer nodes than the 48-core 3035.
+    const rec = recommendNx(env(Array.from({ length: 300 }, () => vm({ vcpu: 8, ramGiB: 32 }))), settings({ useCase: "general" }));
     assert.ok(rec.fit);
-    assert.equal(rec.fit.config.model.sku, "NX-3060S-G10");
-    assert.equal(rec.attempts[0].sku, "NX-1175S-G10");
-    assert.equal(rec.attempts[0].fits, false);
-    assert.match(rec.attempts[0].reason ?? "", /32 vCPU exceeds/);
-    assert.equal(rec.attempts[1].sku, "NX-3060S-G10");
-    assert.equal(rec.attempts[1].fits, true);
+    assert.notEqual(rec.fit.config.model.sku, "NX-3035-G10");
+    const nodesFor = (sku: string) => recommendNx(env(Array.from({ length: 300 }, () => vm({ vcpu: 8, ramGiB: 32 }))), settings({ modelSku: sku })).fit!.totalNodes;
+    assert.ok(rec.fit.totalNodes <= nodesFor("NX-3035-G10"));
+    assert.ok(rec.fit.totalNodes <= nodesFor("NX-8170-G10"));
+  });
+
+  it("fits a VM's vCPU against the node's physical cores (AHV will not start more)", () => {
+    // 24 vCPU needs a 24-core node; the CVM's cores are not taken off.
+    const rec = recommendNx(env([vm({ vcpu: 24, ramGiB: 16 })]), settings({ modelSku: "NX-1175S-G10" }));
+    assert.ok(rec.fit);
+    assert.equal(rec.fit.config.cores, 24);
+  });
+
+  it("passes over a ROBO model whose biggest CPU is smaller than the largest VM", () => {
+    // 37 vCPU > 36 cores on the biggest 1175S CPU (and 16 on 1120AS); 3035 has 2 x 24.
+    const rec = recommendNx(env([vm({ vcpu: 37, ramGiB: 16 })]), settings({ useCase: "robo" }));
+    assert.ok(rec.fit);
+    assert.equal(rec.fit.config.model.sku, "NX-3035-G10");
+    const by = new Map(rec.attempts.map((a) => [a.sku, a]));
+    assert.equal(by.get("NX-1175S-G10")?.fits, false);
+    assert.match(by.get("NX-1175S-G10")?.reason ?? "", /37 vCPU exceeds 36 physical cores/);
     assert.deepEqual(rec.blockers, []);
   });
 
@@ -709,5 +721,78 @@ describe("target utilization", () => {
     assert.ok(rec.utilization.ram.allUp <= 50 + 1e-6);
     assert.ok(rec.utilization.storage.allUp <= 50 + 1e-6);
     assert.ok(rec.utilization.cpu.failover <= 100 + 1e-6);
+  });
+});
+
+describe("report storage requirement", () => {
+  it("minimum raw per node carries the workload at the target and is within the installed raw", async () => {
+    const { storageRequirement } = await import("@/lib/nx-report");
+    const rec = recommendNx(
+      env(Array.from({ length: 40 }, () => vm({ vcpu: 4, ramGiB: 16, storageConsumedTiB: 1, storageProvisionedTiB: 2 }))),
+      settings({ targetUtilization: 0.5 }),
+    );
+    assert.ok(rec.fit);
+    const sr = storageRequirement(rec);
+    const st = rec.fit.capacity.storage;
+    // Rebuild usable raw from minRaw with the node's own reserves.
+    const prop = (st.bufferTiB + st.cvm.cassandraTiB + st.cvm.curatorTiB + st.cvm.ext4TiB) / st.rawTiB;
+    const fixed = st.cvm.bootHomeTiB + st.cvm.oplogTiB + st.cvm.hadesTiB;
+    const usable = sr.node.minRawTiB * (1 - prop) - fixed;
+    close(usable * sr.nodes * 0.5, sr.workloadRawTiB, "min raw lands storage at 50%", 1e-6);
+    assert.ok(sr.node.minRawTiB <= sr.node.rawTiB + 1e-9);
+    close(sr.workloadRawTiB, sr.dataTiB * 2, "RF2 doubles the data");
+  });
+});
+
+describe("SQL VMs", () => {
+  it("size any VM with SQL in the name at vCPU / 2, ignoring measured use", () => {
+    const sql = vm({ name: "prod-SQL01", vcpu: 12, cpuUsed: { average: 0.5, p95: 1, peak: 2 } });
+    const web = vm({ name: "web01", vcpu: 12, cpuUsed: { average: 0.5, p95: 1, peak: 2 } });
+    const w = buildWorkload(env([sql, web]), settings());
+    // SQL: 12 / 2 = 6 cores; web: p95 = 1 core.
+    close(w.cpuCores, 7, "SQL at 2:1 plus web at p95");
+    assert.equal(w.cpuSqlVms, 1);
+    assert.equal(w.cpuMeasuredVms, 1);
+    assert.equal(w.cpuFallbackVms, 0);
+  });
+
+  it("is off at 0", () => {
+    const w = buildWorkload(env([vm({ name: "sql", vcpu: 12, cpuUsed: { average: null, p95: 1, peak: null } })]), settings({ sqlVcpuPerPcore: 0 }));
+    close(w.cpuCores, 1, "measured p95");
+    assert.equal(w.cpuSqlVms, 0);
+  });
+});
+
+describe("generic hardware", () => {
+  const generic = (over: Partial<NxSizerSettings> = {}) => settings({ modelSku: "Generic", targetUtilization: 0.5, ...over });
+
+  it("is the default", () => {
+    assert.equal(DEFAULT_NX_SETTINGS.modelSku, "Generic");
+  });
+
+  it("uses the fewest, densest nodes: the RF2 minimum of 3 when one node can be big enough", () => {
+    // 200 VMs x 8 vCPU / 4 = 400 cores; small single-socket NX-1175S nodes need many more.
+    const vms = Array.from({ length: 200 }, () => vm({ vcpu: 8, ramGiB: 32, storageConsumedTiB: 0.2 }));
+    const g = recommendNx(env(vms), generic());
+    const nx = recommendNx(env(vms), generic({ modelSku: "NX-1175S-G10" }));
+    assert.ok(g.fit && nx.fit);
+    assert.ok(g.fit.totalNodes < nx.fit.totalNodes, `${g.fit.totalNodes} generic vs ${nx.fit.totalNodes} NX`);
+    assert.equal(g.fit.config.model.socketsPerNode, 2);
+    assert.ok(g.utilization!.cpu.allUp <= 50 + 1e-6 && g.utilization!.ram.allUp <= 50 + 1e-6 && g.utilization!.storage.allUp <= 50 + 1e-6);
+    assert.ok(g.utilization!.cpu.failover <= 100 + 1e-6);
+  });
+
+  it("stays within 256 cores, 2 TiB RAM and 184.32 TB raw per node and adds nodes past that", () => {
+    const vms = Array.from({ length: 2000 }, () => vm({ vcpu: 8, ramGiB: 32, storageConsumedTiB: 0.2 }));
+    const g = recommendNx(env(vms), generic());
+    assert.ok(g.fit);
+    assert.ok(g.fit.config.cores <= 256 && g.fit.config.ramGiB <= 2048 && g.fit.config.rawTB <= 184.32 + 1e-9);
+    assert.ok(g.fit.totalNodes > 3);
+  });
+
+  it("gives every node at least as many physical cores as the largest VM has vCPU", () => {
+    const g = recommendNx(env([vm({ vcpu: 40, ramGiB: 64 })]), generic());
+    assert.ok(g.fit);
+    assert.ok(g.fit.config.cores >= 40);
   });
 });

@@ -479,20 +479,40 @@ body {
     break-before: page;
     page-break-before: always;
   }
+  /* The app around the brief takes no space, so the brief starts on page 1 and
+     every page is a zero-margin proposalpage — which also leaves the browser no
+     margin to draw its URL / date / title headers and footers in. */
+  body:has(> .proposal-print-root) > :not(.proposal-print-root) {
+    display: none !important;
+  }
+  html:has(> body > .proposal-print-root),
+  body:has(> .proposal-print-root) {
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
   .proposal-print-root {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+    page: proposalpage;
+    position: static !important;
     width: 816px !important;
   }
   .proposal-print-root .proposal-page {
     page: proposalpage;
     break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
     width: 816px;
-    height: 1056px;
+    /* A hair under 11in so sub-pixel rounding never spills onto a blank page. */
+    height: 1055px !important;
     overflow: hidden;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  .proposal-print-root .proposal-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
   /* The on-screen overflow warning must never land on the exported PDF. */
   .proposal-overflow-badge {

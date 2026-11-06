@@ -111,6 +111,24 @@ export type ProposalDoc = {
     lines: LicenseLine[];
   };
   scenario: ProposalScenario;
+  // The Configuration Review: a plain record of the design as reviewed and
+  // confirmed with the customer, with no sales narrative. Optional so a doc
+  // built before it existed still renders (see configReviewOf).
+  review?: ConfigReview;
+};
+
+export type ConfigReview = {
+  title: string;
+  purpose: string;
+  reviewDate: string;
+  customerAttendees: string[];
+  nutanixAttendees: string[];
+  // Sizing results the customer is acknowledging (over-committed tiers, no N-1
+  // headroom). Seeded from the scenario; the SE can edit or clear them.
+  notes: string[];
+  assumptions: string[];
+  exclusions: string[];
+  confirmation: string;
 };
 
 /** Products the design includes that have a brand icon, deduped, stable order. */
@@ -469,7 +487,72 @@ export function buildProposalDoc(scenario: ProposalScenario, sourceFile: string 
     environment: null,
     scenario,
   };
+  built.review = buildConfigReview(built);
   return built;
+}
+
+/** Sizing results past 100% of capacity, phrased for the customer to acknowledge. */
+export function sizingFlags(scenario: ProposalScenario): string[] {
+  const flags: string[] = [];
+  for (const c of scenario.clusters) {
+    const u = c.utilization;
+    const over = (p: number | null): p is number => p != null && p > 100;
+    if (over(u.cpu)) flags.push(`${c.name}: CPU is sized at ${formatPct(u.cpu)}% of available capacity.`);
+    if (over(u.ram)) flags.push(`${c.name}: memory is sized at ${formatPct(u.ram)}% of available capacity.`);
+    const hybrid = c.capacity.ssdTiB > 0 && c.capacity.hddTiB > 0;
+    if (hybrid && over(u.ssd)) flags.push(`${c.name}: the flash (SSD/NVMe) tier is sized at ${formatPct(u.ssd)}% of usable flash capacity.`);
+    if (hybrid && over(u.hdd)) flags.push(`${c.name}: the HDD tier is sized at ${formatPct(u.hdd)}% of usable HDD capacity.`);
+    if (!hybrid && over(u.storage)) flags.push(`${c.name}: storage is sized at ${formatPct(u.storage)}% of usable capacity.`);
+    if (over(c.failover.nMinus1)) {
+      flags.push(
+        `${c.name}: with one node offline (failure or planned maintenance), the cluster would run at ${formatPct(c.failover.nMinus1)}% of its remaining capacity, so workloads may be affected until the node is restored.`,
+      );
+    }
+  }
+  return flags;
+}
+
+/** Default Configuration Review content, phrased from the recommended scenario. */
+export function buildConfigReview(doc: ProposalDoc): ConfigReview {
+  const s = doc.scenario;
+  const customer = doc.meta.customer;
+  const notes = sizingFlags(s);
+  const workload =
+    s.totals.vmCount != null
+      ? `${fmtInt(s.totals.vmCount)} VMs${s.totals.vCpus != null ? ` / ${fmtInt(s.totals.vCpus)} vCPUs` : ""}`
+      : "the workload profile";
+  const hasFailover = s.clusters.some((c) => c.failover.nMinus1 != null);
+  return {
+    title: `Configuration Review: ${customer}`,
+    purpose:
+      `This document records the Nutanix configuration reviewed with ${customer} on ${doc.meta.dateLabel}. ` +
+      "It captures the hardware and software in scope, the capacity the design provides, and the sizing inputs and assumptions it is based on, as discussed and confirmed on that call.",
+    reviewDate: doc.meta.dateLabel,
+    customerAttendees: [],
+    nutanixAttendees: [doc.meta.preparedBy].filter(Boolean),
+    notes,
+    assumptions: [
+      `Sized in Nutanix Sizer from ${workload} provided by ${customer}${s.meta.createdDate ? ` (scenario dated ${s.meta.createdDate})` : ""}.`,
+      "Usable capacity is after Nutanix data-resiliency overhead, as calculated by Nutanix Sizer.",
+      "Utilization figures reflect the reviewed workload at the time of sizing.",
+      ...(hasFailover ? ["Resiliency (N-1) shows cluster load with one node offline for a failure or planned maintenance."] : []),
+      "No additional growth is included beyond the workload reviewed, unless listed here.",
+    ],
+    exclusions: [
+      "Workloads, applications or data not included in the reviewed sizing inputs.",
+      "Growth, new projects, or changes to data protection, retention or replication after this review.",
+      "Site readiness: rack space, power, cooling, and network switching and cabling.",
+      "Third-party software and licensing, including guest operating systems and applications.",
+    ],
+    confirmation:
+      `Please review the configuration above${notes.length ? ", including the items noted on review," : ""} and reply to confirm it matches ${customer}'s requirements, or let us know of any changes before the order is placed. ` +
+      "Any changes to the workload or requirements after confirmation may require the design to be re-sized.",
+  };
+}
+
+/** The doc's Configuration Review, falling back to defaults if it has none yet. */
+export function configReviewOf(doc: ProposalDoc): ConfigReview {
+  return doc.review ? { ...doc.review, notes: doc.review.notes ?? [] } : buildConfigReview(doc);
 }
 
 /** Attach (or replace) the customer's current estate on a proposal. */
@@ -545,7 +628,9 @@ function syncToRecommended(doc: ProposalDoc): ProposalDoc {
   const rec = recommendedOption(doc);
   if (!rec) return doc;
   const previousCores = Math.round(doc.scenario.totals.cores);
+  const previousFlags = sizingFlags(doc.scenario).join("\n");
   doc.scenario = rec.scenario;
+  if (doc.review && (doc.review.notes ?? []).join("\n") === previousFlags) doc.review.notes = sizingFlags(rec.scenario);
   doc.meta.vendor = rec.vendor;
 
   // Re-quantify the base platform against the new build. Editions and add-on

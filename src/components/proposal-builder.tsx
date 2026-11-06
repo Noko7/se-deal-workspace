@@ -2,13 +2,15 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Boxes, Check, ChevronDown, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Boxes, Check, ChevronDown, ClipboardCheck, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import {
   addHardwareOption,
   applyDealMode,
+  buildConfigReview,
   buildProposalDoc,
+  configReviewOf,
   EXTERNAL_STORAGE_VENDORS,
   optionComparison,
   purchasedProducts,
@@ -28,7 +30,7 @@ import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
 import { type EditionKey } from "@/lib/nci-editions";
 import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
-import { ProposalBomPreview, ProposalTwoPager } from "@/components/proposal-preview";
+import { ProposalBomPreview, ProposalConfigReview, ProposalTwoPager } from "@/components/proposal-preview";
 import { Button } from "@/components/ui";
 
 // Fluid-CSS motion (MOTION_INTENSITY 6): a single easing curve and a tactile
@@ -105,9 +107,9 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   // Zoom multiplier on top of the fit-to-width scale (1 = fit). Lets an SE zoom
   // in to edit small text comfortably; the container scrolls when zoomed past fit.
   const [zoom, setZoom] = useState(1);
-  const [tab, setTab] = useState<"twopager" | "bom">("twopager");
+  const [tab, setTab] = useState<"twopager" | "review" | "bom">("twopager");
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
+  const [exporting, setExporting] = useState<null | "pdf" | "review" | "pptx">(null);
   const printRootRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   // Which proposed hardware option the BOM tab is showing. Falls back to the
@@ -120,7 +122,10 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   function loadScenarios(scenarios: { scenario: ProposalScenario; sourceFile: string | null }[]) {
     if (!scenarios.length) return;
     let built = buildProposalDoc(scenarios[0].scenario, scenarios[0].sourceFile);
-    if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") built.meta.preparedBy = defaultSe;
+    if (!built.meta.preparedBy || built.meta.preparedBy === "Nutanix SE") {
+      built.meta.preparedBy = defaultSe;
+      built.review = buildConfigReview(built);
+    }
     for (const s of scenarios.slice(1)) built = addHardwareOption(built, s.scenario, s.sourceFile);
     setDoc(built);
     setPreviewOptionId(null);
@@ -235,10 +240,10 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
 
   // Rendered server-side by headless Chrome from the exact markup of the print
   // surface, so the PDF matches the preview with no browser print chrome.
-  async function exportPdf() {
+  async function exportPdf(kind: "pdf" | "review") {
     if (!doc) return;
-    setExporting("pdf");
-    setTab("twopager");
+    setExporting(kind);
+    setTab(kind === "review" ? "review" : "twopager");
     setError(null);
     try {
       // Let the print surface mount before reading its markup.
@@ -248,7 +253,8 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       const stylesheets = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
         .map((l) => l.getAttribute("href") ?? "")
         .filter((href) => href.startsWith("/_next/static/"));
-      const { customer, title: docTitle } = doc.meta;
+      const { customer } = doc.meta;
+      const docTitle = kind === "review" ? configReviewOf(doc).title : doc.meta.title;
       const title =
         (customer && docTitle && !docTitle.includes(customer) ? `${customer} - ${docTitle}` : docTitle || customer) || "Solution Proposal";
       const res = await fetch("/api/proposal-pdf", {
@@ -263,7 +269,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${title.replace(/[\\/:*?"<>|]+/g, " ").trim()}.pdf`;
+      a.download = `${title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim()}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -454,6 +460,18 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                       ? `Nutanix with External Storage Proposal for ${v}`
                       : `Nutanix Solution Proposal for ${v}`;
                   }
+                  const prev = d.meta.customer;
+                  if (d.review && prev && v && prev !== v) {
+                    const swap = (str: string) => str.split(prev).join(v);
+                    const rv = d.review;
+                    d.review = {
+                      ...rv,
+                      title: swap(rv.title),
+                      purpose: swap(rv.purpose),
+                      assumptions: rv.assumptions.map(swap),
+                      confirmation: swap(rv.confirmation),
+                    };
+                  }
                   d.meta.customer = v;
                   return d;
                 })
@@ -488,8 +506,11 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
           <Button tone="secondary" className={TACTILE} onClick={() => fileInput.current?.click()}>
             <span className="flex items-center gap-1.5"><RefreshCw className="h-4 w-4" strokeWidth={1.75} /> Start over</span>
           </Button>
-          <Button className={TACTILE} onClick={exportPdf} disabled={exporting !== null}>
+          <Button className={TACTILE} onClick={() => exportPdf("pdf")} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pdf" ? <WorkingDots /> : <FileDown className="h-4 w-4" strokeWidth={1.75} />} 2-Pager PDF</span>
+          </Button>
+          <Button className={TACTILE} onClick={() => exportPdf("review")} disabled={exporting !== null}>
+            <span className="flex items-center gap-1.5">{exporting === "review" ? <WorkingDots /> : <ClipboardCheck className="h-4 w-4" strokeWidth={1.75} />} Config Review PDF</span>
           </Button>
           <Button className={TACTILE} onClick={exportPptx} disabled={exporting !== null}>
             <span className="flex items-center gap-1.5">{exporting === "pptx" ? <WorkingDots /> : <Download className="h-4 w-4" strokeWidth={1.75} />} BOM .pptx</span>
@@ -627,6 +648,9 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
               <button onClick={() => setTab("twopager")} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold ${TACTILE} ${tab === "twopager" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "bg-transparent text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
                 <FileText className="h-4 w-4" strokeWidth={1.75} /> 2-Pager (PDF)
               </button>
+              <button onClick={() => setTab("review")} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold ${TACTILE} ${tab === "review" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "bg-transparent text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
+                <ClipboardCheck className="h-4 w-4" strokeWidth={1.75} /> Config Review (PDF)
+              </button>
               <button onClick={() => setTab("bom")} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold ${TACTILE} ${tab === "bom" ? "bg-white text-iris-700 shadow-sm ring-1 ring-iris-200" : "bg-transparent text-charcoal-700 hover:bg-white/60 hover:text-charcoal-900"}`}>
                 <Layers className="h-4 w-4" strokeWidth={1.75} /> BOM Deck
               </button>
@@ -663,7 +687,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                   })}
                 </div>
               ) : null}
-              {tab === "twopager" ? (
+              {tab !== "bom" ? (
                 <div className="inline-flex items-center gap-1 rounded-xl border border-charcoal-300 bg-white p-1 text-xs">
                   <button onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))} disabled={zoom <= 0.5} className={`rounded-lg bg-transparent p-1.5 text-charcoal-700 hover:bg-iris-50 hover:text-iris-700 disabled:cursor-not-allowed disabled:opacity-40 ${TACTILE}`} aria-label="Zoom out" title="Zoom out">
                     <ZoomOut className="h-4 w-4" strokeWidth={1.75} />
@@ -687,6 +711,12 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                   <ProposalTwoPager doc={doc} logo={logo} editable patch={patch} />
                 </PreviewScaler>
               </div>
+            ) : tab === "review" ? (
+              <div className={`rounded-2xl border border-charcoal-200 bg-charcoal-100 p-4 ${SURFACE_SHADOW}`}>
+                <PreviewScaler zoom={zoom}>
+                  <ProposalConfigReview doc={doc} logo={logo} editable patch={patch} />
+                </PreviewScaler>
+              </div>
             ) : (
               <ProposalBomPreview doc={doc} scenario={previewedOption?.scenario} />
             )}
@@ -695,10 +725,10 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       </div>
 
       {/* Mounted directly under <body> so print CSS can drop the page around it. */}
-      {exporting === "pdf"
+      {exporting === "pdf" || exporting === "review"
         ? createPortal(
             <div ref={printRootRef} className="proposal-print-root" aria-hidden>
-              <ProposalTwoPager doc={doc} logo={logo} />
+              {exporting === "review" ? <ProposalConfigReview doc={doc} logo={logo} /> : <ProposalTwoPager doc={doc} logo={logo} />}
             </div>,
             document.body,
           )

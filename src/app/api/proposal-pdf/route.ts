@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (html.length > MAX_HTML_LENGTH) return NextResponse.json({ error: "The document is too large to render." }, { status: 413 });
   const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : "Solution Proposal";
   const stylesheets = (Array.isArray(body.stylesheets) ? body.stylesheets : [])
-    .filter((s): s is string => typeof s === "string" && /^\/_next\/static\/[\w\-./]+\.css$/.test(s))
+    .filter((s): s is string => typeof s === "string" && /^\/_next\/static\/(?!.*\.\.)[\w\-.~/]+\.css$/.test(s))
     .slice(0, 50);
 
   // Chrome loads the app's own CSS and images back from this server.

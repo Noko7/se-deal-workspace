@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Boxes, Check, ChevronDown, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
@@ -236,7 +237,11 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
     setTab("twopager");
     // allow the print surface to mount, then print
     window.setTimeout(() => {
+      // The document title becomes the default PDF file name.
+      const prevTitle = document.title;
+      if (doc) document.title = [doc.meta.customer, doc.meta.title].filter(Boolean).join(" - ");
       window.print();
+      document.title = prevTitle;
       setExporting(null);
     }, 200);
   }
@@ -660,10 +665,15 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
         </div>
       </div>
 
-      {/* Off-screen print surface for the 2-page PDF. */}
-      <div className="proposal-print-root" aria-hidden>
-        <ProposalTwoPager doc={doc} logo={logo} />
-      </div>
+      {/* Mounted directly under <body> so print CSS can drop the page around it. */}
+      {exporting === "pdf"
+        ? createPortal(
+            <div className="proposal-print-root" aria-hidden>
+              <ProposalTwoPager doc={doc} logo={logo} />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

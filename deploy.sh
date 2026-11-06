@@ -36,6 +36,9 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 command -v npm >/dev/null 2>&1 || { echo "ERROR: npm not found on PATH" >&2; exit 1; }
 
+echo "==> Ensuring the PDF renderer (headless Chrome) is installed"
+bash "$ROOT/scripts/setup-pdf-chrome.sh"
+
 echo "==> Building production bundle"
 npm run build
 

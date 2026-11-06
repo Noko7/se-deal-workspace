@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarClock, FileText, Presentation, Search, StickyNote } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowRight, Briefcase, CalendarClock, FileText, Presentation, StickyNote } from "lucide-react";
 import { relativeDay, shortDate } from "@/lib/format";
 import { EmptyState } from "@/components/ui";
 
@@ -14,6 +14,7 @@ export type AccountOverview = {
   owner: string;
   nextAction: string;
   latestSignal: string | null;
+  opportunityCount: number;
   meetingCount: number;
   upcomingMeetingCount: number;
   noteCount: number;
@@ -24,9 +25,7 @@ export type AccountOverview = {
   lastActivityAt: string;
 };
 
-export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) {
-  const [query, setQuery] = useState("");
-
+export function AccountsExplorer({ accounts, query = "" }: { accounts: AccountOverview[]; query?: string }) {
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = accounts.filter((account) => {
@@ -41,18 +40,6 @@ export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) 
 
   return (
     <div className="space-y-4">
-      <label className="relative block max-w-md">
-        <span className="sr-only">Search accounts</span>
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-iris-500" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by account, deal, owner, or signal"
-          className="w-full pl-9"
-        />
-      </label>
-
       <p className="text-xs text-charcoal-500">
         Showing {filtered.length} of {accounts.length} accounts (A–Z)
       </p>
@@ -76,6 +63,10 @@ export function AccountsExplorer({ accounts }: { accounts: AccountOverview[] }) 
               </div>
 
               <div className="mt-3 flex flex-wrap gap-3 text-xs text-charcoal-600">
+                <span className="inline-flex items-center gap-1">
+                  <Briefcase className="h-3.5 w-3.5 text-iris-500" />
+                  {account.opportunityCount} {account.opportunityCount === 1 ? "opp" : "opps"}
+                </span>
                 <span className="inline-flex items-center gap-1">
                   <CalendarClock className="h-3.5 w-3.5 text-iris-500" />
                   {account.meetingCount} mtg

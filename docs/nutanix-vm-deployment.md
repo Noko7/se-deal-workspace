@@ -68,22 +68,6 @@ sudo systemctl start se-deal-workspace
 sudo systemctl status se-deal-workspace
 ```
 
-### 6) Backup/restore operations
-
-Backup:
-
-```bash
-cd /opt/se-deal-workspace
-./deploy/nutanix/backup-db.sh
-```
-
-Restore:
-
-```bash
-cd /opt/se-deal-workspace
-./deploy/nutanix/restore-db.sh /opt/se-deal-workspace/backups/dev-<timestamp>.db.gz
-```
-
 ### Upgrade flow
 
 ```bash

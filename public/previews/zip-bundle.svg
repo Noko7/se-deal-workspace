@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="74" fill="#6d4de2"/>
+  <text x="36" y="38" fill="#ffffff" font-size="24" font-weight="700">Discovery Bundle</text>
+  <text x="36" y="60" fill="#e0e1ff" font-size="14">Packaged artifacts &#183; .zip</text>
+  <g>
+    <path d="M70 120 h60 l14 16 h120 a10 10 0 0 1 10 10 v0 h-204 a10 10 0 0 1 -10 -10 v-6 a10 10 0 0 1 10 -10 z" fill="#c6bcfe"/>
+    <rect x="60" y="142" width="244" height="150" rx="10" fill="#f3f0ff" stroke="#c6bcfe"/>
+  </g>
+  <g fill="#5e3fc2" font-size="13" font-weight="600">
+    <text x="80" y="176">collector_export.zip</text>
+    <text x="80" y="204">rvtools.xlsx</text>
+    <text x="80" y="232">network_diagram.pdf</text>
+    <text x="80" y="260">sizing_inputs.json</text>
+  </g>
+  <g>
+    <rect x="336" y="142" width="268" height="150" rx="10" fill="#f7f7f7" stroke="#e9e9ef"/>
+    <text x="356" y="176" fill="#313131" font-size="15" font-weight="700">4 files</text>
+    <text x="356" y="204" fill="#757575" font-size="13">Total size 86 MB</text>
+    <rect x="356" y="224" width="228" height="12" rx="6" fill="#e9e9ef"/>
+    <rect x="356" y="224" width="228" height="12" rx="6" fill="#6d4de2"/>
+    <text x="356" y="266" fill="#3f5e0a" font-size="13" font-weight="600">Extracted &amp; verified</text>
+  </g>
+</svg>

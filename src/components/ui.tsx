@@ -1,5 +1,5 @@
-import { IntegrationStatus, PreviewStatus, RecommendationDecision } from "@prisma/client";
-import { ReactNode } from "react";
+import { ButtonHTMLAttributes, ReactNode } from "react";
+import type { IntegrationStatus } from "@/lib/local-config";
 
 export function Card({
   title,
@@ -101,9 +101,9 @@ export function StatusPill({
 }) {
   const toneClass = {
     neutral: "bg-charcoal-100 text-charcoal-700",
-    good: "bg-[#eef8d8] text-[#3f5e0a]",
-    warning: "bg-[#ffe7e0] text-[#9a3b27]",
-    bad: "bg-rose-100 text-rose-800",
+    good: "bg-[#eef8d8] text-[#3f5e0a] dark:bg-emerald-400/15 dark:text-emerald-300",
+    warning: "bg-[#ffe7e0] text-[#9a3b27] dark:bg-orange-400/15 dark:text-orange-200",
+    bad: "bg-rose-100 text-rose-800 dark:bg-rose-400/15 dark:text-rose-300",
     info: "bg-iris-100 text-iris-700",
   }[tone];
 
@@ -111,45 +111,34 @@ export function StatusPill({
 }
 
 export function IntegrationStatusPill({ status }: { status: IntegrationStatus }) {
-  const tone =
-    status === IntegrationStatus.CONNECTED ? "good" : status === IntegrationStatus.NEEDS_ATTENTION ? "warning" : "neutral";
+  const tone = status === "CONNECTED" ? "good" : status === "NEEDS_ATTENTION" ? "warning" : "neutral";
   return <StatusPill tone={tone}>{status.replace("_", " ")}</StatusPill>;
-}
-
-export function PreviewStatusPill({ status }: { status: PreviewStatus }) {
-  const tone = status === PreviewStatus.READY ? "good" : status === PreviewStatus.PENDING ? "warning" : "bad";
-  return <StatusPill tone={tone}>{status}</StatusPill>;
 }
 
 export function Button({
   children,
   tone = "primary",
   type = "button",
+  className,
+  ...props
 }: {
   children: ReactNode;
   tone?: "primary" | "secondary" | "danger";
-  type?: "button" | "submit" | "reset";
-}) {
+  className?: string;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   const toneClass = {
     primary: "bg-iris-500 text-white hover:bg-iris-600",
-    secondary: "bg-white text-charcoal-800 border border-charcoal-300 hover:bg-charcoal-50",
+    secondary: "bg-white text-charcoal-800 border border-charcoal-400 hover:border-iris-400 hover:bg-iris-50",
     danger: "bg-rose-600 text-white hover:bg-rose-500",
   }[tone];
 
   return (
-    <button type={type} className={`rounded-md px-3 py-2 text-sm font-medium transition ${toneClass}`}>
+    <button
+      {...props}
+      type={type}
+      className={`rounded-md px-3 py-2 text-sm font-medium transition ${toneClass} ${className ?? ""}`.trim()}
+    >
       {children}
     </button>
   );
-}
-
-export function RecommendationStatusPill({ status }: { status: RecommendationDecision }) {
-  const tone =
-    status === RecommendationDecision.APPROVED
-      ? "good"
-      : status === RecommendationDecision.REJECTED
-        ? "bad"
-        : "warning";
-
-  return <StatusPill tone={tone}>{status}</StatusPill>;
 }

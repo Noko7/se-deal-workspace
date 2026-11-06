@@ -7,8 +7,5 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    environment:
-      - DATABASE_URL=file:./dev.db
     volumes:
-      - ./prisma:/app/prisma
-      - ./dev.db:/app/dev.db
+      - ./data:/app/data

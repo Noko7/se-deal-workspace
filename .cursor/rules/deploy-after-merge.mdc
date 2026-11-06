@@ -1,0 +1,35 @@
+---
+description: How code reaches the live app — always deploy after merging to main
+alwaysApply: true
+---
+
+# Deploying changes to the live app
+
+The running app at `http://<host>:3000` is the systemd unit
+`se-deal-workspace.service` running **`next start` in production mode**. It
+serves the prebuilt `.next` directory and does **NOT** hot-reload from source.
+
+**Merging to `main` updates git only — it does NOT update the running app.**
+A feature is not "live" until the production bundle is rebuilt and the service
+is restarted.
+
+## Workflow for every feature
+
+1. Branch (`feat/...` or `fix/...`) -> commit -> push -> merge into `main` (`--no-ff`) -> push `main`.
+2. **Deploy:** from the repo root run `npm run deploy` (or `bash deploy.sh`).
+3. Tell the user to hard-refresh (`Cmd/Ctrl+Shift+R`).
+
+## Why `deploy.sh` works without sudo
+
+The unit runs as this user with `Restart=always`, so the script restarts it by
+killing its main process and letting systemd respawn it — no sudo needed.
+`deploy.sh` builds first, then restarts, then verifies a CSS asset returns 200.
+
+## Do NOT
+
+- Do NOT run `npm run build` by itself against the live dir without an immediate
+  restart. Rebuilding under a running `next start` invalidates the hashed
+  CSS/JS chunks the live server references, which 404s them and renders the app
+  unstyled. Always build + restart together (i.e. use `deploy.sh`).
+- Do NOT start a stray `npm run dev`; it cannot own port 3000 (the service holds
+  it) and only causes confusion.

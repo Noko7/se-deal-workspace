@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="74" fill="#1fd0e3"/>
+  <text x="36" y="38" fill="#06363d" font-size="24" font-weight="700">Suggested Build</text>
+  <text x="36" y="60" fill="#06363d" font-size="14" opacity="0.8">Nutanix Sizer brief</text>
+  <g>
+    <rect x="36" y="104" width="268" height="86" rx="10" fill="#e7fafd" stroke="#9fe6ef"/>
+    <text x="52" y="138" fill="#0b7c8c" font-size="26" font-weight="700">6 nodes</text>
+    <text x="52" y="166" fill="#5d5d5d" font-size="13">All-flash &#183; dense config</text>
+    <rect x="320" y="104" width="284" height="86" rx="10" fill="#f3f0ff" stroke="#c6bcfe"/>
+    <text x="336" y="138" fill="#5e3fc2" font-size="26" font-weight="700">Async DR</text>
+    <text x="336" y="166" fill="#5d5d5d" font-size="13">Dual-site replication</text>
+  </g>
+  <rect x="36" y="206" width="568" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="234" width="520" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="262" width="470" height="14" rx="7" fill="#e9e9ef"/>
+  <rect x="36" y="296" width="320" height="34" rx="8" fill="#fff4e6"/>
+  <text x="52" y="318" fill="#9a3b27" font-size="13" font-weight="600">Risk: confirm WAN bandwidth for DR</text>
+</svg>

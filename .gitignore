@@ -32,6 +32,20 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# local admin config (connector status, encrypted LLM credentials)
+/data/local-config.json
+
+# Customer reference material lives in /docs and must never reach the remote:
+# Collector / RVTools / LiveOptics exports contain real estate inventory, even
+# when masked. Only the hand-written .md notes are tracked.
+/docs/**
+!/docs/*.md
+
+# Customer QBR/Health sample downloads used for local parser dev — real customer
+# data, must never reach the remote.
+/samples/**
 
 # vercel
 .vercel
@@ -40,6 +54,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local sqlite databases
-/dev.db
-/prisma/dev.db
+# Simple Sizer global usage totals (three counters, written by the app)
+/data/sizer-stats.json

@@ -1,0 +1,588 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { EditableText, EditableList } from "@/components/inline-edit";
+import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
+import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor, platformSpecFor } from "@/lib/hardware-images";
+import { getProductIcon } from "@/lib/nutanix-icons";
+import { EDITION_TAGLINE, type EditionKey } from "@/lib/nci-editions";
+import { LICENSE_CATALOG } from "@/lib/license-catalog";
+import type { ProposalScenario } from "@/lib/sizer-import";
+import {
+  basePlatformLabel,
+  basePlatformLine,
+  capacityRows,
+  cpuSummary,
+  hardwareRollup,
+  memorySummary,
+  nodeCores,
+  nodeRawStorageTB,
+  proposalHelpers,
+  storageSummary,
+  type ProposalDoc,
+} from "@/lib/proposal-doc";
+
+const { fmtInt, tib } = proposalHelpers;
+const PURPLE = cssHex(NUTANIX.purple);
+
+const FONT = { fontFamily: "'Montserrat', system-ui, sans-serif" } as const;
+// Content insets that clear the letterhead overlay's top tab and bottom rule.
+const PAGE_W = 816;
+const PAGE_H = 1056;
+
+function Bullets({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-1">
+      {items.filter(Boolean).map((it, i) => (
+        <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-charcoal-700">
+          <span style={{ color: PURPLE }}>•</span>
+          <span>{it}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ThreeCol({
+  groups,
+  editable,
+}: {
+  groups: { heading: string; items: string[]; onCommit?: (lines: string[]) => void }[];
+  editable?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      {groups.map((g) => (
+        <div key={g.heading}>
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>{g.heading}</p>
+          <EditableList
+            items={g.items}
+            fontStyle={{ fontSize: 11 }}
+            editable={Boolean(editable && g.onCommit)}
+            onCommit={g.onCommit ?? (() => {})}
+            renderReadOnly={(items) => <Bullets items={items} />}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-2 flex items-center gap-2">
+      <span className="h-4 w-1.5 rounded-full" style={{ background: PURPLE }} />
+      <h2 className="text-[15px] font-bold text-charcoal-900" style={FONT}>{children}</h2>
+    </div>
+  );
+}
+
+// A single letterhead-styled page: white sheet with the official letterhead
+// overlay (angled NUTANIX tab + purple footer rule) and a Nutanix footer line.
+// Watches its own content: if edits push text past the printable area, a
+// warning badge appears in the preview (hidden on the print surface) instead of
+// the overflow silently clipping in the exported PDF.
+function Page({ children, pageNo, customer }: { children: React.ReactNode; pageNo: number; customer: string }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [overflowPx, setOverflowPx] = useState(0);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const check = () => setOverflowPx(Math.max(0, el.scrollHeight - el.clientHeight));
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    for (const child of Array.from(el.children)) ro.observe(child);
+    return () => ro.disconnect();
+  });
+
+  return (
+    <div className="proposal-page relative bg-white text-charcoal-900" style={{ width: PAGE_W, height: PAGE_H, ...FONT }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/letterhead-overlay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
+      <div ref={contentRef} className="relative flex h-full flex-col overflow-hidden px-16 pb-24 pt-28">{children}</div>
+      {overflowPx > 4 ? (
+        <div className="proposal-overflow-badge absolute inset-x-16 bottom-16 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-semibold text-amber-800 shadow-sm">
+          Content overflows page {pageNo} by ~{Math.round(overflowPx)}px and will be cut off in the PDF. Trim the text above.
+        </div>
+      ) : null}
+      <div className="absolute inset-x-16 bottom-9 flex justify-between text-[8px]" style={{ color: NUTANIX_HEX_SLATE }}>
+        <span>Nutanix, Inc.&nbsp;&nbsp;Tel +1-855-688-2549&nbsp;&nbsp;•&nbsp;&nbsp;info@nutanix.com&nbsp;&nbsp;•&nbsp;&nbsp;© {new Date().getFullYear()} Nutanix, Inc. All Rights Reserved</span>
+        <span>Confidential · {customer} · Page {pageNo}</span>
+      </div>
+    </div>
+  );
+}
+const NUTANIX_HEX_SLATE = cssHex(NUTANIX.slate);
+
+// The meta line under the title: opportunity / install country / date / prepared by.
+// Non-editable render is byte-identical to the original single <p>; editable
+// render swaps each piece for an inline EditableText chip.
+function MetaLine({
+  doc,
+  editable,
+  patch,
+}: {
+  doc: ProposalDoc;
+  editable: boolean;
+  patch?: (updater: (d: ProposalDoc) => ProposalDoc) => void;
+}) {
+  if (!editable || !patch) {
+    return (
+      <p className="mt-0.5 text-[11px] text-charcoal-500">
+        {[doc.meta.opportunityName, doc.meta.installCountry, doc.meta.dateLabel].filter(Boolean).join("  ·  ")}
+        {"  ·  Prepared by "}{doc.meta.preparedBy}
+      </p>
+    );
+  }
+  const chipStyle = { fontSize: 11 };
+  return (
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-charcoal-500">
+      <EditableText
+        inline
+        value={doc.meta.opportunityName ?? ""}
+        fontStyle={chipStyle}
+        onCommit={(v) => patch((d) => ((d.meta.opportunityName = v || null), d))}
+      />
+      <span>·</span>
+      <EditableText
+        inline
+        value={doc.meta.installCountry ?? ""}
+        fontStyle={chipStyle}
+        onCommit={(v) => patch((d) => ((d.meta.installCountry = v || null), d))}
+      />
+      <span>·</span>
+      <EditableText inline value={doc.meta.dateLabel} fontStyle={chipStyle} onCommit={(v) => patch((d) => ((d.meta.dateLabel = v), d))} />
+      <span>· Prepared by</span>
+      <EditableText inline value={doc.meta.preparedBy} fontStyle={chipStyle} onCommit={(v) => patch((d) => ((d.meta.preparedBy = v), d))} />
+    </p>
+  );
+}
+
+/** The 2-page mini-TCO Solution Brief, on the Nutanix corporate letterhead. */
+export function ProposalTwoPager({
+  doc,
+  logo,
+  editable = false,
+  patch,
+}: {
+  doc: ProposalDoc;
+  logo: string | null;
+  editable?: boolean;
+  patch?: (updater: (d: ProposalDoc) => ProposalDoc) => void;
+}) {
+  const canEdit = editable && Boolean(patch);
+  const t = doc.scenario.totals;
+  const rollup = hardwareRollup(doc.scenario);
+  const licLines = doc.licensing.lines;
+  const base = basePlatformLine(doc);
+  const baseLabel = basePlatformLabel(doc);
+  const baseIsNci = !base || base.product === "CloudInfrastructure";
+  const baseTagline = base && base.product === "EUC"
+    ? "Full-stack platform for virtual desktops and apps."
+    : `${EDITION_TAGLINE[(base?.tier as EditionKey) ?? doc.meta.edition] ?? ""}.`;
+  return (
+    <>
+      {/* Page 1 */}
+      <Page pageNo={1} customer={doc.meta.customer}>
+        <div className="mb-4">
+          <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>{doc.options?.externalStorage ? "STORAGE PROPOSAL" : "SOLUTION PROPOSAL"}</p>
+          {canEdit ? (
+            <div className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">
+              <EditableText value={doc.meta.title} fontStyle={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }} onCommit={(v) => patch!((d) => ((d.meta.title = v), d))} />
+            </div>
+          ) : (
+            <h1 className="mt-0.5 text-[24px] font-extrabold leading-tight text-charcoal-900">{doc.meta.title}</h1>
+          )}
+          <MetaLine doc={doc} editable={canEdit} patch={patch} />
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logo} alt="customer" className="mt-2 h-8 w-auto max-w-[160px] object-contain" />
+          ) : null}
+        </div>
+
+        <section className="mb-4">
+          <SectionTitle>Executive Summary</SectionTitle>
+          {canEdit ? (
+            <div className="text-[12px] leading-relaxed text-charcoal-700">
+              <EditableText multiline value={doc.executiveSummary} fontStyle={{ fontSize: 12, lineHeight: 1.6 }} onCommit={(v) => patch!((d) => ((d.executiveSummary = v), d))} />
+            </div>
+          ) : (
+            <p className="text-[12px] leading-relaxed text-charcoal-700">{doc.executiveSummary}</p>
+          )}
+        </section>
+
+        <section className="mb-4">
+          <SectionTitle>Current Challenges</SectionTitle>
+          {canEdit ? (
+            <div className="mb-2 text-[11px] text-charcoal-600">
+              <EditableText value={doc.challengesIntro} fontStyle={{ fontSize: 11 }} onCommit={(v) => patch!((d) => ((d.challengesIntro = v), d))} />
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] text-charcoal-600">{doc.challengesIntro}</p>
+          )}
+          <ThreeCol
+            editable={canEdit}
+            groups={[
+              { heading: "Technical", items: doc.challenges.technical, onCommit: (lines) => patch!((d) => ((d.challenges.technical = lines), d)) },
+              { heading: "Operational", items: doc.challenges.operational, onCommit: (lines) => patch!((d) => ((d.challenges.operational = lines), d)) },
+              { heading: "Financial", items: doc.challenges.financial, onCommit: (lines) => patch!((d) => ((d.challenges.financial = lines), d)) },
+            ]}
+          />
+        </section>
+
+        <section>
+          <SectionTitle>Nutanix Proposed Benefits</SectionTitle>
+          {canEdit ? (
+            <div className="mb-2 text-[11px] text-charcoal-600">
+              <EditableText value={doc.benefitsIntro} fontStyle={{ fontSize: 11 }} onCommit={(v) => patch!((d) => ((d.benefitsIntro = v), d))} />
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] text-charcoal-600">{doc.benefitsIntro}</p>
+          )}
+          <ThreeCol
+            editable={canEdit}
+            groups={[
+              { heading: "Technical", items: doc.benefits.technical, onCommit: (lines) => patch!((d) => ((d.benefits.technical = lines), d)) },
+              { heading: "Operational", items: doc.benefits.operational, onCommit: (lines) => patch!((d) => ((d.benefits.operational = lines), d)) },
+              { heading: "Financial", items: doc.benefits.financial, onCommit: (lines) => patch!((d) => ((d.benefits.financial = lines), d)) },
+            ]}
+          />
+        </section>
+      </Page>
+
+      {/* Page 2 */}
+      <Page pageNo={2} customer={doc.meta.customer}>
+        <section className="mb-4">
+          <SectionTitle>Current State vs. Proposed State</SectionTitle>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-charcoal-500">Current</p>
+              <EditableList
+                items={doc.currentState}
+                fontStyle={{ fontSize: 11 }}
+                editable={canEdit}
+                onCommit={(lines) => patch!((d) => ((d.currentState = lines), d))}
+                renderReadOnly={(items) => <Bullets items={items} />}
+              />
+            </div>
+            <div className="rounded-lg border p-3" style={{ borderColor: PURPLE, background: cssHex(NUTANIX.cloud) }}>
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Proposed</p>
+              <EditableList
+                items={doc.proposedState}
+                fontStyle={{ fontSize: 11 }}
+                editable={canEdit}
+                onCommit={(lines) => patch!((d) => ((d.proposedState = lines), d))}
+                renderReadOnly={(items) => <Bullets items={items} />}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-4">
+          <SectionTitle>About the Process</SectionTitle>
+          <EditableList
+            items={doc.timeline.map((m) => m.label)}
+            editable={canEdit}
+            onCommit={(lines) => patch!((d) => ((d.timeline = lines.map((label) => ({ label }))), d))}
+            renderReadOnly={(items) => (
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((label, i) => (
+                  <span
+                    key={i}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
+                    style={label.toLowerCase().includes("go live") ? { background: PURPLE, color: "white" } : { background: cssHex(NUTANIX.cloud), color: cssHex(NUTANIX.ink) }}
+                  >
+                    <span className="opacity-50">{i + 1}</span>
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          />
+        </section>
+
+        <section className="mb-4">
+          <SectionTitle>Nutanix Solution Summary</SectionTitle>
+          <div className="mb-3 flex items-center gap-3 rounded-lg border border-iris-100 bg-iris-50/50 p-2.5">
+            {baseIsNci ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={getProductIcon("CloudInfrastructure", "Color", "text")} alt="NCI" className="h-7 w-auto object-contain" />
+            ) : (
+              <span className="rounded-md px-2 py-1 text-[12px] font-extrabold text-white" style={{ background: PURPLE }}>EUC</span>
+            )}
+            <div className="text-[11px] text-charcoal-700">
+              <span className="font-bold text-charcoal-900">{baseLabel}</span>: {baseTagline} {doc.meta.supportTerm}.
+            </div>
+          </div>
+          {doc.options?.externalStorage ? (
+            <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-charcoal-200 bg-charcoal-50 p-2.5">
+              <span className="text-[11px] text-charcoal-600">Primary storage delivered by</span>
+              {doc.options.externalStorageVendor === "Pure Storage" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src="/brand/pure-storage.png" alt="Pure Storage" className="h-4 w-auto object-contain" />
+              ) : (
+                <span className="text-[11px] font-bold text-charcoal-800">{doc.options.externalStorageVendor}</span>
+              )}
+              <span className="text-[11px] text-charcoal-500">over NVMe/TCP</span>
+            </div>
+          ) : null}
+          {licLines.length ? (
+            <table className="mb-3 w-full border-collapse text-[10px]">
+              <thead>
+                <tr className="text-charcoal-500">
+                  <th className="border-b border-charcoal-200 px-2 py-1 text-left font-semibold">Software</th>
+                  <th className="border-b border-charcoal-200 px-2 py-1 text-left font-semibold">Tier / edition</th>
+                  <th className="border-b border-charcoal-200 px-2 py-1 text-right font-semibold">Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {licLines.map((l) => (
+                  <tr key={l.id}>
+                    <td className="px-2 py-1 font-semibold text-charcoal-800">{LICENSE_CATALOG[l.product].label}</td>
+                    <td className="px-2 py-1 text-charcoal-600">{l.tier}</td>
+                    <td className="px-2 py-1 text-right text-charcoal-600">{fmtInt(l.qty)} {l.unit}</td>
+                  </tr>
+                ))}
+                <tr className="border-t font-semibold" style={{ borderColor: PURPLE }}>
+                  <td className="px-2 py-1 text-charcoal-700" colSpan={3}>Licensed for a {doc.licensing.termYears}-year subscription term. Pricing provided in a separate quote.</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : null}
+          {rollup.some((r) => hardwareImageFor(r.sku) || hardwareRearImageFor(r.sku)) ? (
+            <div className="mb-3 flex flex-wrap items-end gap-5">
+              {rollup.map((r) => {
+                const front = hardwareImageFor(r.sku);
+                const rear = hardwareRearImageFor(r.sku);
+                if (!front && !rear) return null;
+                return (
+                  <div key={r.sku} className="flex flex-col items-center">
+                    <div className="flex flex-col gap-1.5">
+                      {front ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-8 text-right text-[8px] uppercase tracking-wide text-charcoal-400">Front</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={front} alt={`${r.sku} front`} className="h-9 w-auto max-w-[150px] object-contain" />
+                        </div>
+                      ) : null}
+                      {rear ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-8 text-right text-[8px] uppercase tracking-wide text-charcoal-400">Rear</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={rear} alt={`${r.sku} rear`} className="h-9 w-auto max-w-[150px] object-contain" />
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="mt-1 text-[9px] font-medium text-charcoal-500">{r.nodes}× {r.sku}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          <table className="w-full border-collapse text-[10px]">
+            <thead>
+              <tr style={{ background: PURPLE }} className="text-white">
+                <th className="px-2 py-1 text-left">Hardware</th>
+                <th className="px-2 py-1 text-right">Nodes</th>
+                <th className="px-2 py-1 text-left">CPU</th>
+                <th className="px-2 py-1 text-right">Cores</th>
+                <th className="px-2 py-1 text-right">RAM (GB)</th>
+                <th className="px-2 py-1 text-right">Raw TB</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rollup.map((r, i) => (
+                <tr key={r.sku} className={i % 2 ? "bg-iris-50/40" : "bg-white"}>
+                  <td className="px-2 py-1 font-semibold">{r.sku}</td>
+                  <td className="px-2 py-1 text-right">{r.nodes}</td>
+                  <td className="px-2 py-1">{r.cpuSummary}</td>
+                  <td className="px-2 py-1 text-right">{fmtInt(r.cores)}</td>
+                  <td className="px-2 py-1 text-right">{fmtInt(r.ramGiB)}</td>
+                  <td className="px-2 py-1 text-right">{r.rawStorageTB.toFixed(1)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 font-semibold" style={{ borderColor: PURPLE }}>
+                <td className="px-2 py-1">Total</td>
+                <td className="px-2 py-1 text-right">{fmtInt(t.nodes)}</td>
+                <td className="px-2 py-1" />
+                <td className="px-2 py-1 text-right">{fmtInt(t.cores)}</td>
+                <td className="px-2 py-1 text-right">{fmtInt(t.ramGiB)}</td>
+                <td className="px-2 py-1 text-right">{tib(t.ssdTiB + t.hddTiB)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </Page>
+    </>
+  );
+}
+
+/**
+ * Per-cluster + node spec preview that mirrors the BOM deck content. `scenario`
+ * selects which proposed hardware option is being previewed; it defaults to the
+ * recommended one that `doc.scenario` mirrors.
+ */
+export function ProposalBomPreview({ doc, scenario }: { doc: ProposalDoc; scenario?: ProposalScenario }) {
+  const shown = scenario ?? doc.scenario;
+  const seen = new Set<string>();
+  const uniqueModels = shown.clusters.flatMap((c) => c.models).filter((m) => (seen.has(m.sku) ? false : (seen.add(m.sku), true)));
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {shown.clusters.map((c, ci) => (
+          <div
+            key={c.name}
+            className="sizer-rise rounded-2xl border border-charcoal-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5"
+            style={{ "--index": ci } as React.CSSProperties}
+          >
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold tracking-tight text-charcoal-900">{c.name}</h4>
+              <span className="rounded-full bg-iris-50 px-2 py-0.5 text-[11px] font-medium text-iris-700">{c.nodes} nodes</span>
+            </div>
+            {/* Same rows, precision and phrasing the .pptx exporter uses, so the
+                preview and the deck can never disagree about a number. */}
+            <div className="mt-3 divide-y divide-charcoal-100 border-y border-charcoal-100">
+              {capacityRows(c).map((row) => {
+                const over = (row.pct ?? 0) > 100;
+                return (
+                  <div key={row.label} className="py-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[10px] text-charcoal-500">{row.label}</span>
+                      <span className={`text-[10px] font-medium ${over ? "text-rose-700" : "text-charcoal-500"}`}>
+                        {row.pctLabel ? `${row.pctLabel} utilized` : ""}
+                      </span>
+                    </div>
+                    <p className="text-[13px] font-bold text-charcoal-900">{row.value}</p>
+                    {row.pct != null ? (
+                      <div className="mt-1 h-1 w-full bg-charcoal-100">
+                        <div
+                          className="h-1"
+                          style={{
+                            width: `${Math.min(Math.max(row.pct, 0), 100)}%`,
+                            background: over ? cssHex(NUTANIX.coral) : PURPLE,
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    {row.detail ? <p className="mt-1 text-[9px] text-charcoal-400">{row.detail}</p> : null}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 space-y-1.5">
+              {c.models.map((m, i) => (
+                <div key={i} className="rounded-lg border border-charcoal-100 bg-charcoal-50/60 px-2.5 py-1.5">
+                  <p className="text-[12px] font-semibold text-charcoal-900">{m.nodes}× {m.sku}</p>
+                  <p className="text-[10px] text-charcoal-500">{cpuSummary(m)}</p>
+                  <p className="text-[10px] text-charcoal-500">{memorySummary(m)} · {storageSummary(m)}</p>
+                </div>
+              ))}
+            </div>
+            {c.license ? (
+              <p className="mt-2 text-[11px] text-charcoal-500">
+                License: <span className="font-medium text-charcoal-700">NCI {c.license.edition}</span>
+                {c.license.cores ? ` · ${fmtInt(c.license.cores)} cores` : ""}
+                {c.license.termMonths ? ` · ${c.license.termMonths} mo` : ""}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <h4 className="mb-2 text-sm font-bold tracking-tight text-charcoal-900">Node Spec Sheets</h4>
+        <div className="grid gap-3 md:grid-cols-2">
+          {uniqueModels.map((m, mi) => {
+            const front = hardwareImageFor(m.sku);
+            const rear = hardwareRearImageFor(m.sku);
+            const plat = platformSpecFor(m.sku);
+            const used = drivesPerNode(m.drives);
+            const empty = emptyDriveSlots(m.sku, m.drives);
+            const bays = plat?.maxDriveBays ?? null;
+            return (
+              <div
+                key={m.sku}
+                className="sizer-rise rounded-2xl border border-charcoal-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(120,85,250,0.45)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5"
+                style={{ "--index": mi } as React.CSSProperties}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-bold text-charcoal-900">{m.sku}</p>
+                    {plat ? <p className="text-[10px] font-medium text-iris-600">{plat.family} · {plat.generation} · {plat.formFactor}</p> : null}
+                  </div>
+                  {plat && plat.status !== "current" ? (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                      {plat.status === "endOfSale" ? "End of sale" : "Out of support"}
+                    </span>
+                  ) : null}
+                </div>
+                {front || rear ? (
+                  <div className="mt-2 space-y-1.5 rounded-lg bg-charcoal-50 p-2">
+                    {front ? (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Front</span>
+                        {/* min-w-0 lets the wide rack photo shrink to the tile width (an img flex
+                            item's default min-width:auto is its intrinsic px width, which overflows). */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={front} alt={`${m.sku} front`} className="max-h-12 w-full min-w-0 object-contain" />
+                      </div>
+                    ) : null}
+                    {rear ? (
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[8px] uppercase tracking-wide text-charcoal-400">Rear</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={rear} alt={`${m.sku} rear`} className="max-h-12 w-full min-w-0 object-contain" />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex gap-3">
+                  <dl className="min-w-0 flex-1 space-y-1 text-[11px]">
+                    {[
+                      ["CPU", cpuSummary(m)],
+                      ["Memory", memorySummary(m)],
+                      ["Storage", storageSummary(m)],
+                      ["Network", m.nic ?? "N/A"],
+                      ["Cores/node", String(nodeCores(m) || "N/A")],
+                      ["Raw/node", `${nodeRawStorageTB(m).toFixed(2)} TB`],
+                      ...(bays != null ? [["Drive bays", `${used} of ${bays} populated${empty != null ? ` · ${empty} empty` : ""}`] as [string, string]] : []),
+                    ].map(([k, v]) => (
+                      <div key={k} className="flex gap-2">
+                        <dt className="w-20 shrink-0 font-semibold text-charcoal-500">{k}</dt>
+                        <dd className="text-charcoal-700">{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+                {plat ? (
+                  <div className="mt-3 rounded-lg border border-iris-100 bg-iris-50/50 p-2.5 text-[11px]">
+                    <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-iris-600">Platform reference</p>
+                    <dl className="space-y-0.5">
+                      {[
+                        ["Form factor", plat.formFactor],
+                        ["CPU", plat.cpu],
+                        ["Cores/CPU", plat.coreRange],
+                        ["Memory", plat.memoryRange],
+                        ["Storage", plat.storage],
+                        ...(plat.gpu ? [["GPU", plat.gpu] as [string, string]] : []),
+                        ...(bays != null ? [["Drive bays", `${bays} (${empty ?? 0} unused)`] as [string, string]] : []),
+                        ["Best for", plat.useCases],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex gap-2">
+                          <dt className="w-20 shrink-0 font-semibold text-charcoal-500">{k}</dt>
+                          <dd className="text-charcoal-700">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Montserrat, Arial, sans-serif">
+  <rect width="640" height="360" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="639" height="359" fill="none" stroke="#d7d7d7"/>
+  <rect width="640" height="74" fill="#3f5e0a"/>
+  <text x="36" y="38" fill="#ffffff" font-size="24" font-weight="700">RVTools Export</text>
+  <text x="36" y="60" fill="#dff0bf" font-size="14">vInfo inventory &#183; .xlsx</text>
+  <g stroke="#d7d7d7">
+    <rect x="36" y="100" width="568" height="36" fill="#eef8d8"/>
+    <rect x="36" y="136" width="568" height="32" fill="#ffffff"/>
+    <rect x="36" y="168" width="568" height="32" fill="#f7f7f7"/>
+    <rect x="36" y="200" width="568" height="32" fill="#ffffff"/>
+    <rect x="36" y="232" width="568" height="32" fill="#f7f7f7"/>
+    <rect x="36" y="264" width="568" height="32" fill="#ffffff"/>
+    <line x1="180" y1="100" x2="180" y2="296"/>
+    <line x1="324" y1="100" x2="324" y2="296"/>
+    <line x1="468" y1="100" x2="468" y2="296"/>
+  </g>
+  <text x="48" y="123" fill="#3f5e0a" font-size="13" font-weight="700">VM</text>
+  <text x="192" y="123" fill="#3f5e0a" font-size="13" font-weight="700">vCPU</text>
+  <text x="336" y="123" fill="#3f5e0a" font-size="13" font-weight="700">Memory</text>
+  <text x="480" y="123" fill="#3f5e0a" font-size="13" font-weight="700">Storage</text>
+  <g fill="#5d5d5d" font-size="13">
+    <text x="48" y="157">app-db-01</text><text x="192" y="157">8</text><text x="336" y="157">64 GB</text><text x="480" y="157">1.2 TB</text>
+    <text x="48" y="189">web-fe-02</text><text x="192" y="189">4</text><text x="336" y="189">16 GB</text><text x="480" y="189">240 GB</text>
+    <text x="48" y="221">vdi-pool-07</text><text x="192" y="221">2</text><text x="336" y="221">8 GB</text><text x="480" y="221">120 GB</text>
+    <text x="48" y="253">file-svc-03</text><text x="192" y="253">6</text><text x="336" y="253">48 GB</text><text x="480" y="253">3.0 TB</text>
+    <text x="48" y="285">batch-09</text><text x="192" y="285">16</text><text x="336" y="285">128 GB</text><text x="480" y="285">800 GB</text>
+  </g>
+</svg>

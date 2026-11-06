@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 /*
+  Dark mode is a class on <html> (toggled by ThemeToggle), not the OS setting, so
+  redefine the `dark:` variant to key off that class. This lets components opt
+  into dark-aware tints (e.g. semantic status chips) that track the manual
+  toggle, alongside the token remapping in the `.dark` block below.
+*/
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
   Nutanix brand system
   - Lead with White + Charcoal Gray, use Iris Purple as a deliberate accent.
   - Secondary colors (Aqua Blue, Mantis Green, Peach Pink) for highlights only.
@@ -49,6 +57,86 @@
   --color-aqua: #1fd0e3;
   --color-mantis: #92d523;
   --color-peach: #ff9478;
+
+  /*
+    Data-mark palette — for chart marks only (bars, meters, tile accents), never
+    for app chrome. The brand's bright secondaries are display colors: as data
+    marks they fail the checks (aqua/mantis/peach land at L 0.77–0.80, outside the
+    0.43–0.77 light band, at 1.7–2.1:1 contrast on white, and peach x mantis is
+    only dE 6.4 under deuteranopia). These are the nearest steps of the same hues
+    that pass all five checks against the light surface — validated, not eyeballed:
+      lightness band, chroma floor, CVD separation, normal-vision floor, contrast.
+    Fixed order: compute, memory, storage. Never cycled, never reassigned by rank.
+  */
+  --color-viz-compute: #7855fa;
+  --color-viz-memory: #16a3b3;
+  --color-viz-storage: #6ea01a;
+  --color-viz-muted: #9a9aa3;
+  --color-viz-track: #ececef;
+}
+
+/*
+  Night mode: flip the neutral (charcoal) scale and remap a few surfaces. Because
+  Tailwind v4 utilities reference these tokens via CSS variables, redefining them
+  under .dark recolors the whole app without touching components. The base
+  `charcoal` (header bg) and `text-white` (on colored buttons) intentionally stay.
+*/
+.dark {
+  color-scheme: dark;
+  --background: #131316;
+  --foreground: #f3f3f5;
+
+  --color-charcoal: #16161a; /* header background stays dark */
+  --color-charcoal-50: #1d1d20;
+  --color-charcoal-100: #26262a;
+  --color-charcoal-200: #33333a;
+  --color-charcoal-300: #45454d;
+  --color-charcoal-400: #5d5d66;
+  --color-charcoal-500: #8e8e96;
+  --color-charcoal-600: #a8a8b0;
+  --color-charcoal-700: #c3c3ca;
+  --color-charcoal-800: #dedee3;
+  --color-charcoal-900: #f3f3f5;
+
+  /* Iris accent: darken the light tints, lighten accent text for contrast. */
+  --color-iris-50: #221a3a;
+  --color-iris-100: #2c2156;
+  --color-iris-600: #9278fb;
+  --color-iris-700: #ac9bfd;
+
+  /*
+    Dark data marks are *selected*, not flipped: the dark band (L 0.48–0.67) is
+    narrower than the light one, so these are re-stepped and re-validated against
+    the #1f1f24 panel surface rather than lightened by rule.
+  */
+  --color-viz-compute: #8f74fb;
+  --color-viz-memory: #189cad;
+  --color-viz-storage: #74a41d;
+  --color-viz-muted: #6b6b75;
+  --color-viz-track: #2e2e35;
+}
+
+/* White surfaces (cards, chips) and form controls become dark panels. */
+.dark .bg-white {
+  background-color: #1f1f24;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1f1f24;
+  color: #ECECF1;
+  border-color: #3a3a42;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9a9aa3;
+}
+
+.dark select option {
+  background-color: #1f1f24;
+  color: #ECECF1;
 }
 
 body {
@@ -57,30 +145,357 @@ body {
   font-family: "Montserrat", var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-input,
-select,
-textarea {
-  @apply rounded-md border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900;
+/*
+  Base element defaults live in `@layer base` so that Tailwind utility classes
+  (e.g. `bg-transparent` on an unselected toggle) reliably override them. Without
+  the layer, these unlayered rules would win over layered utilities regardless of
+  specificity, making every <button> render with the default iris background.
+*/
+@layer base {
+  input,
+  select,
+  textarea {
+    @apply rounded-md border border-charcoal-200 bg-white px-3 py-2 text-sm text-charcoal-900;
+  }
+
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+  }
+
+  button {
+    @apply rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600;
+  }
+
+  button:focus-visible {
+    @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed opacity-60;
+  }
+
+  label {
+    @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
+  }
 }
 
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+/*
+  Simple Sizer motion. MOTION_INTENSITY 6 sits in the "fluid CSS" band, so this is
+  transitions and delay cascades only — transform and opacity exclusively, so every
+  animation stays on the compositor. No layout properties are animated.
+*/
+@keyframes sizer-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
-button {
-  @apply rounded-md bg-iris-500 px-3 py-2 text-sm font-medium text-white hover:bg-iris-600;
+/* Staggered reveal: each item sets --index, the cascade does the rest. */
+.sizer-rise {
+  animation: sizer-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--index, 0) * 55ms);
 }
 
-button:focus-visible {
-  @apply outline-none ring-2 ring-iris-300 ring-offset-1;
+/* Skeleton shimmer — a sweep across the placeholder, not a spinner. */
+@keyframes sizer-shimmer {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
 }
 
-button:disabled {
-  @apply cursor-not-allowed opacity-60;
+.sizer-shimmer {
+  position: relative;
+  overflow: hidden;
 }
 
-label {
-  @apply text-xs font-semibold uppercase tracking-wide text-charcoal-600;
+.sizer-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(120, 85, 250, 0.14), transparent);
+  animation: sizer-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Meter fills grow from zero once, so a bar reads as a measurement being taken. */
+@keyframes sizer-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.sizer-fill {
+  transform-origin: left center;
+  animation: sizer-fill 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--index, 0) * 55ms + 120ms);
+}
+
+/* A live status dot that breathes, so "parsed" reads as a current state. */
+@keyframes sizer-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+.sizer-breathe {
+  animation: sizer-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sizer-rise,
+  .sizer-fill,
+  .sizer-shimmer::after,
+  .sizer-breathe {
+    animation: none;
+  }
+}
+
+/* Meeting carousel paging: slide the row in from the side it came from. */
+@keyframes carousel-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes carousel-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Scroll-down affordance: pulse a purple ring to invite a click (runs 3x). */
+@keyframes pulse-iris {
+  0% {
+    box-shadow: 0 0 0 0 rgba(120, 85, 250, 0);
+    border-color: var(--color-iris-500);
+  }
+  40% {
+    box-shadow: 0 0 0 6px rgba(120, 85, 250, 0.3);
+    border-color: var(--color-iris-500);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(120, 85, 250, 0);
+    border-color: var(--color-charcoal-200);
+  }
+}
+
+/* When the Account Map explorer (filters + map) is fullscreen, keep filters
+   visible/usable and let the map fill the remaining height. */
+.account-map-fs:fullscreen {
+  background: #ffffff;
+  padding: 16px;
+  overflow: auto;
+}
+
+.account-map-fs:fullscreen .account-map-canvas {
+  height: calc(100vh - 32px);
+}
+
+/* QBR deck — off-screen print surface. Kept at the native 1280×720 board size
+   so each slide renders at scale 1, then printed one slide per landscape page
+   (Save as PDF). Hidden off-screen during normal use. */
+.qbr-print-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 1280px;
+}
+
+/* Inline-editable text on the QBR slide preview. Subtle affordance so SEs know
+   a run is clickable, with a clearer ring while editing. */
+.qbr-editable {
+  border-radius: 3px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+.qbr-editable:hover {
+  background: rgba(120, 85, 250, 0.1);
+  box-shadow: 0 0 0 2px rgba(120, 85, 250, 0.18);
+}
+.qbr-editable:focus {
+  background: rgba(120, 85, 250, 0.14);
+  box-shadow: 0 0 0 2px rgba(120, 85, 250, 0.55);
+}
+/* The print/PDF surface must never show edit affordances. */
+.qbr-print-root .qbr-editable:hover,
+.qbr-print-root .qbr-editable:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Proposal Builder — off-screen print surface for the 2-page Solution Brief,
+   rendered at Letter-portrait (816×1056 @96dpi). */
+.proposal-print-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  width: 816px;
+}
+
+@page qbrpage {
+  size: 1280px 720px;
+  margin: 0;
+}
+@page proposalpage {
+  size: 8.5in 11in;
+  margin: 0;
+}
+
+@page sizerpage {
+  size: letter portrait;
+  margin: 0.55in 0.6in;
+}
+
+/* Simple Sizer — off-screen print surface for the sizing report. Content flows
+   across portrait Letter pages; each section is kept whole (see @media print).
+   The report always prints light, so pin the tokens .dark would flip. */
+.sizer-print-root {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 816px;
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #313131;
+  --color-charcoal-50: #f7f7f7;
+  --color-charcoal-100: #f0f0f0;
+  --color-charcoal-200: #d7d7d7;
+  --color-charcoal-300: #bfbfbf;
+  --color-charcoal-400: #a6a6a6;
+  --color-charcoal-500: #8e8e8e;
+  --color-charcoal-600: #757575;
+  --color-charcoal-700: #5d5d5d;
+  --color-charcoal-800: #444444;
+  --color-charcoal-900: #2c2c2c;
+  --color-iris-50: #f3f0ff;
+  --color-iris-100: #e0e1ff;
+  --color-iris-600: #6d4de2;
+  --color-iris-700: #5e3fc2;
+}
+.dark .sizer-print-root .bg-white {
+  background-color: #ffffff;
+}
+.sizer-print-root .sizer-report {
+  padding: 48px 56px;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .sizer-print-root,
+  .sizer-print-root *,
+  .qbr-print-root,
+  .qbr-print-root *,
+  .proposal-print-root,
+  .proposal-print-root * {
+    visibility: visible !important;
+  }
+  .qbr-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 1280px !important;
+  }
+  .qbr-print-page {
+    page: qbrpage;
+    break-after: page;
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+  }
+  /* The app around the sizing report takes no space, so no trailing blank pages. */
+  body:has(> .sizer-print-root) > :not(.sizer-print-root) {
+    display: none !important;
+  }
+  html:has(> body > .sizer-print-root),
+  body:has(> .sizer-print-root) {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  /* In normal flow (not absolute) so the named page and its margins apply and
+     the browser fragments it cleanly; width follows the @page content box
+     (8.5in - 2 x 0.6in = 7.3in) instead of overflowing it at 816px. */
+  .sizer-print-root {
+    page: sizerpage;
+    position: static !important;
+    width: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .sizer-print-root .sizer-report {
+    padding: 0;
+    orphans: 3;
+    widows: 3;
+  }
+  /* Nothing is cut mid-section: a section, table, row, list item or the
+     recommendation card that does not fit on the current page moves whole to
+     the next (9.9in of usable height per page under the 0.55in margins).
+     Legacy page-break-* kept alongside for older print engines. */
+  .sizer-print-root .sizer-report > header,
+  .sizer-print-root .sizer-report section,
+  .sizer-print-root .sizer-report table,
+  .sizer-print-root .sizer-report tr,
+  .sizer-print-root .sizer-report li,
+  .sizer-print-root .sizer-report dl,
+  .sizer-print-root .sizer-report footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .sizer-print-root .sizer-report h1,
+  .sizer-print-root .sizer-report h2,
+  .sizer-print-root .sizer-report thead {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .sizer-print-root .sizer-report thead {
+    display: table-header-group;
+  }
+  .sizer-print-root .sizer-report .sizer-appendix {
+    break-before: page;
+    page-break-before: always;
+  }
+  .proposal-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 816px !important;
+  }
+  .proposal-print-root .proposal-page {
+    page: proposalpage;
+    break-after: page;
+    width: 816px;
+    height: 1056px;
+    overflow: hidden;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* The on-screen overflow warning must never land on the exported PDF. */
+  .proposal-overflow-badge {
+    display: none !important;
+  }
 }

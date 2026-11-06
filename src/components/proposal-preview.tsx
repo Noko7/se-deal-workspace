@@ -12,13 +12,16 @@ import {
   basePlatformLabel,
   basePlatformLine,
   capacityRows,
+  configReviewOf,
   cpuSummary,
+  formatPct,
   hardwareRollup,
   memorySummary,
   nodeCores,
   nodeRawStorageTB,
   proposalHelpers,
   storageSummary,
+  type ConfigReview,
   type ProposalDoc,
 } from "@/lib/proposal-doc";
 
@@ -414,6 +417,312 @@ export function ProposalTwoPager({
             </tbody>
           </table>
         </section>
+      </Page>
+    </>
+  );
+}
+
+const pctOrDash = (p: number | null) => (p == null ? "–" : `${formatPct(p)}%`);
+
+// A utilization figure; anything past 100% is called out rather than blending in.
+function Pct({ value }: { value: number | null }) {
+  return <span className={value != null && value > 100 ? "font-bold text-rose-700" : undefined}>{pctOrDash(value)}</span>;
+}
+
+function SignatureLine({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex items-end gap-2">
+      <span className="w-16 shrink-0 text-[10px] font-semibold text-charcoal-500">{label}</span>
+      <span className="min-h-[18px] flex-1 border-b border-charcoal-300 pb-0.5 text-[11px] text-charcoal-800">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * The Configuration Review: a plain, customer-facing record of the design as
+ * reviewed and confirmed on a call (configuration, capacity, sizing basis,
+ * exclusions, sign-off), with none of the 2-pager's sales narrative.
+ */
+export function ProposalConfigReview({
+  doc,
+  logo,
+  editable = false,
+  patch,
+}: {
+  doc: ProposalDoc;
+  logo: string | null;
+  editable?: boolean;
+  patch?: (updater: (d: ProposalDoc) => ProposalDoc) => void;
+}) {
+  const canEdit = editable && Boolean(patch);
+  const r = configReviewOf(doc);
+  const s = doc.scenario;
+  const rollup = hardwareRollup(s);
+  const licLines = doc.licensing.lines;
+  const seen = new Set<string>();
+  const uniqueModels = s.clusters.flatMap((c) => c.models).filter((m) => (seen.has(m.sku) ? false : (seen.add(m.sku), true)));
+  const nodesBySku = new Map(rollup.map((x) => [x.sku, x.nodes]));
+  const showN1 = s.clusters.some((c) => c.failover.nMinus1 != null);
+  const scenarioId = s.meta.permalink?.split("/").filter(Boolean).pop();
+  const sizerRef = scenarioId ?? `\u201c${s.meta.environmentName}\u201d`;
+  const setReview = (fn: (rv: ConfigReview) => void) =>
+    patch!((d) => {
+      const rv = configReviewOf(d);
+      fn(rv);
+      d.review = rv;
+      return d;
+    });
+  const list = (items: string[], onCommit: (lines: string[]) => void, empty: string) => (
+    <EditableList
+      items={items}
+      fontStyle={{ fontSize: 11 }}
+      editable={canEdit}
+      onCommit={onCommit}
+      renderReadOnly={(its) =>
+        its.filter(Boolean).length ? (
+          <Bullets items={its} />
+        ) : (
+          <p className="text-[11px] italic text-charcoal-400">{canEdit ? empty : "–"}</p>
+        )
+      }
+    />
+  );
+  const th = "whitespace-nowrap px-2 py-1 font-semibold";
+  return (
+    <>
+      <Page pageNo={1} customer={doc.meta.customer}>
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>CONFIGURATION REVIEW</p>
+            {canEdit ? (
+              <div className="mt-0.5 text-[22px] font-extrabold leading-tight text-charcoal-900">
+                <EditableText value={r.title} fontStyle={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }} onCommit={(v) => setReview((rv) => (rv.title = v))} />
+              </div>
+            ) : (
+              <h1 className="mt-0.5 text-[22px] font-extrabold leading-tight text-charcoal-900">{r.title}</h1>
+            )}
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-charcoal-500">
+              <span>Reviewed</span>
+              {canEdit ? (
+                <EditableText inline value={r.reviewDate} fontStyle={{ fontSize: 11 }} onCommit={(v) => setReview((rv) => (rv.reviewDate = v))} />
+              ) : (
+                <span>{r.reviewDate}</span>
+              )}
+              <span>·  Prepared by {doc.meta.preparedBy}</span>
+            </p>
+          </div>
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logo} alt="customer" className="h-9 w-auto max-w-[150px] shrink-0 object-contain" />
+          ) : null}
+        </div>
+
+        <section className="mb-4">
+          {canEdit ? (
+            <div className="text-[11.5px] leading-relaxed text-charcoal-700">
+              <EditableText multiline value={r.purpose} fontStyle={{ fontSize: 11.5, lineHeight: 1.6 }} onCommit={(v) => setReview((rv) => (rv.purpose = v))} />
+            </div>
+          ) : (
+            <p className="text-[11.5px] leading-relaxed text-charcoal-700">{r.purpose}</p>
+          )}
+        </section>
+
+        <section className="mb-3 grid grid-cols-2 gap-4 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
+          <div>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-charcoal-500">{doc.meta.customer} attendees</p>
+            {list(r.customerAttendees, (lines) => setReview((rv) => (rv.customerAttendees = lines)), "Click to add names and titles, one per line")}
+          </div>
+          <div>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-charcoal-500">Nutanix attendees</p>
+            {list(r.nutanixAttendees, (lines) => setReview((rv) => (rv.nutanixAttendees = lines)), "Click to add names and titles, one per line")}
+          </div>
+        </section>
+
+        <section className="mb-4">
+          <SectionTitle>Reviewed Configuration</SectionTitle>
+          <table className="w-full border-collapse text-[10px]">
+            <thead>
+              <tr style={{ background: PURPLE }} className="text-white">
+                <th className={`${th} text-left`}>Cluster</th>
+                <th className={`${th} text-left`}>Hardware</th>
+                <th className={`${th} text-right`}>Cores</th>
+                <th className={`${th} text-right`}>Memory</th>
+                <th className={`${th} text-right`}>Usable</th>
+                <th className={`${th} text-right`}>CPU %</th>
+                <th className={`${th} text-right`}>Mem %</th>
+                <th className={`${th} text-right`}>Storage %</th>
+                {showN1 ? <th className={`${th} text-right`}>N-1 %</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {s.clusters.map((c, i) => {
+                const hybrid = c.capacity.ssdTiB > 0 && c.capacity.hddTiB > 0;
+                return (
+                  <tr key={c.name + i} className={`align-top ${i % 2 ? "bg-iris-50/40" : "bg-white"}`}>
+                    <td className="whitespace-nowrap px-2 py-1 font-semibold text-charcoal-900">{c.name}</td>
+                    <td className="px-2 py-1 text-charcoal-700">
+                      {c.models.map((m, mi) => (
+                        <span key={mi} className="block whitespace-nowrap">{m.nodes}× {m.sku}</span>
+                      ))}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right">{fmtInt(c.capacity.cores)}</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right">{fmtInt(c.capacity.ramGiB)} GB</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right">
+                      {tib(c.capacity.ssdTiB + c.capacity.hddTiB)}
+                      {hybrid ? (
+                        <span className="block text-[8.5px] leading-tight text-charcoal-500">
+                          <span className="block">Flash {tib(c.capacity.ssdTiB)}</span>
+                          <span className="block">HDD {tib(c.capacity.hddTiB)}</span>
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right"><Pct value={c.utilization.cpu} /></td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right"><Pct value={c.utilization.ram} /></td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right">
+                      <Pct value={c.utilization.storage} />
+                      {hybrid ? (
+                        <span className="block text-[8.5px] leading-tight text-charcoal-500">
+                          <span className="block">Flash <Pct value={c.utilization.ssd} /></span>
+                          <span className="block">HDD <Pct value={c.utilization.hdd} /></span>
+                        </span>
+                      ) : null}
+                    </td>
+                    {showN1 ? <td className="whitespace-nowrap px-2 py-1 text-right"><Pct value={c.failover.nMinus1} /></td> : null}
+                  </tr>
+                );
+              })}
+              {s.clusters.length > 1 ? (
+                <tr className="border-t-2 font-semibold" style={{ borderColor: PURPLE }}>
+                  <td className="px-2 py-1">Total</td>
+                  <td className="whitespace-nowrap px-2 py-1">{fmtInt(s.totals.nodes)} nodes</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right">{fmtInt(s.totals.cores)}</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right">{fmtInt(s.totals.ramGiB)} GB</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right">{tib(s.totals.ssdTiB + s.totals.hddTiB)}</td>
+                  <td className="px-2 py-1" colSpan={showN1 ? 4 : 3} />
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+          <p className="mt-1 text-[9px] text-charcoal-400">
+            Utilization is the reviewed workload as a share of each cluster&apos;s capacity, as calculated by Nutanix Sizer.
+            {showN1 ? " N-1 is the load with one node offline." : ""}
+          </p>
+          {doc.options?.externalStorage ? (
+            <p className="mt-1 text-[10px] text-charcoal-600">
+              Primary storage: <span className="font-semibold text-charcoal-800">{s.externalStorage?.arrayDisplayName ?? doc.options.externalStorageVendor}</span> ({doc.options.externalStorageVendor}) over NVMe/TCP.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="mb-3">
+          <SectionTitle>Node Specifications</SectionTitle>
+          <table className="w-full border-collapse text-[10px]">
+            <thead>
+              <tr className="text-charcoal-500">
+                {["Model", "Nodes", "CPU (per node)", "Memory (per node)", "Storage (per node)", "Network"].map((h, i) => (
+                  <th key={h} className={`border-b border-charcoal-200 ${th} ${i === 1 ? "text-right" : "text-left"}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {uniqueModels.map((m) => (
+                <tr key={m.sku} className="border-b border-charcoal-100 align-top">
+                  <td className="whitespace-nowrap px-2 py-1 font-semibold text-charcoal-900">{m.sku}</td>
+                  <td className="whitespace-nowrap px-2 py-1 text-right">{nodesBySku.get(m.sku) ?? m.nodes}</td>
+                  <td className="px-2 py-1 text-charcoal-700">{cpuSummary(m)}</td>
+                  <td className="px-2 py-1 text-charcoal-700">{memorySummary(m)}</td>
+                  <td className="px-2 py-1 text-charcoal-700">{storageSummary(m)}</td>
+                  <td className="px-2 py-1 text-charcoal-700">{m.nic ?? "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section>
+          <SectionTitle>Software</SectionTitle>
+          <table className="w-full border-collapse text-[10px]">
+            <thead>
+              <tr className="text-charcoal-500">
+                <th className={`border-b border-charcoal-200 ${th} text-left`}>Software</th>
+                <th className={`border-b border-charcoal-200 ${th} text-left`}>Edition</th>
+                <th className={`border-b border-charcoal-200 ${th} text-right`}>Quantity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {licLines.map((l) => (
+                <tr key={l.id} className="border-b border-charcoal-100">
+                  <td className="px-2 py-1 font-semibold text-charcoal-800">{LICENSE_CATALOG[l.product].label}</td>
+                  <td className="px-2 py-1 text-charcoal-600">{l.tier}</td>
+                  <td className="px-2 py-1 text-right text-charcoal-600">{fmtInt(l.qty)} {l.unit}</td>
+                </tr>
+              ))}
+              <tr>
+                <td className="px-2 py-1 text-charcoal-600" colSpan={3}>
+                  {doc.licensing.termYears}-year subscription term · {doc.meta.supportTerm}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </Page>
+
+      <Page pageNo={2} customer={doc.meta.customer}>
+        {r.notes.length || canEdit ? (
+          <section className="mb-5">
+            <SectionTitle>Items Noted on Review</SectionTitle>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <p className="mb-1.5 text-[10.5px] text-charcoal-600">
+                The following sizing results were reviewed and discussed. {doc.meta.customer} has chosen to proceed with the configuration as shown.
+              </p>
+              {list(r.notes, (lines) => setReview((rv) => (rv.notes = lines)), "None. Click to add anything discussed and accepted, one per line")}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="mb-5">
+          <SectionTitle>Sizing Basis and Assumptions</SectionTitle>
+          {list(r.assumptions, (lines) => setReview((rv) => (rv.assumptions = lines)), "Click to add assumptions, one per line")}
+        </section>
+
+        <section className="mb-5">
+          <SectionTitle>Not Included in This Sizing</SectionTitle>
+          {list(r.exclusions, (lines) => setReview((rv) => (rv.exclusions = lines)), "Click to add exclusions, one per line")}
+        </section>
+
+        <section className="mb-5">
+          <SectionTitle>Confirmation</SectionTitle>
+          {canEdit ? (
+            <div className="text-[11.5px] leading-relaxed text-charcoal-700">
+              <EditableText multiline value={r.confirmation} fontStyle={{ fontSize: 11.5, lineHeight: 1.6 }} onCommit={(v) => setReview((rv) => (rv.confirmation = v))} />
+            </div>
+          ) : (
+            <p className="text-[11.5px] leading-relaxed text-charcoal-700">{r.confirmation}</p>
+          )}
+        </section>
+
+        <section className="grid grid-cols-2 gap-8 rounded-lg border border-charcoal-200 p-4">
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Confirmed for {doc.meta.customer}</p>
+            <SignatureLine label="Name" />
+            <SignatureLine label="Title" />
+            <SignatureLine label="Signature" />
+            <SignatureLine label="Date" />
+          </div>
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Prepared by Nutanix</p>
+            <SignatureLine label="Name" value={doc.meta.preparedBy} />
+            <SignatureLine label="Title" value={doc.contacts[0]?.title || "Systems Engineer"} />
+            <SignatureLine label="Email" value={doc.contacts[0]?.email || undefined} />
+            <SignatureLine label="Date" value={r.reviewDate} />
+          </div>
+        </section>
+
+        <p className="mt-4 text-[9px] text-charcoal-400">
+          Sizing reference: Nutanix Sizer scenario {sizerRef}
+          {s.meta.createdDate ? `, created ${s.meta.createdDate}` : ""}
+          {s.meta.sizerVersion ? `, Sizer build ${s.meta.sizerVersion}` : ""}.
+        </p>
       </Page>
     </>
   );

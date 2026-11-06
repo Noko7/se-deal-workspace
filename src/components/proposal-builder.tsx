@@ -108,6 +108,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
   const [tab, setTab] = useState<"twopager" | "bom">("twopager");
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | "pdf" | "pptx">(null);
+  const printRootRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   // Which proposed hardware option the BOM tab is showing. Falls back to the
   // recommended one whenever the id no longer exists.
@@ -232,18 +233,46 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
     setDoc((d) => (d ? updater(structuredCloneSafe(d)) : d));
   }
 
-  function exportPdf() {
+  // Rendered server-side by headless Chrome from the exact markup of the print
+  // surface, so the PDF matches the preview with no browser print chrome.
+  async function exportPdf() {
+    if (!doc) return;
     setExporting("pdf");
     setTab("twopager");
-    // allow the print surface to mount, then print
-    window.setTimeout(() => {
-      // The document title becomes the default PDF file name.
-      const prevTitle = document.title;
-      if (doc) document.title = [doc.meta.customer, doc.meta.title].filter(Boolean).join(" - ");
-      window.print();
-      document.title = prevTitle;
+    setError(null);
+    try {
+      // Let the print surface mount before reading its markup.
+      await new Promise((r) => window.setTimeout(r, 60));
+      const root = printRootRef.current;
+      if (!root) throw new Error("The brief could not be prepared for export. Try again.");
+      const stylesheets = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+        .map((l) => l.getAttribute("href") ?? "")
+        .filter((href) => href.startsWith("/_next/static/"));
+      const { customer, title: docTitle } = doc.meta;
+      const title =
+        (customer && docTitle && !docTitle.includes(customer) ? `${customer} - ${docTitle}` : docTitle || customer) || "Solution Proposal";
+      const res = await fetch("/api/proposal-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: root.outerHTML, stylesheets, title }),
+      });
+      if (!res.ok) {
+        const msg = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(msg?.error ?? `PDF export failed (${res.status}).`);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${title.replace(/[\\/:*?"<>|]+/g, " ").trim()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "PDF export failed.");
+    } finally {
       setExporting(null);
-    }, 200);
+    }
   }
 
   async function exportPptx() {
@@ -668,7 +697,7 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
       {/* Mounted directly under <body> so print CSS can drop the page around it. */}
       {exporting === "pdf"
         ? createPortal(
-            <div className="proposal-print-root" aria-hidden>
+            <div ref={printRootRef} className="proposal-print-root" aria-hidden>
               <ProposalTwoPager doc={doc} logo={logo} />
             </div>,
             document.body,

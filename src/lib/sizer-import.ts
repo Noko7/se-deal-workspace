@@ -79,8 +79,12 @@ export type ProposalCluster = {
   failover: { nMinus1: number | null; nMinus2: number | null }; // overall % at N-1 / N-2
   models: NodeModel[];
   license: { edition: string; cores: number | null; termMonths: number | null } | null;
+  // Add-on subscriptions Sizer quoted alongside NCI (e.g. SW-NCM-PRO-PR).
+  addOnLicenses?: SizerAddOnLicense[];
   externalStorage: ExternalStorageInfo | null;
 };
+
+export type SizerAddOnLicense = { product: "NCM" | "NUS" | "NDB" | "NKP"; edition: string; qty: number | null };
 
 export type ProposalScenario = {
   source: "nutanix_sizer";
@@ -169,6 +173,11 @@ function feature(c: SizerComponent): string {
 // description ("... Intel Xeon 6530P processor ...") or the OEM parenthetical
 // ("(Intel(R) Xeon(R) 6745P CPU @ 3.1GHz)").
 function cpuModelFromDescription(desc: string): string | null {
+  // Dell spells Xeon 6 parts "Xeon 6 Performance 6517P"; the part number is what identifies the CPU.
+  const xeon6 = desc.match(/Intel(?:\(R\))?\s*Xeon(?:\(R\))?\s*6\s+(?:Performance|Efficient)\s+([\w+-]+)/i);
+  if (xeon6) return `Intel Xeon ${xeon6[1]}`;
+  const tiered = desc.match(/Intel(?:\(R\))?\s*Xeon(?:\(R\))?[\s-]*(Platinum|Gold|Silver|Bronze)[\s-]+([\w+-]+)/i);
+  if (tiered) return `Intel Xeon ${tiered[1]} ${tiered[2]}`;
   const intel = desc.match(/Intel(?:\(R\))?\s*Xeon(?:\(R\))?\s*[\w-]+/i);
   if (intel) return intel[0].replace(/\(R\)/gi, "").replace(/\s+/g, " ").trim();
   const amd = desc.match(/AMD\s*(?:\(R\))?\s*EPYC\s*[\w-]+/i);
@@ -178,7 +187,7 @@ function cpuModelFromDescription(desc: string): string | null {
 
 // Cluster context lets us derive per-CPU core counts for OEM exports whose
 // component descriptions omit the core count (we back it out of capacity).
-type ClusterContext = { cores?: number | null; nodes?: number | null };
+type ClusterContext = { cores?: number | null; ramGiB?: number | null; nodes?: number | null };
 
 function parseCpu(components: SizerComponent[], ctx: ClusterContext = {}): NodeModel["cpu"] {
   const c = components.find(
@@ -187,8 +196,12 @@ function parseCpu(components: SizerComponent[], ctx: ClusterContext = {}): NodeM
   if (!c) return null;
   // Prefer the human-readable "@ 3.1GHz" form; the raw SKU can glue a version
   // like "..._CPU___3_1GHz" that would otherwise misparse to 1 GHz.
-  const ghz = c.description.match(/@\s*([\d.]+)\s*GHz/i) ?? c.description.match(/([\d]+\.[\d]+)\s*GHz/i);
-  const coreMatch = c.description.match(/([\d]+)[ -]?core/i);
+  // Dell abbreviates both: "6517P 3.2G, 16C/32T".
+  const ghz =
+    c.description.match(/@\s*([\d.]+)\s*GHz/i) ??
+    c.description.match(/([\d]+\.[\d]+)\s*GHz/i) ??
+    c.description.match(/\b([\d]+\.[\d]+)\s*G\b/);
+  const coreMatch = c.description.match(/([\d]+)[ -]?core/i) ?? c.description.match(/\b([\d]+)C\/[\d]+T\b/i);
   const watts = c.description.match(/([\d]+)\s*W\b/i);
   const socketsPerNode = c.qtyPerNode ?? 1;
 
@@ -209,29 +222,33 @@ function parseCpu(components: SizerComponent[], ctx: ClusterContext = {}): NodeM
   };
 }
 
-function parseMemory(components: SizerComponent[]): NodeModel["memory"] {
+function parseMemory(components: SizerComponent[], ctx: ClusterContext = {}): NodeModel["memory"] {
   const c = components.find(
     (x) =>
       (feature(x) === "RAM" || feature(x) === "MEMORY" || x.code.startsWith("C-MEM") || /_MEMORY_/i.test(x.code)) &&
       !isNone(x),
   );
   if (!c) return null;
-  const mod = c.description.match(/([\d]+)\s*GB/i);
-  const moduleGiB = mod ? Number(mod[1]) : null;
-  const modulesPerNode = c.qtyPerNode ?? 0;
+  const mod = c.description.match(/([\d.]+)\s*(GB|TB)\b/i);
+  const sizeGiB = mod ? Number(mod[1]) * (/TB/i.test(mod[2]) ? 1024 : 1) : null;
+  const qty = c.qtyPerNode ?? 1;
+  if (sizeGiB == null) return { moduleGiB: null, modulesPerNode: qty, perNodeGiB: null };
 
-  // OEM lines report the total memory per node ("768GB Memory", qty 1) rather
-  // than a module size × count, so treat the GB figure as the per-node total.
-  const isOemTotal = feature(c) === "RAM" || /_MEMORY_/i.test(c.code);
-  if (isOemTotal && moduleGiB != null) {
-    return { moduleGiB: null, modulesPerNode: modulesPerNode || 1, perNodeGiB: moduleGiB };
-  }
-
-  return {
-    moduleGiB,
-    modulesPerNode,
-    perNodeGiB: moduleGiB != null && modulesPerNode ? moduleGiB * modulesPerNode : moduleGiB,
-  };
+  // The GB figure is either one DIMM ("96GB RDIMM", qty 4 per node) or, on some
+  // OEM lines, the node total ("768GB Memory"). Sizer's cluster RAM capacity
+  // settles which reading is right; without it, a DIMM wording or a quantity
+  // above one means modules.
+  const asModules = sizeGiB * qty;
+  const perNodeCapacity = ctx.ramGiB && ctx.nodes ? ctx.ramGiB / ctx.nodes : null;
+  const isModule =
+    qty <= 1
+      ? /DIMM/i.test(c.description)
+      : perNodeCapacity != null
+        ? Math.abs(asModules - perNodeCapacity) <= Math.abs(sizeGiB - perNodeCapacity)
+        : /DIMM/i.test(c.description) || !/_MEMORY_/i.test(c.code);
+  return isModule
+    ? { moduleGiB: sizeGiB, modulesPerNode: qty, perNodeGiB: asModules }
+    : { moduleGiB: null, modulesPerNode: 1, perNodeGiB: sizeGiB };
 }
 
 function parseDrives(components: SizerComponent[]): NodeModel["drives"] {
@@ -245,9 +262,22 @@ function parseDrives(components: SizerComponent[]): NodeModel["drives"] {
     // Skip NONE placeholders -- e.g. external-storage builds carry no internal drives.
     if (isNone(c)) continue;
     const size = c.description.match(/([\d.]+)\s*TB/i);
+    // OEM featureNames are coarse (Dell files NVMe drives under "HDD"), so the
+    // drive's own description wins when it names the media.
+    const kind: NodeModel["drives"][number]["kind"] = /NVMe/i.test(c.description)
+      ? "NVMe"
+      : /\bSSD\b/i.test(c.description)
+        ? "SSD"
+        : /\bHDD\b|\bNL-?SAS\b|\bRPM\b|\d+(\.\d+)?K\b/i.test(c.description)
+          ? "HDD"
+          : isNvme
+            ? "NVMe"
+            : isSsd
+              ? "SSD"
+              : "HDD";
     out.push({
       code: c.code,
-      kind: isNvme ? "NVMe" : isSsd ? "SSD" : "HDD",
+      kind,
       sizeTB: size ? Number(size[1]) : null,
       perNode: c.qtyPerNode ?? 0,
     });
@@ -283,7 +313,7 @@ function parseBlocks(blockInfo: unknown[], ctx: ClusterContext = {}): NodeModel[
       nodesInBlock,
       nodes: blocks * nodesInBlock,
       cpu: parseCpu(components, ctx),
-      memory: parseMemory(components),
+      memory: parseMemory(components, ctx),
       drives: parseDrives(components),
       nic: parseNic(components),
       gpu: parseGpu(components),
@@ -329,10 +359,34 @@ function parseLicense(cblInfo: unknown[]): ProposalCluster["license"] {
     const sw = comps.find((c) => /^SW-NCI/i.test(c.code));
     if (!sw) continue;
     const term = comps.find((c) => /Term-Months/i.test(c.code) || /Term in months/i.test(c.description));
-    const edition = /ULT/i.test(sw.code) ? "Ultimate" : /PRO/i.test(sw.code) ? "Pro" : /STARTER|STR/i.test(sw.code) ? "Starter" : "NCI";
-    return { edition, cores: sw.totalQty, termMonths: term?.totalQty ?? null };
+    return { edition: editionFromSku(sw.code) ?? "NCI", cores: sw.totalQty, termMonths: term?.totalQty ?? null };
   }
   return null;
+}
+
+function editionFromSku(code: string): string | null {
+  const tier = code.replace(/^SW-[A-Z]+-/i, "");
+  if (/^ULT/i.test(tier)) return "Ultimate";
+  if (/^PRO/i.test(tier)) return "Pro";
+  if (/^(STARTER|STR)/i.test(tier)) return "Starter";
+  if (/^(STD|STANDARD)/i.test(tier)) return "Standard";
+  if (/ULT/i.test(code)) return "Ultimate";
+  if (/PRO/i.test(code)) return "Pro";
+  if (/STARTER|STR/i.test(code)) return "Starter";
+  return null;
+}
+
+function parseAddOnLicenses(cblInfo: unknown[]): SizerAddOnLicense[] {
+  const out: SizerAddOnLicense[] = [];
+  for (const q of cblInfo) {
+    if (!isObj(q)) continue;
+    for (const c of parseComponents(asArr(q.components))) {
+      const m = c.code.match(/^SW-(NCM|NUS|NDB|NKP)-/i);
+      if (!m) continue;
+      out.push({ product: m[1].toUpperCase() as SizerAddOnLicense["product"], edition: editionFromSku(c.code) ?? "", qty: c.totalQty });
+    }
+  }
+  return out;
 }
 
 // Sizer reports utilization per storage tier. The deck shows one "Usable
@@ -373,7 +427,7 @@ function parseCluster(raw: unknown): ProposalCluster | null {
     if (!isObj(b)) return sum;
     return sum + (numOf(b.count) ?? 0) * (numOf(b.nodesInBlock) ?? 1);
   }, 0);
-  const models = parseBlocks(blockInfo, { cores: capacity.cores, nodes: nodeCount });
+  const models = parseBlocks(blockInfo, { cores: capacity.cores, ramGiB: capacity.ramGiB, nodes: nodeCount });
   const license = parseLicense(asArr(ml.cblBudgetaryQuoteInfo));
   const nodes = models.reduce((sum, m) => sum + m.nodes, 0);
 
@@ -404,6 +458,7 @@ function parseCluster(raw: unknown): ProposalCluster | null {
     },
     models,
     license,
+    addOnLicenses: parseAddOnLicenses(asArr(ml.cblBudgetaryQuoteInfo)),
   };
 }
 

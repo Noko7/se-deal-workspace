@@ -606,7 +606,10 @@ export function optionLabel(index: number): string {
  * SE can rename it; the full model list is on the comparison slide regardless.
  */
 export function defaultOptionName(scenario: ProposalScenario): string {
-  const skus = [...new Set(scenario.clusters.flatMap((c) => c.models.map((m) => m.sku)))];
+  // OEM exports prefix the SKU with the vendor ("Dell - XC670-16S-CORE").
+  const skus = [
+    ...new Set(scenario.clusters.flatMap((c) => c.models.map((m) => m.sku.replace(/^(Dell|HPE|Cisco|Lenovo|Fujitsu)\s*-\s*/i, "")))),
+  ];
   const vendor = detectVendor(scenario);
   if (!skus.length) return `${vendor} platform`;
   if (skus.length <= 2) return `${vendor} ${skus.join(" + ")}`;

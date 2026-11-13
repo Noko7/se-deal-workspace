@@ -274,13 +274,15 @@ export async function exportProposalToPptx(
       charSpacing: 3,
       valign: "middle",
     });
+    // Option names run long ("Nutanix NX-8170A-G10 + NX-1175S-G10"), so the
+    // title steps down in size to stay on one line inside its box.
     slide.addText(title, {
       x: 1.0,
       y: 3.42,
-      w: 9.4,
+      w: 11.3,
       h: 0.92,
       fontFace: NUTANIX_FONT.display,
-      fontSize: 40,
+      fontSize: title.length > 44 ? 24 : title.length > 32 ? 30 : 40,
       color: "FFFFFF",
       valign: "middle",
     });
@@ -534,15 +536,51 @@ export async function exportProposalToPptx(
     nextPart(),
     "The proposed design",
     multiOption
-      ? `${options.length} hardware builds sized against the same workload, cluster by cluster.`
+      ? `${options.length} hardware builds sized against the same workload. Each build follows in its own section.`
       : "Cluster topology, capacity and headroom for the sized workload.",
   );
 
-  if (multiOption) addOptionComparison();
+  if (multiOption) {
+    // Each build is a self-contained section (summary, clusters, nodes, BOM)
+    // behind its own divider, so competing builds such as Nutanix NX and Dell
+    // XC never interleave.
+    addOptionComparison();
+    for (const option of options) {
+      addOptionDivider(option);
+      addSolutionSummary(option);
+      for (const cluster of option.scenario.clusters) addClusterSlide(option, cluster);
+      addNodeSpecSlides(option);
+      addBomSlide(option);
+    }
+  } else {
+    addSolutionSummary(recommended);
+    for (const cluster of recommended.scenario.clusters) addClusterSlide(recommended, cluster);
+    addDivider(nextPart(), "The platform", "Node specifications and the components that make up each build.");
+    addNodeSpecSlides(recommended);
+    addBomSlide(recommended);
+  }
 
-  for (const option of options) {
-    addSolutionSummary(option);
-    for (const cluster of option.scenario.clusters) addClusterSlide(option, cluster);
+  function addOptionDivider(option: HardwareOption) {
+    const t = option.scenario.totals;
+    const facts = [
+      option.vendor,
+      `${fmtInt(t.clusters)} ${t.clusters === 1 ? "cluster" : "clusters"}`,
+      `${fmtInt(t.nodes)} ${t.nodes === 1 ? "node" : "nodes"}`,
+      `${fmtInt(t.cores)} cores`,
+      `${fmtInt(t.ramGiB)} GB memory`,
+    ];
+    addDivider(`${option.label}${option.recommended ? "  ·  Recommended" : ""}`, option.name, facts.join("  ·  "));
+  }
+
+  function addNodeSpecSlides(option: HardwareOption) {
+    const seen = new Set<string>();
+    for (const cluster of option.scenario.clusters) {
+      for (const m of cluster.models) {
+        if (seen.has(m.sku)) continue;
+        seen.add(m.sku);
+        addNodeSpecSlide(option, m);
+      }
+    }
   }
 
   // --- current estate --------------------------------------------------------
@@ -1132,21 +1170,7 @@ export async function exportProposalToPptx(
     }
   }
 
-  // --- 4. Platform -----------------------------------------------------------
-  addDivider(nextPart(), "The platform", "Node specifications and the components that make up each build.");
-
-  // Node spec sheets — unique SKUs across every proposed option.
-  const seen = new Set<string>();
-  for (const option of options) {
-    for (const cluster of option.scenario.clusters) {
-      for (const m of cluster.models) {
-        if (seen.has(m.sku)) continue;
-        seen.add(m.sku);
-        addNodeSpecSlide(option, m);
-      }
-    }
-  }
-
+  // --- platform: node spec sheets --------------------------------------------
   function addNodeSpecSlide(option: HardwareOption, m: ProposalCluster["models"][number]) {
     const slide = newSlide();
     const plat = platformSpecFor(m.sku);
@@ -1250,8 +1274,6 @@ export async function exportProposalToPptx(
   }
 
   // Bill of materials, one per proposed option.
-  for (const option of options) addBomSlide(option);
-
   function addBomSlide(option: HardwareOption) {
     const slide = newSlide();
     addChrome(

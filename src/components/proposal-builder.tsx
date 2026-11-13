@@ -916,8 +916,8 @@ function HardwareOptionsEditor({
     <div className="space-y-2.5">
       <p className="text-[11px] leading-relaxed text-charcoal-500">
         {multi
-          ? "The deck opens with a side-by-side comparison, then covers each build in full. The recommended option drives the executive summary and the per-core licensing quantity."
-          : "Add a second Sizer export to propose an alternative build. The deck will compare them side by side."}
+          ? "The deck opens with a side-by-side comparison, then gives each build its own section: summary, clusters, node specs and Bill of Materials. The recommended option drives the executive summary and the per-core licensing quantity."
+          : "Add a second Sizer export (for example Nutanix NX against Dell XC) to propose an alternative build. The deck compares them side by side, then gives each its own section."}
       </p>
 
       <div className="space-y-2">

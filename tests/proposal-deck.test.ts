@@ -191,6 +191,35 @@ test("every portfolio product gets a licensing ladder and matrix, laid out clean
   assert.deepEqual(collisions, [], `overlapping text boxes:\n${collisions.join("\n")}`);
 });
 
+test("each hardware option gets its own self-contained section", async () => {
+  const doc = buildTwoOptionDoc();
+  const slides = [...(await renderDeck(doc)).values()].map((frames) => frames.map((f) => f.text));
+  const [a, b] = doc.hardwareOptions;
+
+  // Which section each slide belongs to, read from the dividers and kickers.
+  const indexOf = (pred: (texts: string[]) => boolean) => slides.findIndex(pred);
+  const dividerA = indexOf((t) => t.includes("OPTION A  ·  RECOMMENDED") && t.includes(a.name));
+  const dividerB = indexOf((t) => t.includes("OPTION B") && t.includes(b.name));
+  const software = indexOf((t) => t.includes("Software and licensing"));
+  assert.ok(dividerA > 0 && dividerB > dividerA && software > dividerB, "option dividers out of order");
+
+  const kicker = (label: string, i: number) => slides[i].some((t) => t.startsWith(label.toUpperCase()));
+  for (const [label, start, end] of [["Option A", dividerA, dividerB], ["Option B", dividerB, software]] as const) {
+    const section = slides.slice(start + 1, end);
+    assert.ok(section.length > 0, `${label} section is empty`);
+    for (let i = start + 1; i < end; i++) assert.ok(kicker(label, i), `slide ${i + 1} in the ${label} section belongs to another option`);
+    for (const title of ["Nutanix Solution Summary", "Bill of Materials"]) {
+      assert.ok(section.some((t) => t.includes(title)), `${label} section is missing its ${title}`);
+    }
+  }
+
+  // The comparison sits ahead of both sections, and the single-option
+  // "platform" divider is not used when options have their own sections.
+  const comparison = indexOf((t) => t.includes("Hardware Options"));
+  assert.ok(comparison > 0 && comparison < dividerA, "comparison should precede the option sections");
+  assert.equal(indexOf((t) => t.includes("The platform")), -1);
+});
+
 test("software-scope licenses, NCM included, land on every option's Bill of Materials", async () => {
   const doc = buildTwoOptionDoc();
   const runs = await renderDeckRuns(doc);
@@ -353,13 +382,24 @@ test("the current-estate section renders cleanly when an environment is attached
   // Section numbering is positional, so adding the estate section must renumber
   // the ones that follow rather than leaving two "Part one" dividers.
   const parts = titles.filter((t) => /^PART (ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN)$/.test(t));
-  assert.deepEqual(parts, ["PART ONE", "PART TWO", "PART THREE", "PART FOUR", "PART FIVE"], `unexpected section numbering: ${parts.join(", ")}`);
+  // Multi-option decks put node specs inside each option's section, so there
+  // is no separate platform part: estate, design, software, delivery.
+  assert.deepEqual(parts, ["PART ONE", "PART TWO", "PART THREE", "PART FOUR"], `unexpected section numbering: ${parts.join(", ")}`);
 });
 
 test("a deck without an environment export is unchanged", async () => {
   const slides = await renderDeck(buildTwoOptionDoc());
   const titles = [...slides.values()].flat().map((f) => f.text);
   assert.ok(!titles.includes("Where you are today"), "estate section leaked into a deck with no export");
+  const parts = titles.filter((t) => /^PART (ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN)$/.test(t));
+  assert.deepEqual(parts, ["PART ONE", "PART TWO", "PART THREE"]);
+});
+
+test("a single-option deck keeps the platform part", async () => {
+  const doc = buildProposalDoc(buildSampleScenario("Imogen Hartwell"), "primary.json");
+  const titles = [...(await renderDeck(doc)).values()].flat().map((f) => f.text);
+  assert.ok(titles.includes("The platform"));
+  assert.ok(!titles.some((t) => t.startsWith("OPTION A")), "a single build needs no option divider");
   const parts = titles.filter((t) => /^PART (ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN)$/.test(t));
   assert.deepEqual(parts, ["PART ONE", "PART TWO", "PART THREE", "PART FOUR"]);
 });

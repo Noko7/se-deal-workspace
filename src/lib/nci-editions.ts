@@ -1,13 +1,13 @@
 // Nutanix Cloud Infrastructure (NCI) software editions — Starter / Pro / Ultimate.
 //
-// The comparison matrix below captures the headline differentiators between the
-// editions (Portfolio 2). It is intentionally a curated summary of the official
-// "NCI Software Editions" collateral rather than the full multi-page feature
-// grid, and links back to the authoritative source. Cell values:
+// The comparison matrix below is transcribed from the six "NCI Software
+// Editions" pages of the Portfolio 2 collateral and links back to the
+// authoritative source. Cell values:
 //   true   -> included
 //   false  -> not available
 //   "addon"-> available via an add-on license
-//   string -> qualified note (e.g. "2 or 3")
+//   string -> qualified note (e.g. "2 or 3"); a string containing "add-on"
+//             names the add-on license and renders like "addon"
 
 export type EditionKey = "Starter" | "Pro" | "Ultimate";
 export const EDITIONS: EditionKey[] = ["Starter", "Pro", "Ultimate"];
@@ -20,68 +20,124 @@ export const EDITION_TAGLINE: Record<EditionKey, string> = {
 
 export const EDITION_IDEAL: Record<EditionKey, string> = {
   Starter: "Small-scale deployments with a limited set of workloads (on-prem only)",
-  Pro: "Running multiple applications or large-scale single-workload deployments (on-prem or public cloud)",
-  Ultimate: "Multi-site deployments and advanced security requirements (on-prem or public cloud)",
+  Pro: "Running multiple applications or large-scale single workload deployments (on-prem or in public clouds)",
+  Ultimate: "Multi-site deployments and advanced security requirements (on-prem or in public clouds)",
 };
 
 export type Cell = boolean | "addon" | string;
 export type EditionRow = { feature: string; starter: Cell; pro: Cell; ultimate: Cell };
 export type EditionSection = { title: string; rows: EditionRow[] };
 
+// Named add-on licenses, as printed in the Portfolio 2 editions collateral.
+const ADV_REPLICATION = "Adv. Replication add-on";
+const SECURITY_ADDON = "Security add-on";
+const NDK_ADDON = "NDK add-on"; // Nutanix Data Services for Kubernetes
+
 export const NCI_EDITION_MATRIX: EditionSection[] = [
-  {
-    title: "Core Platform",
-    rows: [
-      { feature: "Nutanix AHV virtualization", starter: true, pro: true, ultimate: true },
-      { feature: "Max cluster size", starter: "12 nodes", pro: ">12 nodes", ultimate: ">12 nodes" },
-      { feature: "Tunable Redundancy Factor", starter: "2", pro: "2 or 3", ultimate: "2 or 3" },
-      { feature: "Availability domains", starter: "Node", pro: "Node, Block, Rack", ultimate: "Node, Block, Rack" },
-      { feature: "Online cluster grow / shrink", starter: true, pro: true, ultimate: true },
-    ],
-  },
   {
     title: "Enterprise Data Services",
     rows: [
-      { feature: "Inline compression (LZ4)", starter: true, pro: true, ultimate: true },
-      { feature: "Deep / capacity compression (LZ4HC)", starter: false, pro: true, ultimate: true },
-      { feature: "Capacity deduplication", starter: false, pro: true, ultimate: true },
+      { feature: "Max cluster size", starter: "12 nodes", pro: ">12 nodes*", ultimate: ">12 nodes*" },
+      { feature: "Heterogeneous clusters", starter: true, pro: true, ultimate: true },
+      { feature: "VM-centric snapshots & clones", starter: true, pro: true, ultimate: true },
+      { feature: "Data tiering", starter: true, pro: true, ultimate: true },
+      { feature: "Online cluster grow / shrink", starter: true, pro: true, ultimate: true },
+      { feature: "Data path redundancy", starter: true, pro: true, ultimate: true },
+      { feature: "Tunable Redundancy Factor", starter: "2", pro: "2 or 3", ultimate: "2 or 3" },
+      { feature: "Availability domains", starter: "Node", pro: "Node, Block, Rack", ultimate: "Node, Block, Rack" },
+      { feature: "Basic compression (LZ4), inline and post-process", starter: true, pro: true, ultimate: true },
+      { feature: "Deep compression (LZ4HC) for cold data", starter: true, pro: true, ultimate: true },
+      { feature: "Cache deduplication", starter: true, pro: true, ultimate: true },
+      { feature: "Capacity deduplication", starter: true, pro: true, ultimate: true },
       { feature: "Erasure Coding (EC-X)", starter: false, pro: true, ultimate: true },
-      { feature: "VM Flash Mode & storage QoS", starter: false, pro: true, ultimate: true },
+      { feature: "VM-centric storage QoS", starter: false, pro: true, ultimate: true },
+      { feature: "VM Flash Mode", starter: false, pro: true, ultimate: true },
+    ],
+  },
+  {
+    title: "Consolidated Storage Services",
+    rows: [
+      { feature: "Volume Groups, in-cluster VMs", starter: true, pro: true, ultimate: true },
+      { feature: "Volume Groups, external access", starter: "Nutanix backup only", pro: "Primary and backup", ultimate: "Primary and backup" },
+      { feature: "Files / Objects storage (included capacity)", starter: "1 TiB free", pro: "1 TiB free", ultimate: "1 TiB free" },
+      { feature: "Cloud storage (Amazon EBS attach for NC2 on AWS)", starter: false, pro: false, ultimate: true },
     ],
   },
   {
     title: "Data Protection & Disaster Recovery",
     rows: [
-      { feature: "Async replication & app-consistent snapshots", starter: true, pro: true, ultimate: true },
-      { feature: "Multi-site DR (many-to-one / one-to-many)", starter: false, pro: "addon", ultimate: true },
-      { feature: "NearSync replication (RPO 1 to 15 min)", starter: false, pro: "addon", ultimate: true },
-      { feature: "Sync replication / Metro (RPO = 0)", starter: false, pro: "addon", ultimate: true },
-      { feature: "Runbook orchestration", starter: false, pro: "addon", ultimate: true },
+      { feature: "Async replication (RPO 1 hr or greater)", starter: true, pro: true, ultimate: true },
+      { feature: "Application-consistent snapshots", starter: true, pro: true, ultimate: true },
+      { feature: "Self-service restore", starter: false, pro: true, ultimate: true },
+      { feature: "Multi-site DR (many-to-one, one-to-many, many-to-many)", starter: false, pro: ADV_REPLICATION, ultimate: true },
+      { feature: "Metro Availability", starter: false, pro: ADV_REPLICATION, ultimate: true },
+      { feature: "Sync replication (RPO = 0)", starter: false, pro: ADV_REPLICATION, ultimate: true },
+      { feature: "NearSync replication (RPO 1 to 15 min)", starter: false, pro: ADV_REPLICATION, ultimate: true },
+      { feature: "Advanced orchestration with runbook automation", starter: false, pro: ADV_REPLICATION, ultimate: true },
     ],
   },
   {
     title: "Security",
     rows: [
-      { feature: "Data-at-rest encryption (SW & SED) + Native KMS", starter: false, pro: true, ultimate: true },
-      { feature: "Microsegmentation (Flow)", starter: false, pro: "addon", ultimate: true },
-      { feature: "Nutanix Security Central", starter: false, pro: "addon", ultimate: true },
+      { feature: "Client authentication", starter: true, pro: true, ultimate: true },
+      { feature: "Cluster lockdown", starter: false, pro: true, ultimate: true },
+      { feature: "Data-at-rest encryption (software-based & SED)", starter: false, pro: true, ultimate: true },
+      { feature: "Native KMS", starter: false, pro: true, ultimate: true },
     ],
   },
   {
-    title: "Compute, Containers & Management",
+    title: "Enterprise Compute",
     rows: [
-      { feature: "Prism Central multi-cluster management", starter: true, pro: true, ultimate: true },
-      { feature: "Cross-cluster live migration", starter: false, pro: true, ultimate: true },
+      { feature: "Nutanix AHV virtualization", starter: true, pro: true, ultimate: true },
+      { feature: "Credential Guard", starter: true, pro: true, ultimate: true },
+      { feature: "vGPU and GPU passthrough", starter: false, pro: true, ultimate: true },
+      { feature: "HA guaranteed failover", starter: false, pro: true, ultimate: true },
       { feature: "Nutanix Kubernetes Platform (NKP)", starter: false, pro: "NKP Starter", ultimate: "NKP Starter" },
-      { feature: "VM-host & VM:VM affinity policies", starter: false, pro: true, ultimate: true },
+      { feature: "VM-host affinity policies", starter: false, pro: true, ultimate: true },
+      { feature: "Advanced processor capability", starter: false, pro: true, ultimate: true },
+      { feature: "Automatic cluster placement", starter: false, pro: true, ultimate: true },
+      { feature: "VM:VM affinity", starter: false, pro: true, ultimate: true },
+      { feature: "Cross-cluster live migration", starter: false, pro: true, ultimate: true },
+    ],
+  },
+  {
+    title: "Data Services for Kubernetes",
+    rows: [
+      { feature: "App-centric local snapshots and restore", starter: false, pro: NDK_ADDON, ultimate: NDK_ADDON },
+      { feature: "App-centric asynchronous DR (RPO > 1 hr)", starter: false, pro: NDK_ADDON, ultimate: NDK_ADDON },
+    ],
+  },
+  {
+    title: "Networking & Network Security",
+    rows: [
+      { feature: "Overlay networking", starter: false, pro: true, ultimate: true },
+      { feature: "Microsegmentation (Flow)", starter: false, pro: SECURITY_ADDON, ultimate: true },
+      { feature: "Nutanix Security Central", starter: false, pro: SECURITY_ADDON, ultimate: true },
+    ],
+  },
+  {
+    title: "Management & Analytics",
+    rows: [
+      { feature: "Multi-cluster management with Prism Central", starter: true, pro: true, ultimate: true },
+      { feature: "Infrastructure management, monitoring and health", starter: true, pro: true, ultimate: true },
+      { feature: "Enterprise authentication and RBAC", starter: true, pro: true, ultimate: true },
+      { feature: "REST APIs", starter: true, pro: true, ultimate: true },
+      { feature: "Comprehensive search", starter: true, pro: true, ultimate: true },
+      { feature: "Insights", starter: true, pro: true, ultimate: true },
+      { feature: "Life Cycle Manager (LCM)", starter: true, pro: true, ultimate: true },
+      { feature: "Foundation", starter: true, pro: true, ultimate: true },
+      { feature: "Foundation Central", starter: true, pro: true, ultimate: true },
     ],
   },
 ];
 
+export const NCI_EDITION_FOOTNOTE =
+  "* Refer to Nutanix Configuration Maximums on the Nutanix portal. NDK = Nutanix Data Services for Kubernetes.";
+
 export const NCI_EDITIONS_SOURCE = "https://www.nutanix.com/products/cloud-platform/software-options";
 
 // Nutanix Cloud Manager (NCM) software editions — Starter / Pro / Ultimate.
-// Transcribed from the "NCM Software Editions" pages (Portfolio 2) so the deck
+// Transcribed from the three "NCM Software Editions" pages (Portfolio 2) so the deck
 // can mirror the NCI editions treatment for the management layer.
 export const NCM_EDITION_TAGLINE: Record<EditionKey, string> = {
   Starter: "Infrastructure AIOps and low-code automation",
@@ -107,7 +163,7 @@ export const NCM_EDITION_MATRIX: EditionSection[] = [
       { feature: "Low-code / No-code Operations Automation", starter: true, pro: true, ultimate: true },
       { feature: "SQL Server Monitoring for IT Ops", starter: false, pro: true, ultimate: true },
       { feature: "Application Discovery", starter: false, pro: true, ultimate: true },
-      { feature: "Self-tuning with Machine Learning", starter: false, pro: false, ultimate: true },
+      { feature: "Self-tuning with Machine Learning", starter: false, pro: true, ultimate: true },
     ],
   },
   {

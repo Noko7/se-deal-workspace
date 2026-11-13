@@ -1,6 +1,7 @@
 import { HEALTH, NUTANIX, NUTANIX_FONT } from "./nutanix-brand";
 import {
   basePlatformLabel,
+  basePlatformLine,
   capacityRows,
   cpuSummary,
   formatPct,
@@ -26,10 +27,10 @@ import {
 } from "./proposal-environment";
 import { fmtRam } from "./sizer-format";
 import type { ProposalCluster, ProposalScenario } from "./sizer-import";
-import { LICENSE_CATALOG } from "./license-catalog";
+import { isBasePlatform, LICENSE_CATALOG } from "./license-catalog";
 import { drivesPerNode, emptyDriveSlots, platformSpecFor } from "./hardware-images";
 import type { ProductKey } from "./nutanix-icons";
-import { allLicensingPages, licensingPagesFor, type ProductLicensing } from "./product-editions";
+import { allLicensingPages, licensingPagesFor, PRODUCT_LICENSING, type ProductLicensing } from "./product-editions";
 import type { Cell } from "./nci-editions";
 import { IMPLEMENTATION_ADDON_NOTE, IMPLEMENTATION_PLAN, SUPPORT_PROGRAMS } from "./nci-editions";
 
@@ -1259,9 +1260,16 @@ export async function exportProposalToPptx(
       "Bill of Materials",
       `${option.name}  ·  aggregated hardware and software line items`,
     );
+    // The software scope is the source of truth for licenses whenever it has a
+    // base platform; Sizer's own NCI line would otherwise duplicate it and
+    // ignore an edition the SE changed.
+    const licenses = licenseBomLines(doc, option, recommended);
     const hw = aggregateComponents(option.scenario, "hardware");
-    const sw = aggregateComponents(option.scenario, "software");
-    const rows = [...hw, ...sw];
+    const licenseCodes = new Set(licenses.map((l) => l.code));
+    const sw = aggregateComponents(option.scenario, "software", { includeSizerLicense: !basePlatformLine(doc) }).filter(
+      (c) => !licenseCodes.has(c.code),
+    );
+    const rows = [...hw, ...licenses, ...sw];
 
     if (!rows.length) {
       // Sample scenarios and some OEM exports carry no component detail. Say so
@@ -1286,7 +1294,7 @@ export async function exportProposalToPptx(
 
     const header = tableHeader(["Code", "Description", "Qty"], ["left", "left", "right"]);
     const body = rows.map((r, ri) =>
-      [r.code, r.description, String(r.qty)].map((c, ci) => ({
+      [r.code, r.description, r.qty || !r.pending ? fmtInt(r.qty) : "TBD"].map((c, ci) => ({
         text: c,
         options: {
           color: ci === 0 ? NUTANIX.ink : NUTANIX.gray,
@@ -1485,14 +1493,25 @@ export async function exportProposalToPptx(
     if (v === true) return { text: "Included", color: "3F5E0A" };
     if (v === false) return { text: "No", color: NUTANIX.slate };
     if (v === "addon") return { text: "Add-on", color: "9A3B27" };
+    if (/add-on/i.test(v)) return { text: v, color: "9A3B27" };
     return { text: String(v), color: NUTANIX.ink };
   }
 
   function paginateSections(lic: ProductLicensing): ProductLicensing["sections"][] {
+    // A section taller than a page is split so the table never runs off the slide.
+    const maxRows = MATRIX_ROWS_PER_PAGE - 1;
+    const sections = lic.sections.flatMap((s) => {
+      if (s.rows.length <= maxRows) return [s];
+      const parts: ProductLicensing["sections"] = [];
+      for (let i = 0; i < s.rows.length; i += maxRows) {
+        parts.push({ title: i ? `${s.title} (cont.)` : s.title, rows: s.rows.slice(i, i + maxRows) });
+      }
+      return parts;
+    });
     const pages: ProductLicensing["sections"][] = [];
     let current: ProductLicensing["sections"] = [];
     let rows = 0;
-    for (const section of lic.sections) {
+    for (const section of sections) {
       const needed = 1 + section.rows.length; // section heading + its rows
       if (rows + needed > MATRIX_ROWS_PER_PAGE && current.length) {
         pages.push(current);
@@ -1528,7 +1547,7 @@ export async function exportProposalToPptx(
       pageCount > 1 ? `${base}  ·  ${pageIndex + 1} of ${pageCount}` : base,
     );
 
-    const featureW = lic.tiers.length >= 3 ? 5.9 : lic.tiers.length === 2 ? 6.6 : 8.2;
+    const featureW = lic.tiers.length >= 3 ? 5.4 : lic.tiers.length === 2 ? 6.6 : 8.2;
     const tierW = (CONTENT_W - featureW) / lic.tiers.length;
 
     const header = [
@@ -1609,6 +1628,19 @@ export async function exportProposalToPptx(
       autoPage: false,
       valign: "middle",
     });
+
+    if (lic.footnote) {
+      slide.addText(lic.footnote, {
+        x: MARGIN,
+        y: PAGE_H - 0.88,
+        w: CONTENT_W,
+        h: 0.3,
+        fontFace: NUTANIX_FONT.body,
+        fontSize: 8.5,
+        color: NUTANIX.slate,
+        valign: "middle",
+      });
+    }
   }
 
   function addSupportPrograms() {
@@ -1854,9 +1886,34 @@ export async function exportProposalToPptx(
   await pptx.writeFile({ fileName: `Solution Proposal - ${doc.meta.customer}${fileSuffix}.pptx` });
 }
 
-type BomLine = { code: string; description: string; qty: number };
+// `pending` marks a license the SE has scoped but not yet quantified.
+type BomLine = { code: string; description: string; qty: number; pending?: boolean };
 
-function aggregateComponents(scenario: ProposalScenario, kind: "hardware" | "software"): BomLine[] {
+// One BOM row per software-scope line (base platform first, then add-ons such
+// as NCM). Per-core lines that still track the recommended build's core count
+// are re-quantified against this option's cores, so every option's BOM
+// licenses the hardware it actually proposes.
+function licenseBomLines(doc: ProposalDoc, option: HardwareOption, recommended: HardwareOption): BomLine[] {
+  const recCores = Math.round(recommended.scenario.totals.cores);
+  const optCores = Math.round(option.scenario.totals.cores);
+  const ordered = [...doc.licensing.lines].sort((a, b) => Number(isBasePlatform(b.product)) - Number(isBasePlatform(a.product)));
+  return ordered.map((l) => {
+    const cat = LICENSE_CATALOG[l.product];
+    const qty = l.unit === "cores" && l.qty === recCores ? optCores : l.qty;
+    return {
+      code: `SW-${cat.label.toUpperCase()}-${l.tier.toUpperCase()}`,
+      description: `${PRODUCT_LICENSING[l.product].name} ${l.tier} subscription, ${doc.licensing.termYears}-year term (${l.unit})`,
+      qty,
+      pending: true,
+    };
+  });
+}
+
+function aggregateComponents(
+  scenario: ProposalScenario,
+  kind: "hardware" | "software",
+  { includeSizerLicense = true }: { includeSizerLicense?: boolean } = {},
+): BomLine[] {
   const map = new Map<string, BomLine>();
   for (const cluster of scenario.clusters) {
     for (const m of cluster.models) {
@@ -1872,7 +1929,7 @@ function aggregateComponents(scenario: ProposalScenario, kind: "hardware" | "sof
       }
     }
     // Licenses live in cblBudgetaryQuoteInfo -> captured on cluster.license
-    if (kind === "software" && cluster.license) {
+    if (kind === "software" && includeSizerLicense && cluster.license) {
       const code = `SW-NCI-${cluster.license.edition.toUpperCase()}`;
       const prev = map.get(code);
       const qty = cluster.license.cores ?? 0;

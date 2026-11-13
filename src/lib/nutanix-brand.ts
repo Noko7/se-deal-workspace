@@ -21,6 +21,11 @@ export const NUTANIX = {
   mist: "E0E1FF", // iris-100 tint
   line: "D7D7D7", // hairline rule
   slate: "8E8E8E", // secondary text
+  // Light tints of the brand purple for text on the dark purple / black
+  // cover, divider and closing slides, where the core purple lacks contrast.
+  purpleBright: "A48BFF", // kickers
+  lavender: "D8CCFF", // subtitles
+  lilac: "B9A7F2", // contact lines
 } as const;
 
 export const NUTANIX_FONT = {

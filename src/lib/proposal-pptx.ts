@@ -271,7 +271,7 @@ export async function exportProposalToPptx(
       h: 0.28,
       fontFace: NUTANIX_FONT.body,
       fontSize: 11,
-      color: NUTANIX.cyan,
+      color: NUTANIX.purpleBright,
       charSpacing: 3,
       valign: "middle",
     });
@@ -287,7 +287,7 @@ export async function exportProposalToPptx(
       color: "FFFFFF",
       valign: "middle",
     });
-    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.46, w: 1.5, h: 0.035, fill: { color: NUTANIX.cyan }, line: { type: "none" } });
+    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.46, w: 1.5, h: 0.035, fill: { color: NUTANIX.purple }, line: { type: "none" } });
     if (blurb) {
       slide.addText(blurb, {
         x: 1.0,
@@ -296,7 +296,7 @@ export async function exportProposalToPptx(
         h: 0.7,
         fontFace: NUTANIX_FONT.body,
         fontSize: 13,
-        color: "D8CCFF",
+        color: NUTANIX.lavender,
         lineSpacingMultiple: 1.2,
         valign: "top",
       });
@@ -397,7 +397,7 @@ export async function exportProposalToPptx(
       h: 0.34,
       fontFace: NUTANIX_FONT.body,
       fontSize: 13,
-      color: NUTANIX.cyan,
+      color: NUTANIX.purpleBright,
       charSpacing: 3.4,
       valign: "middle",
     });
@@ -412,7 +412,7 @@ export async function exportProposalToPptx(
       color: "FFFFFF",
       valign: "middle",
     });
-    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.32, w: 1.5, h: 0.035, fill: { color: NUTANIX.cyan }, line: { type: "none" } });
+    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.32, w: 1.5, h: 0.035, fill: { color: NUTANIX.purple }, line: { type: "none" } });
     slide.addText(`${doc.meta.opportunityName ? doc.meta.opportunityName + "  ·  " : ""}${doc.meta.dateLabel}`, {
       x: 1.0,
       y: 4.54,
@@ -420,7 +420,7 @@ export async function exportProposalToPptx(
       h: 0.32,
       fontFace: NUTANIX_FONT.body,
       fontSize: 13,
-      color: "D8CCFF",
+      color: NUTANIX.lavender,
       valign: "middle",
     });
     const contactLines = doc.contacts
@@ -433,7 +433,7 @@ export async function exportProposalToPptx(
       h: 1.1,
       fontFace: NUTANIX_FONT.body,
       fontSize: 12,
-      color: "B9A7F2",
+      color: NUTANIX.lilac,
       lineSpacingMultiple: 1.24,
       valign: "top",
     });
@@ -1890,7 +1890,7 @@ export async function exportProposalToPptx(
       color: "FFFFFF",
       valign: "middle",
     });
-    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.3, w: 1.5, h: 0.035, fill: { color: NUTANIX.cyan }, line: { type: "none" } });
+    slide.addShape(SHAPE.rect, { x: 1.0, y: 4.3, w: 1.5, h: 0.035, fill: { color: NUTANIX.purple }, line: { type: "none" } });
     slide.addText(doc.meta.customer, {
       x: 1.0,
       y: 4.52,
@@ -1898,14 +1898,14 @@ export async function exportProposalToPptx(
       h: 0.4,
       fontFace: NUTANIX_FONT.body,
       fontSize: 15,
-      color: NUTANIX.cyan,
+      color: NUTANIX.purpleBright,
       valign: "middle",
     });
     const close = doc.contacts.filter((c) => c.name || c.email);
     if (close.length) {
       slide.addText(
         close.map((c) => `${c.name}${c.title ? ", " + c.title : ""}${c.email ? "  ·  " + c.email : ""}`).join("\n"),
-        { x: 1.0, y: 5.06, w: 9, h: 0.9, fontFace: NUTANIX_FONT.body, fontSize: 12, color: "B9A7F2", lineSpacingMultiple: 1.24, valign: "top" },
+        { x: 1.0, y: 5.06, w: 9, h: 0.9, fontFace: NUTANIX_FONT.body, fontSize: 12, color: NUTANIX.lilac, lineSpacingMultiple: 1.24, valign: "top" },
       );
     }
   }

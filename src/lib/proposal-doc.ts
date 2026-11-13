@@ -1,7 +1,7 @@
-import type { NodeModel, ProposalCluster, ProposalScenario } from "@/lib/sizer-import";
+import type { NodeModel, ProposalCluster, ProposalScenario, SizerAddOnLicense } from "@/lib/sizer-import";
 import type { ParsedEnvironment } from "@/lib/simple-sizer-core";
 import { editionFromLicense, type EditionKey } from "@/lib/nci-editions";
-import { isBasePlatform, LICENSE_CATALOG, newLicenseLine, type LicenseLine } from "@/lib/license-catalog";
+import { isBasePlatform, LICENSE_CATALOG, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import type { ProductKey } from "@/lib/nutanix-icons";
 
 export type { LicenseLine } from "@/lib/license-catalog";
@@ -150,6 +150,31 @@ export function basePlatformLabel(doc: ProposalDoc): string {
   return `${LICENSE_CATALOG[base.product].label} ${base.tier}`;
 }
 
+const SIZER_ADDON_PRODUCT: Record<SizerAddOnLicense["product"], LicenseProductKey> = {
+  NCM: "CloudManager",
+  NUS: "NUS",
+  NDB: "Database",
+  NKP: "NKP",
+};
+
+// Add-ons Sizer already quoted (NCM, NUS, ...), one line per product with the
+// quantities summed across clusters. Editions Sizer named but the catalog does
+// not offer fall back to the catalog default.
+function sizerAddOnLines(scenario: ProposalScenario): LicenseLine[] {
+  const byProduct = new Map<LicenseProductKey, { tier: string; qty: number }>();
+  for (const cluster of scenario.clusters) {
+    for (const a of cluster.addOnLicenses ?? []) {
+      const product = SIZER_ADDON_PRODUCT[a.product];
+      const prev = byProduct.get(product);
+      if (prev) prev.qty += a.qty ?? 0;
+      else byProduct.set(product, { tier: a.edition, qty: a.qty ?? 0 });
+    }
+  }
+  return [...byProduct].map(([product, { tier, qty }]) =>
+    newLicenseLine(product, { qty: Math.round(qty), ...(LICENSE_CATALOG[product].tiers.includes(tier) ? { tier } : {}) }),
+  );
+}
+
 const todayLabel = () =>
   new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
@@ -219,6 +244,7 @@ export function cpuSummary(m: NodeModel): string {
 
 export function memorySummary(m: NodeModel): string {
   if (!m.memory?.perNodeGiB) return "N/A";
+  if (!m.memory.moduleGiB) return `${fmtInt(m.memory.perNodeGiB)} GB/node`;
   return `${m.memory.modulesPerNode}× ${m.memory.moduleGiB} GB (${fmtInt(m.memory.perNodeGiB)} GB/node)`;
 }
 
@@ -481,7 +507,7 @@ export function buildProposalDoc(scenario: ProposalScenario, sourceFile: string 
     timeline: DEFAULT_TIMELINE.map((m) => ({ ...m })),
     licensing: {
       termYears: 3,
-      lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) })],
+      lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) }), ...sizerAddOnLines(scenario)],
     },
     hardwareOptions: [newHardwareOption(scenario, 0, sourceFile, true)],
     environment: null,

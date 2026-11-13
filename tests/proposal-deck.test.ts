@@ -191,6 +191,60 @@ test("every portfolio product gets a licensing ladder and matrix, laid out clean
   assert.deepEqual(collisions, [], `overlapping text boxes:\n${collisions.join("\n")}`);
 });
 
+async function implementationSlideXml(doc: ProposalDoc): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-impl-"));
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try {
+    await exportProposalToPptx(doc, null, {}, {}, {});
+  } finally {
+    process.chdir(cwd);
+  }
+  const file = fs.readdirSync(dir).find((f) => f.endsWith(".pptx")) as string;
+  const zip = await JSZip.loadAsync(fs.readFileSync(path.join(dir, file)));
+  fs.rmSync(dir, { recursive: true, force: true });
+  for (const name of Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) {
+    const xml = await zip.file(name)!.async("string");
+    if (xml.includes("<a:t>Implementation Plan</a:t>")) return xml;
+  }
+  throw new Error("no Implementation Plan slide");
+}
+
+test("the implementation plan is blank by default but leaves editable boxes", async () => {
+  const doc = buildProposalDoc(buildSampleScenario("Imogen Hartwell"), "primary.json");
+  assert.deepEqual(doc.implementation, {
+    phases: Array.from({ length: 4 }, () => ({ title: "", subtitle: "", items: [] })),
+    note: "",
+  });
+
+  const xml = await implementationSlideXml(doc);
+  const texts = [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).filter((t) => t.trim());
+  // Only slide chrome and lane numbers: no assumed workstreams or footnote.
+  for (const t of texts) {
+    assert.ok(/^(DELIVERY|Implementation Plan|0[1-4]|\d+)$/.test(t) || t.startsWith("Nutanix Confidential"), `unexpected default text: "${t}"`);
+  }
+  // Per lane: number, title, subtitle, steps; plus the footnote box.
+  const shapes = xml.split("<p:sp>").length - 1;
+  const emptyBoxes = [...xml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)].filter((m) => m[0].includes("<p:txBody>") && !/<a:t>[^<]+<\/a:t>/.test(m[0])).length;
+  assert.ok(shapes > 0 && emptyBoxes >= 4 * 3 + 1, `expected editable empty boxes, found ${emptyBoxes}`);
+});
+
+test("an SE-written implementation plan is what the slide shows", async () => {
+  const doc = buildProposalDoc(buildSampleScenario("Imogen Hartwell"), "primary.json");
+  doc.implementation = {
+    phases: [
+      { title: "Cluster Deploy", subtitle: "Nutanix Professional Services", items: ["Foundation and Prism Central", "", "  Handover  "] },
+      { title: "Migration", subtitle: "", items: ["Nutanix Move, 120 VMs"] },
+    ],
+    note: "Pricing is in the services quote.",
+  };
+  const text = [...(await implementationSlideXml(doc)).matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("|");
+  for (const s of ["Cluster Deploy", "Nutanix Professional Services", "Foundation and Prism Central", "Handover", "Migration", "Nutanix Move, 120 VMs", "Pricing is in the services quote.", "01", "02"]) {
+    assert.ok(text.includes(s), `missing "${s}"`);
+  }
+  assert.ok(!text.includes("03"), "two workstreams should give two lanes");
+});
+
 test("each hardware option gets its own self-contained section", async () => {
   const doc = buildTwoOptionDoc();
   const slides = [...(await renderDeck(doc)).values()].map((frames) => frames.map((f) => f.text));

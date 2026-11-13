@@ -6,6 +6,7 @@ import {
   cpuSummary,
   formatPct,
   hardwareRollup,
+  implementationPlanOf,
   memorySummary,
   nodeCores,
   nodeRawStorageTB,
@@ -32,7 +33,7 @@ import { drivesPerNode, emptyDriveSlots, platformSpecFor } from "./hardware-imag
 import type { ProductKey } from "./nutanix-icons";
 import { allLicensingPages, licensingPagesFor, PRODUCT_LICENSING, type ProductLicensing } from "./product-editions";
 import type { Cell } from "./nci-editions";
-import { IMPLEMENTATION_ADDON_NOTE, IMPLEMENTATION_PLAN, SUPPORT_PROGRAMS } from "./nci-editions";
+import { blankImplementationPlan, SUPPORT_PROGRAMS } from "./nci-editions";
 
 // An image plus its intrinsic pixel dimensions, so the exporter can place it at
 // the correct aspect ratio (no stretching / squashing) regardless of the box.
@@ -1747,15 +1748,19 @@ export async function exportProposalToPptx(
   }
 
   // --- 6. Delivery -----------------------------------------------------------
-  addDivider(nextPart(), "Getting to production", "Deployment workstreams, enablement, and the prerequisites to confirm.");
+  addDivider(nextPart(), "Getting to production", "The implementation plan and the prerequisites to confirm.");
 
-  // Implementation plan: four workstreams as vertical lanes divided by rules.
+  // Implementation plan: one vertical lane per workstream, divided by rules.
+  // Fields the SE left blank are still placed as empty, styled text boxes, so
+  // the plan can be finished directly in PowerPoint.
   {
     const slide = newSlide();
-    addChrome(slide, "Delivery", "Implementation Plan", "How the platform gets deployed, migrated and handed over");
-    const n = IMPLEMENTATION_PLAN.length;
+    addChrome(slide, "Delivery", "Implementation Plan");
+    const plan = implementationPlanOf(doc);
+    const phases = plan.phases.length ? plan.phases : blankImplementationPlan().phases;
+    const n = phases.length;
     const colW = CONTENT_W / n;
-    IMPLEMENTATION_PLAN.forEach((phase, i) => {
+    phases.forEach((phase, i) => {
       const x = MARGIN + i * colW;
       if (i > 0) slide.addShape(SHAPE.line, { x, y: BODY_TOP, w: 0, h: BODY_H - 0.4, line: { color: NUTANIX.line, width: 0.75 } });
       const innerX = x + (i === 0 ? 0 : 0.28);
@@ -1797,8 +1802,9 @@ export async function exportProposalToPptx(
         lineSpacingMultiple: 1.15,
         valign: "top",
       });
+      const items = phase.items.map((s) => s.trim()).filter(Boolean);
       slide.addText(
-        phase.items.map((s) => ({
+        (items.length ? items : [""]).map((s) => ({
           text: s,
           options: {
             bullet: { code: "2022", indent: 12 },
@@ -1812,7 +1818,7 @@ export async function exportProposalToPptx(
         { x: innerX, y: BODY_TOP + 1.62, w: innerW, h: BODY_H - 2.0, valign: "top" },
       );
     });
-    slide.addText(IMPLEMENTATION_ADDON_NOTE, {
+    slide.addText(plan.note, {
       x: MARGIN,
       y: PAGE_H - 0.88,
       w: CONTENT_W,

@@ -1351,13 +1351,19 @@ function LicensingEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: Prop
       return d;
     });
 
-  // Add-on chips toggle a product line on/off.
+  // Add-on chips toggle a product line on/off. NCM is metered on the cores of
+  // the clusters it manages, so it starts at the base platform's core count;
+  // other add-ons are metered on units the SE has to size by hand.
   const toggleAddon = (product: LicenseProductKey) =>
     patch((d) => {
       const exists = d.licensing.lines.some((l) => l.product === product);
-      d.licensing.lines = exists
-        ? d.licensing.lines.filter((l) => l.product !== product)
-        : [...d.licensing.lines, newLicenseLine(product)];
+      if (exists) {
+        d.licensing.lines = d.licensing.lines.filter((l) => l.product !== product);
+        return d;
+      }
+      const base = d.licensing.lines.find((l) => isBasePlatform(l.product));
+      const qty = product === "CloudManager" ? (base?.qty ?? Math.round(d.scenario.totals.cores)) : 0;
+      d.licensing.lines = [...d.licensing.lines, newLicenseLine(product, { qty })];
       return d;
     });
 

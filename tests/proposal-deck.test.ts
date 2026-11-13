@@ -191,6 +191,60 @@ test("every portfolio product gets a licensing ladder and matrix, laid out clean
   assert.deepEqual(collisions, [], `overlapping text boxes:\n${collisions.join("\n")}`);
 });
 
+test("software-scope licenses, NCM included, land on every option's Bill of Materials", async () => {
+  const doc = buildTwoOptionDoc();
+  const runs = await renderDeckRuns(doc);
+  const [primary, alternate] = doc.hardwareOptions;
+  const recCores = Math.round(primary.scenario.totals.cores);
+  const altCores = Math.round(alternate.scenario.totals.cores);
+  const fmt = (n: number) => n.toLocaleString("en-US");
+
+  // One NCM and one NUS row per option's BOM.
+  assert.equal(runs.filter((t) => t === "SW-NCM-PRO").length, 2, "NCM row missing from a BOM");
+  assert.equal(runs.filter((t) => t === "SW-NUS-ULTIMATE").length, 2, "NUS row missing from a BOM");
+  // pptxgenjs writes table cells one run per word, so match on the joined text.
+  assert.ok(runs.join("").includes("Nutanix Cloud Manager Pro subscription, 3-year term (cores)"));
+
+  // The base platform comes from the software scope, once per option, and
+  // its per-core quantity follows each option's own hardware.
+  const base = doc.licensing.lines[0];
+  const baseCode = `SW-NCI-${base.tier.toUpperCase()}`;
+  assert.equal(runs.filter((t) => t === baseCode).length, 2, "base platform should appear once per BOM");
+  assert.ok(runs.includes(fmt(recCores)), "recommended option should license its own cores");
+  if (altCores !== recCores) assert.ok(runs.includes(fmt(altCores)), "alternate option should license its own cores");
+});
+
+test("an NCM line quantified to the cores follows each option, an unquantified one reads TBD", async () => {
+  const doc = buildProposalDoc(buildSampleScenario("Imogen Hartwell"), "primary.json");
+  const cores = Math.round(doc.scenario.totals.cores);
+  doc.licensing.lines.push(newLicenseLine("CloudManager", { tier: "Ultimate", qty: cores }));
+  doc.licensing.lines.push(newLicenseLine("Database", { qty: 0 }));
+  const runs = await renderDeckRuns(doc);
+  assert.ok(runs.includes("SW-NCM-ULTIMATE"));
+  assert.ok(runs.includes("SW-NDB-STANDARD"));
+  assert.ok(runs.includes("TBD"), "a scoped but unquantified license should read TBD, not 0");
+});
+
+test("NCI and NCM capability pages carry the full Portfolio 2 editions content", async () => {
+  const doc = buildTwoOptionDoc();
+  const text = (await renderDeckRuns(doc)).join("");
+  for (const feature of [
+    "Heterogeneous clusters",
+    "Cache deduplication",
+    "Cloud storage (Amazon EBS attach for NC2 on AWS)",
+    "Metro Availability",
+    "Credential Guard",
+    "App-centric local snapshots and restore",
+    "Overlay networking",
+    "Foundation Central",
+    "Self-tuning with Machine Learning",
+    "Regulatory Compliance",
+  ]) {
+    assert.ok(text.includes(feature), `capability matrix is missing "${feature}"`);
+  }
+  assert.ok(text.includes("Adv. Replication add-on"), "named add-on licenses should be printed");
+});
+
 // A small but complete environment, shaped the way parseSizerWorkbook returns
 // one, so the current-estate slides render against realistic data.
 function sampleEnvironment(): CurrentEnvironment {

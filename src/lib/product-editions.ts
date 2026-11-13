@@ -14,6 +14,7 @@ import type { Cell, EditionSection } from "@/lib/nci-editions";
 import {
   EDITION_IDEAL,
   EDITION_TAGLINE,
+  NCI_EDITION_FOOTNOTE,
   NCI_EDITION_MATRIX,
   NCI_EDITIONS_SOURCE,
   NCM_EDITION_IDEAL,
@@ -37,6 +38,8 @@ export type ProductLicensing = {
   ideal: Record<string, string>;
   sections: MatrixSection[];
   source: string;
+  // Printed under every capability page, for asterisks used in the cells.
+  footnote?: string;
 };
 
 // Fixed-shape Starter/Pro/Ultimate sections -> positional cells.
@@ -59,6 +62,7 @@ const NCI: ProductLicensing = {
   ideal: EDITION_IDEAL,
   sections: fromEditionSections(NCI_EDITION_MATRIX),
   source: SOURCE,
+  footnote: NCI_EDITION_FOOTNOTE,
 };
 
 const NCM: ProductLicensing = {

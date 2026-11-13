@@ -636,9 +636,12 @@ function syncToRecommended(doc: ProposalDoc): ProposalDoc {
   // Re-quantify the base platform against the new build. Editions and add-on
   // quantities are deliberate SE choices, so they are left alone; the base
   // per-core count is a direct function of the hardware and would otherwise go
-  // stale the moment the recommendation changes.
-  const base = doc.licensing.lines.find((l) => isBasePlatform(l.product));
-  if (base && base.qty === previousCores) base.qty = Math.round(rec.scenario.totals.cores);
+  // stale the moment the recommendation changes. NCM is metered on the same
+  // managed cores, so it follows along while it still matches the old count.
+  for (const line of doc.licensing.lines) {
+    if (!isBasePlatform(line.product) && line.product !== "CloudManager") continue;
+    if (line.qty === previousCores) line.qty = Math.round(rec.scenario.totals.cores);
+  }
   return doc;
 }
 

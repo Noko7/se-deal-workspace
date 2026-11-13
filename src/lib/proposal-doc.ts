@@ -1,6 +1,6 @@
 import type { NodeModel, ProposalCluster, ProposalScenario, SizerAddOnLicense } from "@/lib/sizer-import";
 import type { ParsedEnvironment } from "@/lib/simple-sizer-core";
-import { editionFromLicense, type EditionKey } from "@/lib/nci-editions";
+import { blankImplementationPlan, editionFromLicense, type EditionKey, type ImplementationPlan } from "@/lib/nci-editions";
 import { isBasePlatform, LICENSE_CATALOG, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import type { ProductKey } from "@/lib/nutanix-icons";
 
@@ -104,6 +104,8 @@ export type ProposalDoc = {
   currentState: string[];
   proposedState: string[];
   timeline: TimelineMilestone[];
+  // Blank until the SE writes it (see implementationPlanOf for older docs).
+  implementation?: ImplementationPlan;
   // Software scope: which products/editions the design includes and the quantity
   // to license. Scope only -- pricing lives in a separate quote.
   licensing: {
@@ -136,6 +138,11 @@ export function purchasedProducts(doc: ProposalDoc): ProductKey[] {
   const order: ProductKey[] = ["CloudInfrastructure", "CloudManager", "NUS", "Database", "NAI", "NKP", "Prism", "NC2"];
   const have = new Set(doc.licensing.lines.map((l) => l.product));
   return order.filter((p) => have.has(p));
+}
+
+/** The implementation plan, blank for a doc built before the plan was editable. */
+export function implementationPlanOf(doc: ProposalDoc): ImplementationPlan {
+  return doc.implementation ?? blankImplementationPlan();
 }
 
 /** The single base-platform license line (NCI or EUC), if present. */
@@ -505,6 +512,7 @@ export function buildProposalDoc(scenario: ProposalScenario, sourceFile: string 
     currentState: n.currentState,
     proposedState: n.proposedState,
     timeline: DEFAULT_TIMELINE.map((m) => ({ ...m })),
+    implementation: blankImplementationPlan(),
     licensing: {
       termYears: 3,
       lines: [newLicenseLine(baseProduct, { tier: baseTier, qty: Math.round(t.cores) }), ...sizerAddOnLines(scenario)],

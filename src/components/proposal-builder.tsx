@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Boxes, Check, ChevronDown, ClipboardCheck, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Boxes, Check, ChevronDown, ClipboardCheck, Download, FileDown, FileJson, FileSpreadsheet, FileText, HelpCircle, ImagePlus, Layers, ListChecks, Pencil, Plus, Receipt, RefreshCw, Server, ShieldCheck, Sparkles, Star, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
 import { EditableText } from "@/components/inline-edit";
 import { parseSizerScenario, type ProposalScenario } from "@/lib/sizer-import";
 import {
@@ -12,6 +12,7 @@ import {
   buildProposalDoc,
   configReviewOf,
   EXTERNAL_STORAGE_VENDORS,
+  implementationPlanOf,
   optionComparison,
   purchasedProducts,
   recommendedOption,
@@ -28,7 +29,7 @@ import { buildSampleAlternateScenario, buildSampleScenario, SAMPLE_PROPOSAL_LABE
 import { exportProposalToPptx, type ProposalBrandImages, type ImgAsset } from "@/lib/proposal-pptx";
 import { hardwareImageFor, hardwareRearImageFor } from "@/lib/hardware-images";
 import { getProductIcon } from "@/lib/nutanix-icons";
-import { type EditionKey } from "@/lib/nci-editions";
+import { blankImplementationPhase, IMPLEMENTATION_MAX_PHASES, type EditionKey, type ImplementationPlan } from "@/lib/nci-editions";
 import { BASE_PLATFORMS, hasBrandIcon, isBasePlatform, LICENSE_CATALOG, LICENSE_PRODUCT_ORDER, licenseBlurb, newLicenseLine, type LicenseLine, type LicenseProductKey } from "@/lib/license-catalog";
 import { ProposalBomPreview, ProposalConfigReview, ProposalTwoPager } from "@/components/proposal-preview";
 import { Button } from "@/components/ui";
@@ -639,6 +640,10 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
               </label>
             </div>
           </Section>
+
+          <Section title="Implementation plan" icon={<ListChecks className="h-4 w-4" />} defaultOpen>
+            <ImplementationPlanEditor doc={doc} patch={patch} />
+          </Section>
         </div>
 
         {/* Preview */}
@@ -889,6 +894,79 @@ function Field({ label, value, onChange, helper }: { label: string; value: strin
       <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full" />
       {helper ? <span className="block text-[11px] text-charcoal-400">{helper}</span> : null}
     </label>
+  );
+}
+
+// The deck's Implementation Plan slide: one lane per workstream. It starts
+// blank because delivery differs on every deal; anything left empty is still
+// placed on the slide as an empty text box to finish in PowerPoint.
+function ImplementationPlanEditor({ doc, patch }: { doc: ProposalDoc; patch: (u: (d: ProposalDoc) => ProposalDoc) => void }) {
+  const plan = implementationPlanOf(doc);
+  const edit = (mut: (p: ImplementationPlan) => void) =>
+    patch((d) => {
+      const next = structuredCloneSafe(implementationPlanOf(d));
+      mut(next);
+      d.implementation = next;
+      return d;
+    });
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] leading-relaxed text-charcoal-500">
+        Blank by default. Each workstream is a column on the slide; empty fields stay as editable text boxes in the .pptx.
+      </p>
+      {plan.phases.map((phase, i) => (
+        <div key={i} className="space-y-1.5 rounded-xl border border-charcoal-200 bg-white p-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 shrink-0 items-center rounded bg-charcoal-200 px-1.5 text-[10px] font-extrabold text-charcoal-700">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <input
+              value={phase.title}
+              onChange={(e) => edit((p) => (p.phases[i].title = e.target.value))}
+              placeholder="Workstream title"
+              aria-label={`Workstream ${i + 1} title`}
+              className="min-w-0 flex-1 text-xs font-semibold"
+            />
+            {plan.phases.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => edit((p) => p.phases.splice(i, 1))}
+                className={`rounded bg-transparent text-charcoal-400 hover:text-rose-600 ${TACTILE}`}
+                aria-label={`Remove workstream ${i + 1}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          <input
+            value={phase.subtitle}
+            onChange={(e) => edit((p) => (p.phases[i].subtitle = e.target.value))}
+            placeholder="Subtitle (optional)"
+            aria-label={`Workstream ${i + 1} subtitle`}
+            className="w-full text-xs"
+          />
+          <textarea
+            value={phase.items.join("\n")}
+            onChange={(e) => edit((p) => (p.phases[i].items = e.target.value.split("\n")))}
+            placeholder="Steps, one per line"
+            aria-label={`Workstream ${i + 1} steps`}
+            rows={3}
+            className="w-full resize-y text-xs"
+          />
+        </div>
+      ))}
+      {plan.phases.length < IMPLEMENTATION_MAX_PHASES ? (
+        <button
+          type="button"
+          onClick={() => edit((p) => p.phases.push(blankImplementationPhase()))}
+          className={`flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-charcoal-300 bg-white px-3 py-2 text-xs font-semibold text-charcoal-600 hover:-translate-y-px hover:border-iris-400 hover:bg-iris-50/50 hover:text-iris-700 ${TACTILE}`}
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={2} /> Add workstream
+        </button>
+      ) : null}
+      <Field label="Footnote (optional)" value={plan.note} onChange={(v) => edit((p) => (p.note = v))} />
+    </div>
   );
 }
 

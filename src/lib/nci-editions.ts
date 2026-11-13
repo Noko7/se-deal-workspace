@@ -194,51 +194,21 @@ export const NCM_EDITION_MATRIX: EditionSection[] = [
   },
 ];
 
-// Implementation plan (Portfolio 2 delivery model). Mirrors the Furman-style
-// "Implementation Plan" slide: the delivery is grouped into the workstreams
-// below. Commercial detail (session counts, pricing) lives in the quote.
+// Implementation plan: workstreams laid out as lanes on the "Implementation
+// Plan" slide. Delivery differs on every deal, so the plan starts blank and the
+// SE fills it in; nothing here assumes a scope.
 export type ImplementationPhase = { title: string; subtitle: string; items: string[] };
-export const IMPLEMENTATION_PLAN: ImplementationPhase[] = [
-  {
-    title: "Migration",
-    subtitle: "Data migration & Day 1",
-    items: [
-      "Discovery and migration planning workshop",
-      "Nutanix Move for VM migration from ESXi / Hyper-V",
-      "Cutover runbook, validation, and Day-1 operational handoff",
-    ],
-  },
-  {
-    title: "Deployment",
-    subtitle: "Professional Services (virtual)",
-    items: [
-      "Foundation imaging and cluster creation",
-      "Prism Central deployment and registration",
-      "Network, storage, and data services configuration",
-    ],
-  },
-  {
-    title: "Rack & Cluster Deploy",
-    subtitle: "Rack & stack",
-    items: [
-      "Physical rack & stack of nodes and switches",
-      "Cabling, power, and out-of-band (IPMI) setup",
-      "Cluster bring-up and health validation",
-    ],
-  },
-  {
-    title: "Education & Enablement",
-    subtitle: "Administrator enablement",
-    items: [
-      "Administrator enablement on Prism and AHV",
-      "Operational runbook and best-practice review",
-      "Nutanix University learning paths and certification",
-    ],
-  },
-];
+export type ImplementationPlan = { phases: ImplementationPhase[]; note: string };
 
-export const IMPLEMENTATION_ADDON_NOTE =
-  "Add-on implementation services (for example a DR deployment session) are available and detailed in the quote.";
+export const IMPLEMENTATION_MAX_PHASES = 6;
+
+export function blankImplementationPhase(): ImplementationPhase {
+  return { title: "", subtitle: "", items: [] };
+}
+
+export function blankImplementationPlan(phases = 4): ImplementationPlan {
+  return { phases: Array.from({ length: phases }, blankImplementationPhase), note: "" };
+}
 
 // Support programs (Portfolio 2) — used for the support slide.
 export type SupportProgram = { name: string; ideal: string; rows: { label: string; value: string }[] };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { EditableText, EditableList } from "@/components/inline-edit";
 import { cssHex, NUTANIX } from "@/lib/nutanix-brand";
 import { drivesPerNode, emptyDriveSlots, hardwareImageFor, hardwareRearImageFor, platformSpecFor } from "@/lib/hardware-images";
@@ -80,23 +80,43 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Smallest scale a page's content may be shrunk to so it fits the letterhead.
+const MIN_FIT = 0.8;
+
 // A single letterhead-styled page: white sheet with the official letterhead
 // overlay (angled NUTANIX tab + purple footer rule) and a Nutanix footer line.
-// Watches its own content: if edits push text past the printable area, a
-// warning badge appears in the preview (hidden on the print surface) instead of
-// the overflow silently clipping in the exported PDF.
+// Content that runs long is shrunk in small steps (down to MIN_FIT) until it
+// fits between the letterhead's top tab and footer rule. The zoom is written
+// to the DOM, so the exported PDF, rendered from this markup, matches. If even
+// MIN_FIT doesn't fit, a warning badge appears in the preview (hidden on the
+// print surface) instead of the overflow silently clipping in the PDF.
 function Page({ children, pageNo, customer }: { children: React.ReactNode; pageNo: number; customer: string }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
   const [overflowPx, setOverflowPx] = useState(0);
+
+  useLayoutEffect(() => {
+    const box = contentRef.current;
+    const fit = fitRef.current;
+    if (!box || !fit) return;
+    let zoom = 1;
+    fit.style.zoom = "1";
+    while (box.scrollHeight > box.clientHeight && zoom > MIN_FIT) {
+      zoom = Math.max(MIN_FIT, zoom - 0.025);
+      fit.style.zoom = String(zoom);
+    }
+    if (zoom === 1) fit.style.removeProperty("zoom");
+  });
 
   useEffect(() => {
     const el = contentRef.current;
-    if (!el) return;
+    const fit = fitRef.current;
+    if (!el || !fit) return;
     const check = () => setOverflowPx(Math.max(0, el.scrollHeight - el.clientHeight));
     check();
     const ro = new ResizeObserver(check);
     ro.observe(el);
-    for (const child of Array.from(el.children)) ro.observe(child);
+    for (const child of Array.from(fit.children)) ro.observe(child);
     return () => ro.disconnect();
   });
 
@@ -104,7 +124,10 @@ function Page({ children, pageNo, customer }: { children: React.ReactNode; pageN
     <div className="proposal-page relative bg-white text-charcoal-900" style={{ width: PAGE_W, height: PAGE_H, ...FONT }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/letterhead-overlay.png" alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
-      <div ref={contentRef} className="relative flex h-full flex-col overflow-hidden px-16 pb-24 pt-28">{children}</div>
+      {/* Insets clear the letterhead's top tab and the purple footer rule. */}
+      <div ref={contentRef} className="relative h-full overflow-hidden px-16 pb-36 pt-28">
+        <div ref={fitRef}>{children}</div>
+      </div>
       {overflowPx > 4 ? (
         <div className="proposal-overflow-badge absolute inset-x-16 bottom-16 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-semibold text-amber-800 shadow-sm">
           Content overflows page {pageNo} by ~{Math.round(overflowPx)}px and will be cut off in the PDF. Trim the text above.
@@ -665,7 +688,7 @@ export function ProposalConfigReview({
           {list(r.exclusions, (lines) => setReview((rv) => (rv.exclusions = lines)), "Click to add exclusions, one per line")}
         </section>
 
-        <p className="mt-auto text-[9px] text-charcoal-400">
+        <p className="mt-4 text-[9px] text-charcoal-400">
           Sizing reference: Nutanix Sizer scenario {sizerRef}
           {s.meta.createdDate ? `, created ${s.meta.createdDate}` : ""}
           {s.meta.sizerVersion ? `, Sizer build ${s.meta.sizerVersion}` : ""}.

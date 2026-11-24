@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash, X509Certificate } from "node:crypto";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -28,11 +29,17 @@ export async function pdfRendererAvailable(): Promise<boolean> {
  * and fonts but cannot reach anything else. Block scripts with a CSP <meta> in
  * the document: `--blink-settings=scriptEnabled=false` makes print-to-pdf
  * silently write nothing.
+ *
+ * `trustCertFile` pins one certificate (by public key) that Chrome accepts even
+ * though it doesn't chain to a public CA or name 127.0.0.1 -- the app's own TLS
+ * certificate. Without it every stylesheet and image request fails the TLS
+ * handshake and the PDF prints as unstyled HTML.
  */
-export async function renderHtmlToPdf(html: string, allowHosts: string[]): Promise<Buffer> {
+export async function renderHtmlToPdf(html: string, allowHosts: string[], trustCertFile?: string): Promise<Buffer> {
   if (!(await pdfRendererAvailable())) {
     throw new PdfRendererUnavailableError(`PDF renderer not installed at ${CHROME}. Run scripts/setup-pdf-chrome.sh.`);
   }
+  const trustFlags = trustCertFile ? [`--ignore-certificate-errors-spki-list=${await spkiHash(trustCertFile)}`] : [];
   const dir = await mkdtemp(path.join(tmpdir(), "proposal-pdf-"));
   try {
     const htmlPath = path.join(dir, "doc.html");
@@ -51,6 +58,7 @@ export async function renderHtmlToPdf(html: string, allowHosts: string[]): Promi
           "--mute-audio",
           `--user-data-dir=${path.join(dir, "profile")}`,
           `--host-resolver-rules=${hostRules}`,
+          ...trustFlags,
           "--run-all-compositor-stages-before-draw",
           // Virtual time only advances once pending loads (CSS, fonts, images) settle.
           "--virtual-time-budget=15000",
@@ -67,4 +75,12 @@ export async function renderHtmlToPdf(html: string, allowHosts: string[]): Promi
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+// Base64 SHA-256 of the certificate's SubjectPublicKeyInfo, the form Chrome's
+// --ignore-certificate-errors-spki-list expects.
+async function spkiHash(certFile: string): Promise<string> {
+  const cert = new X509Certificate(await readFile(certFile));
+  const spki = cert.publicKey.export({ type: "spki", format: "der" });
+  return createHash("sha256").update(spki).digest("base64");
 }

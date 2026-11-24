@@ -470,7 +470,6 @@ export function ProposalBuilder({ defaultSe }: { defaultSe: string }) {
                       title: swap(rv.title),
                       purpose: swap(rv.purpose),
                       assumptions: rv.assumptions.map(swap),
-                      confirmation: swap(rv.confirmation),
                     };
                   }
                   d.meta.customer = v;

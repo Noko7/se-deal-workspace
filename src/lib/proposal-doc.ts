@@ -113,9 +113,9 @@ export type ProposalDoc = {
     lines: LicenseLine[];
   };
   scenario: ProposalScenario;
-  // The Configuration Review: a plain record of the design as reviewed and
-  // confirmed with the customer, with no sales narrative. Optional so a doc
-  // built before it existed still renders (see configReviewOf).
+  // The Configuration Review: a plain record of the preliminary build being
+  // proposed, with no sales narrative. Optional so a doc built before it
+  // existed still renders (see configReviewOf).
   review?: ConfigReview;
 };
 
@@ -123,14 +123,11 @@ export type ConfigReview = {
   title: string;
   purpose: string;
   reviewDate: string;
-  customerAttendees: string[];
-  nutanixAttendees: string[];
-  // Sizing results the customer is acknowledging (over-committed tiers, no N-1
-  // headroom). Seeded from the scenario; the SE can edit or clear them.
+  // Sizing results worth calling out (over-committed tiers, no N-1 headroom).
+  // Seeded from the scenario; the SE can edit or clear them.
   notes: string[];
   assumptions: string[];
   exclusions: string[];
-  confirmation: string;
 };
 
 /** Products the design includes that have a brand icon, deduped, stable order. */
@@ -557,30 +554,25 @@ export function buildConfigReview(doc: ProposalDoc): ConfigReview {
       : "the workload profile";
   const hasFailover = s.clusters.some((c) => c.failover.nMinus1 != null);
   return {
-    title: `Configuration Review: ${customer}`,
+    title: `Proposed Configuration: ${customer}`,
     purpose:
-      `This document records the Nutanix configuration reviewed with ${customer} on ${doc.meta.dateLabel}. ` +
-      "It captures the hardware and software in scope, the capacity the design provides, and the sizing inputs and assumptions it is based on, as discussed and confirmed on that call.",
+      `This is the preliminary Nutanix build proposed for ${customer}: the hardware and software in scope, ` +
+      "the capacity the design provides, and the sizing inputs and assumptions behind it. Final quantities are confirmed before order.",
     reviewDate: doc.meta.dateLabel,
-    customerAttendees: [],
-    nutanixAttendees: [doc.meta.preparedBy].filter(Boolean),
     notes,
     assumptions: [
       `Sized in Nutanix Sizer from ${workload} provided by ${customer}${s.meta.createdDate ? ` (scenario dated ${s.meta.createdDate})` : ""}.`,
       "Usable capacity is after Nutanix data-resiliency overhead, as calculated by Nutanix Sizer.",
-      "Utilization figures reflect the reviewed workload at the time of sizing.",
+      "Utilization figures reflect the sized workload.",
       ...(hasFailover ? ["Resiliency (N-1) shows cluster load with one node offline for a failure or planned maintenance."] : []),
-      "No additional growth is included beyond the workload reviewed, unless listed here.",
+      "No additional growth is included beyond the sized workload, unless listed here.",
     ],
     exclusions: [
-      "Workloads, applications or data not included in the reviewed sizing inputs.",
-      "Growth, new projects, or changes to data protection, retention or replication after this review.",
+      "Workloads, applications or data not included in the sizing inputs.",
+      "Growth, new projects, or changes to data protection, retention or replication.",
       "Site readiness: rack space, power, cooling, and network switching and cabling.",
       "Third-party software and licensing, including guest operating systems and applications.",
     ],
-    confirmation:
-      `Please review the configuration above${notes.length ? ", including the items noted on review," : ""} and reply to confirm it matches ${customer}'s requirements, or let us know of any changes before the order is placed. ` +
-      "Any changes to the workload or requirements after confirmation may require the design to be re-sized.",
   };
 }
 

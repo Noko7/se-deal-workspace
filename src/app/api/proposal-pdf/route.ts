@@ -45,9 +45,11 @@ export async function POST(request: Request) {
     .filter((s): s is string => typeof s === "string" && /^\/_next\/static\/(?!.*\.\.)[\w\-.~/]+\.css$/.test(s))
     .slice(0, 50);
 
-  // Chrome loads the app's own CSS and images back from this server.
+  // Chrome loads the app's own CSS and images back from this server, over TLS
+  // when the server is serving it (plain HTTP there is only a redirect).
   const port = process.env.PORT || "3000";
-  const origin = `http://127.0.0.1:${port}/`;
+  const tlsCert = process.env.TLS_CERT_FILE || undefined;
+  const origin = `${tlsCert ? "https" : "http"}://127.0.0.1:${port}/`;
   const doc = `<!doctype html>
 <html lang="en">
 <head>
@@ -62,7 +64,7 @@ ${stylesheets.map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`
 </html>`;
 
   try {
-    const pdf = await renderHtmlToPdf(doc, ["127.0.0.1", ...FONT_HOSTS]);
+    const pdf = await renderHtmlToPdf(doc, ["127.0.0.1", ...FONT_HOSTS], tlsCert);
     const filename = safeFilename(title);
     return new Response(new Uint8Array(pdf), {
       headers: {

@@ -429,19 +429,10 @@ function Pct({ value }: { value: number | null }) {
   return <span className={value != null && value > 100 ? "font-bold text-rose-700" : undefined}>{pctOrDash(value)}</span>;
 }
 
-function SignatureLine({ label, value }: { label: string; value?: string }) {
-  return (
-    <div className="flex items-end gap-2">
-      <span className="w-16 shrink-0 text-[10px] font-semibold text-charcoal-500">{label}</span>
-      <span className="min-h-[18px] flex-1 border-b border-charcoal-300 pb-0.5 text-[11px] text-charcoal-800">{value}</span>
-    </div>
-  );
-}
-
 /**
- * The Configuration Review: a plain, customer-facing record of the design as
- * reviewed and confirmed on a call (configuration, capacity, sizing basis,
- * exclusions, sign-off), with none of the 2-pager's sales narrative.
+ * The Configuration Review: a plain, customer-facing summary of the preliminary
+ * build being proposed (configuration, capacity, sizing basis, exclusions),
+ * with none of the 2-pager's sales narrative.
  */
 export function ProposalConfigReview({
   doc,
@@ -493,7 +484,7 @@ export function ProposalConfigReview({
       <Page pageNo={1} customer={doc.meta.customer}>
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>CONFIGURATION REVIEW</p>
+            <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>PRELIMINARY BUILD</p>
             {canEdit ? (
               <div className="mt-0.5 text-[22px] font-extrabold leading-tight text-charcoal-900">
                 <EditableText value={r.title} fontStyle={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }} onCommit={(v) => setReview((rv) => (rv.title = v))} />
@@ -502,7 +493,6 @@ export function ProposalConfigReview({
               <h1 className="mt-0.5 text-[22px] font-extrabold leading-tight text-charcoal-900">{r.title}</h1>
             )}
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-charcoal-500">
-              <span>Reviewed</span>
               {canEdit ? (
                 <EditableText inline value={r.reviewDate} fontStyle={{ fontSize: 11 }} onCommit={(v) => setReview((rv) => (rv.reviewDate = v))} />
               ) : (
@@ -527,19 +517,8 @@ export function ProposalConfigReview({
           )}
         </section>
 
-        <section className="mb-3 grid grid-cols-2 gap-4 rounded-lg border border-charcoal-200 bg-charcoal-50 p-3">
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-charcoal-500">{doc.meta.customer} attendees</p>
-            {list(r.customerAttendees, (lines) => setReview((rv) => (rv.customerAttendees = lines)), "Click to add names and titles, one per line")}
-          </div>
-          <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-charcoal-500">Nutanix attendees</p>
-            {list(r.nutanixAttendees, (lines) => setReview((rv) => (rv.nutanixAttendees = lines)), "Click to add names and titles, one per line")}
-          </div>
-        </section>
-
         <section className="mb-4">
-          <SectionTitle>Reviewed Configuration</SectionTitle>
+          <SectionTitle>Proposed Configuration</SectionTitle>
           <table className="w-full border-collapse text-[10px]">
             <thead>
               <tr style={{ background: PURPLE }} className="text-white">
@@ -604,7 +583,7 @@ export function ProposalConfigReview({
             </tbody>
           </table>
           <p className="mt-1 text-[9px] text-charcoal-400">
-            Utilization is the reviewed workload as a share of each cluster&apos;s capacity, as calculated by Nutanix Sizer.
+            Utilization is the sized workload as a share of each cluster&apos;s capacity, as calculated by Nutanix Sizer.
             {showN1 ? " N-1 is the load with one node offline." : ""}
           </p>
           {doc.options?.externalStorage ? (
@@ -670,12 +649,9 @@ export function ProposalConfigReview({
       <Page pageNo={2} customer={doc.meta.customer}>
         {r.notes.length || canEdit ? (
           <section className="mb-5">
-            <SectionTitle>Items Noted on Review</SectionTitle>
+            <SectionTitle>Sizing Notes</SectionTitle>
             <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-              <p className="mb-1.5 text-[10.5px] text-charcoal-600">
-                The following sizing results were reviewed and discussed. {doc.meta.customer} has chosen to proceed with the configuration as shown.
-              </p>
-              {list(r.notes, (lines) => setReview((rv) => (rv.notes = lines)), "None. Click to add anything discussed and accepted, one per line")}
+              {list(r.notes, (lines) => setReview((rv) => (rv.notes = lines)), "None. Click to add sizing notes, one per line")}
             </div>
           </section>
         ) : null}
@@ -690,35 +666,7 @@ export function ProposalConfigReview({
           {list(r.exclusions, (lines) => setReview((rv) => (rv.exclusions = lines)), "Click to add exclusions, one per line")}
         </section>
 
-        <section className="mb-5">
-          <SectionTitle>Confirmation</SectionTitle>
-          {canEdit ? (
-            <div className="text-[11.5px] leading-relaxed text-charcoal-700">
-              <EditableText multiline value={r.confirmation} fontStyle={{ fontSize: 11.5, lineHeight: 1.6 }} onCommit={(v) => setReview((rv) => (rv.confirmation = v))} />
-            </div>
-          ) : (
-            <p className="text-[11.5px] leading-relaxed text-charcoal-700">{r.confirmation}</p>
-          )}
-        </section>
-
-        <section className="grid grid-cols-2 gap-8 rounded-lg border border-charcoal-200 p-4">
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Confirmed for {doc.meta.customer}</p>
-            <SignatureLine label="Name" />
-            <SignatureLine label="Title" />
-            <SignatureLine label="Signature" />
-            <SignatureLine label="Date" />
-          </div>
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: PURPLE }}>Prepared by Nutanix</p>
-            <SignatureLine label="Name" value={doc.meta.preparedBy} />
-            <SignatureLine label="Title" value={doc.contacts[0]?.title || "Systems Engineer"} />
-            <SignatureLine label="Email" value={doc.contacts[0]?.email || undefined} />
-            <SignatureLine label="Date" value={r.reviewDate} />
-          </div>
-        </section>
-
-        <p className="mt-4 text-[9px] text-charcoal-400">
+        <p className="mt-auto text-[9px] text-charcoal-400">
           Sizing reference: Nutanix Sizer scenario {sizerRef}
           {s.meta.createdDate ? `, created ${s.meta.createdDate}` : ""}
           {s.meta.sizerVersion ? `, Sizer build ${s.meta.sizerVersion}` : ""}.

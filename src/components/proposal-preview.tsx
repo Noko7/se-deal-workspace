@@ -484,9 +484,8 @@ export function ProposalConfigReview({
       <Page pageNo={1} customer={doc.meta.customer}>
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold tracking-[0.18em]" style={{ color: PURPLE }}>PRELIMINARY BUILD</p>
             {canEdit ? (
-              <div className="mt-0.5 text-[22px] font-extrabold leading-tight text-charcoal-900">
+              <div className="text-[22px] font-extrabold leading-tight text-charcoal-900">
                 <EditableText value={r.title} fontStyle={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }} onCommit={(v) => setReview((rv) => (rv.title = v))} />
               </div>
             ) : (
